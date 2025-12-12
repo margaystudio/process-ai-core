@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from dataclasses import field
 from typing import List, Optional, Literal, Dict
 
 RawKind = Literal["audio", "video", "image", "text"]
@@ -38,6 +39,24 @@ class Step:
     output: str
     risks: str
 
+@dataclass
+class TranscriptSegment:
+    start_s: float
+    end_s: float
+    text: str
+
+
+@dataclass
+class StepPlan:
+    order: int
+    start_s: float
+    end_s: float
+    summary: str
+    importance: str  # "high" | "medium" | "low"
+    candidate_frames: List[str]
+    selected_frame: Optional[str] = None
+    selected_title: Optional[str] = None
+
 
 @dataclass
 class ProcessDocument:
@@ -64,4 +83,5 @@ class ProcessDocument:
     problemas: str
     oportunidades: str
     preguntas_abiertas: str
-    videos: List[VideoRef]
+    material_referencia: str
+    videos: List[VideoRef] = field(default_factory=list)

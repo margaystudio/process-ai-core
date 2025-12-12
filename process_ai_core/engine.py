@@ -1,7 +1,28 @@
 import json
-from typing import List
+from typing import List, Dict
 
 from .models import EnrichedAsset, ProcessDocument, Step, VideoRef
+
+
+def _assets_summary(enriched_assets: List[EnrichedAsset]) -> str:
+    """
+    Resumen explícito de activos disponibles (ancla anti-alucinaciones).
+    """
+    buckets: Dict[str, List[str]] = {"audio": [], "video": [], "image": [], "text": []}
+    for a in enriched_assets:
+        buckets.setdefault(a.kind, []).append(a.id)
+
+    lines: List[str] = []
+    lines.append("=== ACTIVOS DISPONIBLES (FUENTE DE VERDAD) ===")
+    lines.append(f"- audio: {len(buckets.get('audio', []))} ({', '.join(buckets.get('audio', [])) or 'ninguno'})")
+    lines.append(f"- video: {len(buckets.get('video', []))} ({', '.join(buckets.get('video', [])) or 'ninguno'})")
+    lines.append(f"- image: {len(buckets.get('image', []))} ({', '.join(buckets.get('image', [])) or 'ninguna'})")
+    lines.append(f"- text : {len(buckets.get('text', []))} ({', '.join(buckets.get('text', [])) or 'ninguno'})")
+    lines.append(
+        "Regla: solo podés referenciar activos listados arriba. "
+        "Si un tipo está en cero, NO lo inventes.\n"
+    )
+    return "\n".join(lines)
 
 
 def build_prompt_from_enriched(process_name: str, enriched_assets: List[EnrichedAsset]) -> str:
@@ -9,17 +30,92 @@ def build_prompt_from_enriched(process_name: str, enriched_assets: List[Enriched
     Construye un prompt grande con todos los textos enriquecidos,
     para pedirle al modelo que genere el JSON del documento de proceso.
     """
-    parts: List[str] = []
-    parts.append(f"Proceso: {process_name}")
-    parts.append("")
+    audios = [a for a in enriched_assets if a.kind == "audio"]
+    textos = [a for a in enriched_assets if a.kind == "text"]
+    imagenes = [a for a in enriched_assets if a.kind == "image"]
+    videos = [a for a in enriched_assets if a.kind == "video"]
 
-    for asset in enriched_assets:
-        header = f"[{asset.kind.upper()} {asset.id}]"
-        meta = ", ".join(f"{k}={v}" for k, v in asset.metadata.items())
-        if meta:
-            header += f" ({meta})"
-        parts.append(header)
-        parts.append(asset.extracted_text)
+    # 🔍 DEBUG / VISIBILIDAD
+    print("📦 Activos detectados:")
+    print(f"  - audio: {len(audios)} ({', '.join(a.id for a in audios) or 'ninguno'})")
+    print(f"  - video: {len(videos)} ({', '.join(a.id for a in videos) or 'ninguno'})")
+    print(f"  - image: {len(imagenes)} ({', '.join(a.id for a in imagenes) or 'ninguna'})")
+    print(f"  - text : {len(textos)} ({', '.join(a.id for a in textos) or 'ninguno'})")
+    print("-" * 60)
+
+    parts: List[str] = []
+    parts.append(f"Proceso: {process_name}\n")
+
+    # 🔒 Ancla anti-alucinaciones
+    parts.append(_assets_summary(enriched_assets))
+
+    # --- AUDIO (fuente oral) ---
+    if audios:
+        parts.append("=== TRANSCRIPCION (FUENTE ORAL) ===")
+        for asset in audios:
+            header = f"[AUDIO {asset.id}]"
+            meta = ", ".join(f"{k}={v}" for k, v in asset.metadata.items())
+            if meta:
+                header += f" ({meta})"
+            parts.append(header)
+            parts.append(asset.extracted_text)
+            parts.append("")
+        parts.append("")
+
+    # --- TEXTO (notas/instrucciones) ---
+    if textos:
+        parts.append("=== NOTAS / INSTRUCCIONES ESCRITAS ===")
+        for asset in textos:
+            header = f"[TEXT {asset.id}]"
+            meta = ", ".join(f"{k}={v}" for k, v in asset.metadata.items())
+            if meta:
+                header += f" ({meta})"
+            parts.append(header)
+            parts.append(asset.extracted_text)
+            parts.append("")
+        parts.append("")
+
+    # --- IMÁGENES (bloque explícito) ---
+    if imagenes:
+        parts.append("=== IMAGENES DISPONIBLES (USO OBLIGATORIO SI EXISTEN) ===")
+        parts.append(
+            "Reglas:\n"
+            "- Si se proveen imagenes, debes usarlas en el documento.\n"
+            "- En la tabla de pasos NO insertes imagenes (para no romper la tabla).\n"
+            "- En los pasos, referencialas como '(ver Imagen N)' donde aplique.\n"
+            "- En el campo JSON 'material_referencia', incluye TODAS las imagenes en Markdown asi:\n"
+            "  Imagen N: ![titulo](assets/archivo.png)\n"
+            "- Si dudas donde va una imagen, igual incluila en 'material_referencia' y marca 'Ubicacion a validar'.\n"
+        )
+        parts.append("")
+
+        for idx, asset in enumerate(imagenes, start=1):
+            titulo = asset.metadata.get("titulo") or asset.metadata.get("title") or f"Imagen {idx}"
+            parts.append(f"Imagen {idx}: id={asset.id} titulo={titulo}")
+            parts.append(f"Referencia: {asset.extracted_text}")
+            parts.append("")
+        parts.append("")
+
+    # --- VIDEO ---
+    if videos:
+        parts.append("=== VIDEOS DISPONIBLES (REFERENCIA) ===")
+        parts.append(
+            "Reglas:\n"
+            "- Si se proveen videos, debes agregarlos en el campo JSON 'videos'.\n"
+            "- Si hay URL en metadata, usala como 'url'.\n"
+            "- En los pasos, referenciá '(ver Video 1)' cuando el video ilustre ese paso.\n"
+            "- No insertes el video dentro de la tabla: solo referencias.\n"
+        )
+        parts.append("")
+
+        for asset in videos:
+            header = f"[VIDEO {asset.id}]"
+            meta = ", ".join(f"{k}={v}" for k, v in asset.metadata.items())
+            if meta:
+                header += f" ({meta})"
+            parts.append(header)
+            parts.append(asset.extracted_text)
+            parts.append("")
         parts.append("")
 
     return "\n".join(parts)
@@ -47,7 +143,7 @@ def parse_process_document(json_str: str) -> ProcessDocument:
             duration=v.get("duration"),
             description=v.get("description"),
         )
-        for v in data.get("videos", [])
+        for v in data.get("videos", [])  # ok si no viene
     ]
 
     return ProcessDocument(
@@ -74,6 +170,7 @@ def parse_process_document(json_str: str) -> ProcessDocument:
         problemas=data["problemas"],
         oportunidades=data["oportunidades"],
         preguntas_abiertas=data["preguntas_abiertas"],
+        material_referencia=data.get("material_referencia", ""),
         videos=videos,
     )
 
@@ -131,8 +228,16 @@ def render_markdown(doc: ProcessDocument) -> str:
     lines.append("## 10. Preguntas abiertas / pendientes\n")
     lines.append(doc.preguntas_abiertas + "\n\n")
 
+    # Numeración dinámica para secciones opcionales
+    section_n = 11
+
+    if doc.material_referencia.strip():
+        lines.append(f"## {section_n}. Material de referencia\n")
+        lines.append(doc.material_referencia.strip() + "\n\n")
+        section_n += 1
+
     if doc.videos:
-        lines.append("## 11. Material de referencia (videos)\n")
+        lines.append(f"## {section_n}. Material de referencia (videos)\n")
         for v in doc.videos:
             lines.append(f"- **{v.title}** ({v.duration or 'duración no especificada'})\n")
             if v.url:
