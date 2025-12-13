@@ -1,8 +1,12 @@
 import json
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 from .models import EnrichedAsset, ProcessDocument, Step, VideoRef
 
+
+# ============================================================
+# Prompt builder
+# ============================================================
 
 def _assets_summary(enriched_assets: List[EnrichedAsset]) -> str:
     """
@@ -14,10 +18,22 @@ def _assets_summary(enriched_assets: List[EnrichedAsset]) -> str:
 
     lines: List[str] = []
     lines.append("=== ACTIVOS DISPONIBLES (FUENTE DE VERDAD) ===")
-    lines.append(f"- audio: {len(buckets.get('audio', []))} ({', '.join(buckets.get('audio', [])) or 'ninguno'})")
-    lines.append(f"- video: {len(buckets.get('video', []))} ({', '.join(buckets.get('video', [])) or 'ninguno'})")
-    lines.append(f"- image: {len(buckets.get('image', []))} ({', '.join(buckets.get('image', [])) or 'ninguna'})")
-    lines.append(f"- text : {len(buckets.get('text', []))} ({', '.join(buckets.get('text', [])) or 'ninguno'})")
+    lines.append(
+        f"- audio: {len(buckets.get('audio', []))} "
+        f"({', '.join(buckets.get('audio', [])) or 'ninguno'})"
+    )
+    lines.append(
+        f"- video: {len(buckets.get('video', []))} "
+        f"({', '.join(buckets.get('video', [])) or 'ninguno'})"
+    )
+    lines.append(
+        f"- image: {len(buckets.get('image', []))} "
+        f"({', '.join(buckets.get('image', [])) or 'ninguna'})"
+    )
+    lines.append(
+        f"- text : {len(buckets.get('text', []))} "
+        f"({', '.join(buckets.get('text', [])) or 'ninguno'})"
+    )
     lines.append(
         "Regla: solo podés referenciar activos listados arriba. "
         "Si un tipo está en cero, NO lo inventes.\n"
@@ -75,17 +91,14 @@ def build_prompt_from_enriched(process_name: str, enriched_assets: List[Enriched
             parts.append("")
         parts.append("")
 
-    # --- IMÁGENES (bloque explícito) ---
+    # --- IMÁGENES (solo contexto; NO pedimos al modelo que renderice markdown) ---
     if imagenes:
-        parts.append("=== IMAGENES DISPONIBLES (USO OBLIGATORIO SI EXISTEN) ===")
+        parts.append("=== IMAGENES DISPONIBLES (REFERENCIA) ===")
         parts.append(
             "Reglas:\n"
-            "- Si se proveen imagenes, debes usarlas en el documento.\n"
-            "- En la tabla de pasos NO insertes imagenes (para no romper la tabla).\n"
+            "- Si se proveen imagenes, debés usarlas como evidencia del proceso.\n"
             "- En los pasos, referencialas como '(ver Imagen N)' donde aplique.\n"
-            "- En el campo JSON 'material_referencia', incluye TODAS las imagenes en Markdown asi:\n"
-            "  Imagen N: ![titulo](assets/archivo.png)\n"
-            "- Si dudas donde va una imagen, igual incluila en 'material_referencia' y marca 'Ubicacion a validar'.\n"
+            "- No generes Markdown de imágenes en la respuesta: el sistema insertará capturas automáticamente.\n"
         )
         parts.append("")
 
@@ -101,7 +114,7 @@ def build_prompt_from_enriched(process_name: str, enriched_assets: List[Enriched
         parts.append("=== VIDEOS DISPONIBLES (REFERENCIA) ===")
         parts.append(
             "Reglas:\n"
-            "- Si se proveen videos, debes agregarlos en el campo JSON 'videos'.\n"
+            "- Si se proveen videos, debés agregarlos en el campo JSON 'videos'.\n"
             "- Si hay URL en metadata, usala como 'url'.\n"
             "- En los pasos, referenciá '(ver Video 1)' cuando el video ilustre ese paso.\n"
             "- No insertes el video dentro de la tabla: solo referencias.\n"
@@ -120,6 +133,10 @@ def build_prompt_from_enriched(process_name: str, enriched_assets: List[Enriched
 
     return "\n".join(parts)
 
+
+# ============================================================
+# Parsing
+# ============================================================
 
 def parse_process_document(json_str: str) -> ProcessDocument:
     data = json.loads(json_str)
@@ -143,7 +160,7 @@ def parse_process_document(json_str: str) -> ProcessDocument:
             duration=v.get("duration"),
             description=v.get("description"),
         )
-        for v in data.get("videos", [])  # ok si no viene
+        for v in data.get("videos", [])
     ]
 
     return ProcessDocument(
@@ -170,12 +187,37 @@ def parse_process_document(json_str: str) -> ProcessDocument:
         problemas=data["problemas"],
         oportunidades=data["oportunidades"],
         preguntas_abiertas=data["preguntas_abiertas"],
+        # compatibilidad hacia atrás si el prompt lo trae
         material_referencia=data.get("material_referencia", ""),
         videos=videos,
     )
 
 
-def render_markdown(doc: ProcessDocument) -> str:
+# ============================================================
+# Rendering
+# ============================================================
+
+def render_markdown(
+    doc: ProcessDocument,
+    images_by_step: Optional[Dict[int, List[Dict[str, str]]]] = None,
+) -> str:
+    def _norm_path(p: str) -> str:
+        p = (p or "").strip()
+        if not p:
+            return ""
+        p = p.replace("\\", "/")
+
+        marker = "/assets/"
+        if marker in p:
+            return "assets/" + p.split(marker, 1)[1]
+
+        if p.startswith("assets/"):
+            return p
+        if p.startswith("output/assets/"):
+            return p.replace("output/", "", 1)
+
+        return p
+
     lines: List[str] = []
 
     lines.append(f"# Documento de Proceso – {doc.process_name}\n\n")
@@ -212,6 +254,46 @@ def render_markdown(doc: ProcessDocument) -> str:
         )
     lines.append("\n")
 
+    # ------------------------------------------------------------
+    # Capturas por paso (SIN floats, SIN títulos vacíos)
+    # Requiere header LaTeX con:
+    #   \usepackage{graphicx}
+    #   \usepackage{float}
+    # ------------------------------------------------------------
+    if images_by_step:
+        steps_with_images: Dict[int, List[Dict[str, str]]] = {}
+
+        for step_n, imgs in images_by_step.items():
+            valid_imgs: List[Dict[str, str]] = []
+            for img in imgs or []:
+                path = _norm_path(img.get("path", ""))
+                if not path:
+                    continue
+                valid_imgs.append({**img, "path": path})
+
+            if valid_imgs:
+                steps_with_images[int(step_n)] = valid_imgs
+
+        if steps_with_images:
+            lines.append("### Capturas por paso\n")
+            lines.append(
+                "A continuación se incluyen capturas representativas del procedimiento, "
+                "asociadas al paso correspondiente.\n\n"
+            )
+
+            for step_n in sorted(steps_with_images.keys()):
+                lines.append(f"**Paso {step_n} — Evidencia visual**\n\n")
+
+                for img in steps_with_images[step_n]:
+                    title = img.get("title", f"Captura paso {step_n}")
+                    path = img["path"]
+
+                    lines.append("\\begin{figure}[H]\n")
+                    lines.append("\\centering\n")
+                    lines.append(f"\\includegraphics[width=0.95\\linewidth]{{{path}}}\n")
+                    lines.append(f"\\caption{{{title}}}\n")
+                    lines.append("\\end{figure}\n\n")
+
     lines.append("## 7. Variantes y excepciones\n")
     lines.append(f"- **Variantes:** {doc.variantes}\n")
     lines.append(f"- **Excepciones:** {doc.excepciones}\n\n")
@@ -227,23 +309,5 @@ def render_markdown(doc: ProcessDocument) -> str:
 
     lines.append("## 10. Preguntas abiertas / pendientes\n")
     lines.append(doc.preguntas_abiertas + "\n\n")
-
-    # Numeración dinámica para secciones opcionales
-    section_n = 11
-
-    if doc.material_referencia.strip():
-        lines.append(f"## {section_n}. Material de referencia\n")
-        lines.append(doc.material_referencia.strip() + "\n\n")
-        section_n += 1
-
-    if doc.videos:
-        lines.append(f"## {section_n}. Material de referencia (videos)\n")
-        for v in doc.videos:
-            lines.append(f"- **{v.title}** ({v.duration or 'duración no especificada'})\n")
-            if v.url:
-                lines.append(f"  - Enlace: {v.url}\n")
-            if v.description:
-                lines.append(f"  - Descripción: {v.description}\n")
-        lines.append("\n")
 
     return "".join(lines)

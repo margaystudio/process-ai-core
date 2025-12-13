@@ -7,11 +7,6 @@ import subprocess
 
 @dataclass
 class PdfPandocExporter:
-    """
-    Exporta Markdown a PDF con Pandoc.
-    Asume que las imágenes están referenciadas como assets/<archivo>
-    y que el PDF se genera dentro del mismo run_dir.
-    """
     name: str = "pdf_pandoc"
 
     def export(self, run_dir: Path, md_path: Path, pdf_name: str = "documento.pdf") -> Path:
@@ -23,14 +18,33 @@ class PdfPandocExporter:
 
         out_pdf = run_dir / pdf_name
 
+        # ✅ SIEMPRE regenerar header (evita que quede uno viejo sin graphicx)
+        header_tex = run_dir / "pandoc_header.tex"
+        header_tex.write_text(
+            "\\usepackage{graphicx}\n\\usepackage{float}\n",
+            encoding="utf-8"
+        )
+
+        # ✅ DEBUG (dejalo por ahora)
+        print(f"🧾 Pandoc header: {header_tex.resolve()}")
+        print("🧾 Header content:\n" + header_tex.read_text(encoding="utf-8"))
+
         # Importante: correr pandoc con cwd=run_dir para que resuelva assets/...
         cmd = [
             "pandoc",
             str(md_path.name),
             "-o",
             str(out_pdf.name),
+            "--standalone",
+            "--from=markdown+raw_tex",
             "--pdf-engine=xelatex",
+            "--include-in-header",
+            str(header_tex.name),
         ]
+
+        # ✅ DEBUG (dejalo por ahora)
+        print("🚀 Pandoc cmd:", " ".join(cmd))
+        print("📁 Pandoc cwd:", str(run_dir.resolve()))
 
         try:
             subprocess.run(

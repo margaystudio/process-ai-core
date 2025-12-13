@@ -34,7 +34,32 @@ def main() -> None:
 
     # 4) Parse + render Markdown
     doc = parse_process_document(json_str)
-    md = render_markdown(doc)
+    
+    images_by_step = {}
+    for a in enriched:
+        if a.kind == "image":
+            paso = a.metadata.get("paso_sugerido")
+            if paso:
+                try:
+                    paso_i = int(paso)
+                except ValueError:
+                    continue
+
+                # extraer assets/archivo desde extracted_text (o mejor: guardalo directo en metadata)
+                # como ya lo generaste: archivo='assets/....'
+                import re
+                m = re.search(r"archivo='([^']+)'", a.extracted_text)
+                if not m:
+                    continue
+
+                images_by_step.setdefault(paso_i, []).append(
+                    {
+                        "title": a.metadata.get("titulo", f"Imagen paso {paso_i}"),
+                        "path": m.group(1),
+                    }
+                )
+
+    md = render_markdown(doc, images_by_step=images_by_step)
 
     # 5) Persistir outputs
     output_dir = Path(settings.output_dir)
