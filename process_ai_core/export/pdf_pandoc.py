@@ -1,15 +1,95 @@
+# process_ai_core/pdf_pandoc.py
 from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
 import subprocess
 
+"""
+process_ai_core.pdf_pandoc
+==========================
+
+Exportador de Markdown a PDF usando Pandoc + XeLaTeX.
+
+Este módulo encapsula la llamada a `pandoc` para generar un PDF a partir de un
+archivo Markdown, cuidando algunos detalles típicos en pipelines de documentación:
+
+- **Resolución de rutas relativas** (por ejemplo `assets/...`): se ejecuta Pandoc
+  con `cwd=run_dir` para que las rutas se resuelvan contra la carpeta de salida.
+- **Header LaTeX regenerado**: se escribe siempre `pandoc_header.tex` para evitar
+  usar un header viejo o incompleto.
+- **Errores explicativos**: diferencia entre "pandoc no está instalado" y
+  "pandoc falló al compilar" (con STDOUT/STDERR).
+
+Requisitos
+----------
+- Pandoc instalado y en PATH:
+  - macOS: `brew install pandoc`
+- Un engine LaTeX disponible:
+  - `xelatex` (provisto por MacTeX o TeX Live)
+
+Notas sobre imágenes
+--------------------
+- Para que imágenes Markdown como `![caption](assets/img.png)` funcionen, Pandoc
+  debe poder encontrar `assets/` desde el directorio de trabajo.
+- Por eso el `cwd` se fija en `run_dir` (normalmente `output/`).
+
+"""
 
 @dataclass
 class PdfPandocExporter:
+    """
+    Exportador PDF basado en Pandoc.
+
+    Attributes
+    ----------
+    name:
+        Identificador del exportador. Útil si más adelante querés soportar
+        múltiples exporters (pandoc, weasyprint, etc.).
+    """
+
     name: str = "pdf_pandoc"
 
     def export(self, run_dir: Path, md_path: Path, pdf_name: str = "documento.pdf") -> Path:
+        """
+        Genera un PDF desde un Markdown usando Pandoc.
+
+        Parameters
+        ----------
+        run_dir:
+            Directorio de ejecución/salida. Se usa para:
+            - escribir el PDF resultante
+            - escribir el header LaTeX (`pandoc_header.tex`)
+            - establecer el `cwd` de Pandoc (para resolver rutas relativas)
+        md_path:
+            Ruta al archivo Markdown a convertir.
+            Puede estar dentro o fuera de `run_dir`, pero Pandoc se invoca con
+            el nombre del archivo (`md_path.name`) asumiendo que el Markdown está
+            accesible desde `run_dir`. En el flujo típico, el Markdown vive en
+            `run_dir`.
+        pdf_name:
+            Nombre del PDF a generar dentro de `run_dir`.
+
+        Returns
+        -------
+        Path
+            Ruta absoluta (o relativa según se use) al PDF generado.
+
+        Raises
+        ------
+        FileNotFoundError
+            Si `md_path` no existe.
+        RuntimeError
+            Si Pandoc no está disponible en PATH o si falla la conversión.
+
+        Implementation details
+        ----------------------
+        - Regenera siempre un header LaTeX mínimo con `graphicx` y `float`
+          para soportar imágenes y figuras no flotantes si el markdown incluye raw_tex.
+        - Usa `--from=markdown+raw_tex` para permitir bloques LaTeX embebidos.
+        - Usa `--pdf-engine=xelatex` por compatibilidad con Unicode/fuentes.
+        """
+
         run_dir = Path(run_dir)
         md_path = Path(md_path)
 
@@ -18,18 +98,21 @@ class PdfPandocExporter:
 
         out_pdf = run_dir / pdf_name
 
-        # ✅ SIEMPRE regenerar header (evita que quede uno viejo sin graphicx)
+        # ✅ SIEMPRE regenerar header (evita que quede uno viejo sin graphicx/float)
+        # `graphicx` => soporte de imágenes
+        # `float`    => soporte figure[H] (si usás raw_tex para fijar posición)
         header_tex = run_dir / "pandoc_header.tex"
         header_tex.write_text(
             "\\usepackage{graphicx}\n\\usepackage{float}\n",
-            encoding="utf-8"
+            encoding="utf-8",
         )
 
-        # ✅ DEBUG (dejalo por ahora)
+        # ✅ DEBUG (útil mientras estabilizás el pipeline)
         print(f"🧾 Pandoc header: {header_tex.resolve()}")
         print("🧾 Header content:\n" + header_tex.read_text(encoding="utf-8"))
 
         # Importante: correr pandoc con cwd=run_dir para que resuelva assets/...
+        # Nota: se pasa `md_path.name` (no el path completo) suponiendo que el .md está en run_dir.
         cmd = [
             "pandoc",
             str(md_path.name),
@@ -42,7 +125,7 @@ class PdfPandocExporter:
             str(header_tex.name),
         ]
 
-        # ✅ DEBUG (dejalo por ahora)
+        # ✅ DEBUG (útil mientras estabilizás el pipeline)
         print("🚀 Pandoc cmd:", " ".join(cmd))
         print("📁 Pandoc cwd:", str(run_dir.resolve()))
 
@@ -55,10 +138,12 @@ class PdfPandocExporter:
                 text=True,
             )
         except FileNotFoundError as e:
+            # Este error suele ser porque `pandoc` no está instalado o no está en PATH.
             raise RuntimeError(
                 "No se encontró 'pandoc' en el PATH. Instalalo (brew install pandoc) y reintentá."
             ) from e
         except subprocess.CalledProcessError as e:
+            # Pandoc encontró un error al convertir (markdown inválido, latex no instalado, imágenes faltantes, etc.)
             stderr = (e.stderr or "").strip()
             stdout = (e.stdout or "").strip()
             msg = "Falló pandoc al generar el PDF."

@@ -1,5 +1,5 @@
-from process_ai_core.models import Step, ProcessDocument
-from process_ai_core.engine import render_markdown
+from process_ai_core.domain_models import Step, ProcessDocument
+from process_ai_core.doc_engine import render_markdown
 
 
 def test_render_markdown_basic():

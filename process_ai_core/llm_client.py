@@ -1,5 +1,30 @@
 from __future__ import annotations
 
+"""
+process_ai_core.llm_client
+==========================
+
+Este módulo centraliza **todas las interacciones con OpenAI** utilizadas por el sistema.
+
+Responsabilidades principales
+------------------------------
+1. Crear y configurar el cliente OpenAI a partir de settings.
+2. Transcribir audio (con o sin timestamps).
+3. Inferir pasos de proceso a partir de transcripciones con timestamps.
+4. Seleccionar capturas relevantes desde imágenes (visión).
+5. Generar el JSON final del documento de proceso a partir de un prompt largo.
+
+Diseño
+------
+- Este módulo NO decide estructura de documentos.
+- NO renderiza Markdown ni PDF.
+- Se limita a:
+    * convertir inputs (audio, imágenes, texto) en **outputs semánticos**
+    * siempre devolviendo estructuras simples (str / dict / list).
+
+Esto permite testear y evolucionar la lógica de IA sin romper el pipeline.
+"""
+
 import base64
 import json
 import mimetypes
@@ -12,16 +37,57 @@ from .config import get_settings
 from .prompts import get_process_doc_system_prompt
 
 
+# ============================================================
+# Cliente OpenAI
+# ============================================================
+
 def get_client() -> OpenAI:
+    """
+    Construye y devuelve un cliente OpenAI usando la API key configurada.
+
+    La API key se obtiene desde `get_settings()` y debe estar definida
+    en variables de entorno o archivo .env.
+
+    Raises:
+        RuntimeError:
+            Si OPENAI_API_KEY no está configurada.
+
+    Returns:
+        OpenAI:
+            Cliente listo para usar en llamadas a audio, chat, visión, etc.
+    """
     settings = get_settings()
     if not settings.openai_api_key:
         raise RuntimeError("OPENAI_API_KEY no está configurada en el .env")
     return OpenAI(api_key=settings.openai_api_key)
 
 
+# ============================================================
+# Transcripción de audio
+# ============================================================
+
 def transcribe_audio(path: str, prompt: str | None = None) -> str:
     """
-    Transcribe un archivo de audio local usando el endpoint de transcriptions.
+    Transcribe un archivo de audio local a texto plano.
+
+    - Usa el endpoint de `audio.transcriptions`.
+    - Ideal para audios sin necesidad de timestamps.
+    - Devuelve solo el texto final, sin estructura adicional.
+
+    Args:
+        path:
+            Ruta al archivo de audio local.
+        prompt:
+            Prompt opcional para guiar la transcripción
+            (por ejemplo, nombres propios o contexto).
+
+    Raises:
+        FileNotFoundError:
+            Si el archivo no existe.
+
+    Returns:
+        str:
+            Texto transcripto.
     """
     settings = get_settings()
     client = get_client()
@@ -47,7 +113,37 @@ def transcribe_audio_with_timestamps(
     granularity: str = "segment",
 ) -> Dict[str, Any]:
     """
-    Transcribe audio y devuelve verbose_json con timestamps (segment o word).
+    Transcribe audio y devuelve texto + segmentos con timestamps.
+
+    Se usa cuando:
+    - El audio proviene de un video.
+    - Necesitamos mapear partes del audio a momentos específicos
+      (por ejemplo, para capturar screenshots).
+
+    Args:
+        path:
+            Ruta al archivo de audio.
+        prompt:
+            Prompt opcional para mejorar la transcripción.
+        granularity:
+            Nivel de timestamp:
+            - "segment": frases/segmentos (recomendado)
+            - "word": palabra por palabra
+
+    Raises:
+        FileNotFoundError:
+            Si el archivo no existe.
+        ValueError:
+            Si granularity no es válido.
+
+    Returns:
+        Dict[str, Any]:
+            {
+                "text": str,
+                "segments": [
+                    {"start": float, "end": float, "text": str, ...}
+                ]
+            }
     """
     settings = get_settings()
     client = get_client()
@@ -70,6 +166,7 @@ def transcribe_audio_with_timestamps(
             timestamp_granularities=[granularity],
         )
 
+    # Normalizamos salida (objeto o dict)
     data: Dict[str, Any] = {}
     if hasattr(transcription, "text"):
         data["text"] = transcription.text
@@ -84,7 +181,29 @@ def transcribe_audio_with_timestamps(
     return data
 
 
+# ============================================================
+# Utilidades de imagen (visión)
+# ============================================================
+
 def _image_file_to_data_url(path: str) -> str:
+    """
+    Convierte una imagen local en un data URL base64.
+
+    Se usa para enviar imágenes al modelo con visión
+    sin depender de URLs públicas.
+
+    Args:
+        path:
+            Ruta local a la imagen.
+
+    Raises:
+        FileNotFoundError:
+            Si la imagen no existe.
+
+    Returns:
+        str:
+            data:<mime>;base64,<contenido>
+    """
     p = Path(path)
     if not p.exists():
         raise FileNotFoundError(f"No se encontró la imagen: {p}")
@@ -92,24 +211,52 @@ def _image_file_to_data_url(path: str) -> str:
     mime, _ = mimetypes.guess_type(str(p))
     if not mime:
         mime = "image/png"
+
     b64 = base64.b64encode(p.read_bytes()).decode("ascii")
     return f"data:{mime};base64,{b64}"
 
+
+# ============================================================
+# Inferencia de pasos desde audio
+# ============================================================
 
 def plan_steps_from_transcript_segments(
     segments: List[Dict[str, Any]],
     max_steps: int = 15,
 ) -> List[Dict[str, Any]]:
     """
-    Infere pasos (cantidad dinámica) desde segmentos con timestamps.
-    Retorna: [{order, start_s, end_s, summary, importance}, ...]
+    Infere pasos operativos a partir de segmentos de audio con timestamps.
+
+    Esta función:
+    - No asume cantidad fija de pasos.
+    - Agrupa micro-acciones en macro-pasos coherentes.
+    - Devuelve rangos temporales por paso.
+
+    Output esperado:
+        [
+            {
+                "order": int,
+                "start_s": float,
+                "end_s": float,
+                "summary": str,
+                "importance": "high" | "medium" | "low"
+            }
+        ]
+
+    Args:
+        segments:
+            Segmentos con timestamps (de Whisper u otro transcriptor).
+        max_steps:
+            Límite superior de pasos a devolver.
+
+    Returns:
+        Lista de pasos inferidos, ordenados.
     """
     settings = get_settings()
     client = get_client()
 
     seg_lines: List[str] = []
     for s in segments:
-        # Normalizar: dict o objeto con atributos
         if isinstance(s, dict):
             start = s.get("start", s.get("start_s", 0.0))
             end = s.get("end", s.get("end_s", start))
@@ -181,18 +328,42 @@ def plan_steps_from_transcript_segments(
     return out[:max_steps]
 
 
+# ============================================================
+# Selección de screenshot por visión
+# ============================================================
+
 def select_best_frame_for_step(
     step_summary: str,
     candidate_image_paths: List[str],
     model: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    Usa un modelo con visión para elegir el mejor screenshot (o ninguno).
-    JSON output: {"selected_index": int|-1, "title": str, "notes": str}
+    Usa un modelo con visión para elegir el mejor screenshot
+    que represente un paso del proceso.
+
+    El modelo puede:
+    - Elegir una imagen (índice).
+    - Rechazar todas (selected_index = -1).
+
+    Args:
+        step_summary:
+            Descripción textual del paso.
+        candidate_image_paths:
+            Rutas locales a imágenes candidatas.
+        model:
+            Modelo a usar (si None, usa el default configurado).
+
+    Returns:
+        Dict con estructura:
+        {
+            "selected_index": int,  # índice o -1
+            "title": str,           # caption sugerido
+            "notes": str            # comentarios opcionales
+        }
     """
     settings = get_settings()
     client = get_client()
-    vision_model = model or settings.openai_model_text  # ideal: setear un modelo con visión acá
+    vision_model = model or settings.openai_model_text  # ideal: usar modelo con visión dedicado
 
     content: List[Dict[str, Any]] = [
         {
@@ -210,14 +381,22 @@ def select_best_frame_for_step(
     ]
 
     for p in candidate_image_paths:
-        content.append({"type": "image_url", "image_url": {"url": _image_file_to_data_url(p)}})
+        content.append(
+            {
+                "type": "image_url",
+                "image_url": {"url": _image_file_to_data_url(p)},
+            }
+        )
 
     completion = client.chat.completions.create(
         model=vision_model,
         messages=[
             {
                 "role": "system",
-                "content": "Sos un asistente que analiza capturas de pantalla para documentación operativa. Respondés solo JSON.",
+                "content": (
+                    "Sos un asistente que analiza capturas de pantalla "
+                    "para documentación operativa. Respondés solo JSON."
+                ),
             },
             {"role": "user", "content": content},
         ],
@@ -234,9 +413,25 @@ def select_best_frame_for_step(
     }
 
 
+# ============================================================
+# Generación del documento de proceso
+# ============================================================
+
 def generate_process_document_json(prompt: str) -> str:
     """
-    Usa un modelo de texto (chat.completions) para generar el JSON del documento de proceso.
+    Genera el JSON final del documento de proceso a partir de un prompt largo.
+
+    - Usa instrucciones de sistema estrictas (schema fijo).
+    - Devuelve texto JSON (string), no parseado.
+    - El parseo y validación se hacen en otra capa.
+
+    Args:
+        prompt:
+            Prompt completo (contexto + transcripciones + evidencia).
+
+    Returns:
+        str:
+            JSON generado por el modelo (string).
     """
     settings = get_settings()
     client = get_client()
@@ -252,7 +447,8 @@ def generate_process_document_json(prompt: str) -> str:
                 "content": (
                     "A continuación tenés el material bruto (texto, transcripciones, notas). "
                     "Leelo y generá el documento de proceso en formato JSON, siguiendo "
-                    "estrictamente el esquema indicado en las instrucciones.\n\n" + prompt
+                    "estrictamente el esquema indicado en las instrucciones.\n\n"
+                    + prompt
                 ),
             },
         ],
