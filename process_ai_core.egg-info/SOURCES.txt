@@ -1,6 +1,16 @@
 pyproject.toml
+process_ai_core/__init__.py
+process_ai_core/cli.py
+process_ai_core/config.py
+process_ai_core/engine.py
+process_ai_core/ingest.py
+process_ai_core/llm_client.py
+process_ai_core/media.py
+process_ai_core/models.py
+process_ai_core/prompts.py
 process_ai_core.egg-info/PKG-INFO
 process_ai_core.egg-info/SOURCES.txt
 process_ai_core.egg-info/dependency_links.txt
 process_ai_core.egg-info/requires.txt
 process_ai_core.egg-info/top_level.txt
+tests/test_engine.py
