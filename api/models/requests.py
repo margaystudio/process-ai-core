@@ -18,6 +18,13 @@ class ProcessMode(str, Enum):
     GESTION = "gestion"
 
 
+class RecipeMode(str, Enum):
+    """Modo del documento de receta a generar."""
+
+    SIMPLE = "simple"
+    DETALLADO = "detallado"
+
+
 class ProcessRunRequest(BaseModel):
     """
     Request para crear una nueva corrida del pipeline.
@@ -68,3 +75,22 @@ class ProcessRunResponse(BaseModel):
         description="Mensaje de error si status='error'",
     )
 
+
+class RecipeRunResponse(BaseModel):
+    """
+    Response de una corrida del pipeline de recetas.
+
+    Devuelve información sobre la corrida y URLs/paths a los artefactos generados.
+    """
+
+    run_id: str = Field(..., description="ID único de la corrida")
+    recipe_name: str = Field(..., description="Nombre de la receta")
+    status: str = Field(..., description="Estado: processing|completed|error")
+    artifacts: dict = Field(
+        default_factory=dict,
+        description="URLs/paths a artefactos generados (json, markdown, pdf)",
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Mensaje de error si status='error'",
+    )

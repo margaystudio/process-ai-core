@@ -11,7 +11,7 @@ Uso:
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .routes import artifacts, process_runs
+from .routes import artifacts, process_runs, recipe_runs
 
 app = FastAPI(
     title="Process AI Core API",
@@ -30,6 +30,7 @@ app.add_middleware(
 
 # Registrar rutas
 app.include_router(process_runs.router)
+app.include_router(recipe_runs.router)
 app.include_router(artifacts.router)
 
 

@@ -214,3 +214,61 @@ def run_process_pipeline(
 ProcessRunResult = DocumentRunResult
 
 
+# ============================================================
+# Funciones de compatibilidad (recetas)
+# ============================================================
+
+def run_recipe_pipeline(
+    *,
+    recipe_name: str,
+    raw_assets: Sequence[RawAsset],
+    profile: Any,  # RecipeProfile
+    context_block: str | None = None,
+    output_base: Path | None = None,
+) -> Dict[str, Any]:
+    """
+    Ejecuta el pipeline de documentación de recetas (función de compatibilidad).
+
+    Esta función permite usar el engine genérico con el dominio de recetas.
+    Internamente usa `run_documentation_pipeline` con el builder/renderer de recetas.
+
+    Args:
+        recipe_name:
+            Nombre de la receta.
+        raw_assets:
+            Lista de `RawAsset` descubiertos.
+        profile:
+            `RecipeProfile` que controla cómo se renderiza el Markdown.
+        context_block:
+            Bloque de texto opcional para anteponer al prompt principal.
+        output_base:
+            Directorio base para validar rutas de imágenes.
+
+    Returns:
+        Dict con JSON, modelo parseado, Markdown y metadatos de imágenes.
+    """
+    from .domains.recipes.builder import RecipeBuilder
+    from .domains.recipes.renderer import RecipeRenderer
+
+    builder = RecipeBuilder()
+    renderer = RecipeRenderer()
+
+    result = run_documentation_pipeline(
+        document_name=recipe_name,
+        raw_assets=raw_assets,
+        builder=builder,
+        renderer=renderer,
+        profile=profile,
+        context_block=context_block,
+        output_base=output_base,
+    )
+
+    return {
+        "json_str": result["json_str"],
+        "doc": result["doc"],
+        "markdown": result["markdown"],
+        "images_by_step": result["images_by_step"],
+        "evidence_images": result["evidence_images"],
+    }
+
+
