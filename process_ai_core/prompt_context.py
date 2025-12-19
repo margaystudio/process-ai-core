@@ -43,7 +43,8 @@ from typing import Optional
 from sqlalchemy import select
 
 from process_ai_core.db.models_catalog import CatalogOption
-from process_ai_core.db.models import Client, Process  # ajustá el import si tu módulo se llama distinto
+from process_ai_core.db.models import Workspace, Document
+from process_ai_core.db.helpers import get_workspace_metadata, get_document_metadata
 
 
 def _prompt_for(session, domain: str, value: Optional[str]) -> str:
@@ -88,11 +89,11 @@ def _prompt_for(session, domain: str, value: Optional[str]) -> str:
     return out or ""
 
 
-def build_context_block(session, client: Client, process: Process) -> str:
+def build_context_block(session, workspace: Workspace, document: Document) -> str:
     """
     Construye el bloque de contexto a partir de:
 
-    1) Defaults del cliente (`Client`)
+    1) Defaults del workspace (`Workspace`)
        - default_audience
        - default_formality
        - default_detail_level
@@ -100,7 +101,7 @@ def build_context_block(session, client: Client, process: Process) -> str:
        - business_type
        - context_text (texto libre)
 
-    2) Overrides del proceso (`Process`)
+    2) Overrides del documento (`Document`)
        - audience
        - formality
        - detail_level
@@ -110,14 +111,14 @@ def build_context_block(session, client: Client, process: Process) -> str:
     Regla de override
     -----------------
     Para audience / formality / detail_level:
-    - Si `process.<campo>` tiene valor truthy (no vacío / no None), se usa ese.
-    - Si está vacío, se usa el default del cliente.
+    - Si `document.domain_metadata_json` tiene valor, se usa ese.
+    - Si está vacío, se usa el default del workspace.
 
     Para process_type:
-    - Es propio del proceso. Si no está definido, se omite.
+    - Es propio del documento. Si no está definido, se omite.
 
     Para language_style y business_type:
-    - Son del cliente. Si no están definidos, se omiten.
+    - Son del workspace. Si no están definidos, se omiten.
 
     Cómo se arma el texto
     ---------------------
@@ -125,31 +126,34 @@ def build_context_block(session, client: Client, process: Process) -> str:
       y para cada uno se consulta el catálogo con `_prompt_for`.
     - Si existe prompt_text, se agrega como bullet: `- <prompt_text>`.
     - Al final se agregan bloques de texto libre (si existen), separados por líneas en blanco:
-        * "Contexto del cliente:"
-        * "Contexto del proceso:"
+        * "Contexto del workspace:"
+        * "Contexto del documento:"
 
     Args:
         session:
             Sesión SQLAlchemy activa.
-        client:
-            Instancia del cliente (contiene defaults y atributos de estilo global).
-        process:
-            Instancia del proceso (contiene overrides y atributos específicos del proceso).
+        workspace:
+            Instancia del workspace (contiene defaults y atributos de estilo global).
+        document:
+            Instancia del documento (contiene overrides y atributos específicos).
 
     Returns:
         String terminado en doble salto de línea (`\\n\\n`) para poder concatenarlo
         fácilmente al prompt principal.
     """
+    # Obtener metadata desde JSON
+    workspace_meta = get_workspace_metadata(workspace)
+    document_meta = get_document_metadata(document)
 
-    # Overrides por proceso (si vacío => defaults del cliente)
-    audience = process.audience or client.default_audience
-    formality = process.formality or client.default_formality
-    detail_level = process.detail_level or client.default_detail_level
+    # Overrides por documento (si vacío => defaults del workspace)
+    audience = document_meta.get("audience") or workspace_meta.get("default_audience", "")
+    formality = document_meta.get("formality") or workspace_meta.get("default_formality", "")
+    detail_level = document_meta.get("detail_level") or workspace_meta.get("default_detail_level", "")
 
-    # Atributos propios del proceso / cliente
-    process_type = process.process_type or ""
-    language_style = client.language_style or ""
-    business_type = client.business_type or ""
+    # Atributos propios del documento / workspace
+    process_type = document_meta.get("process_type", "")
+    language_style = workspace_meta.get("language_style", "")
+    business_type = workspace_meta.get("business_type", "")
 
     lines: list[str] = []
     lines.append("=== CONTEXTO Y PREFERENCIAS (CATÁLOGOS) ===")
@@ -167,14 +171,16 @@ def build_context_block(session, client: Client, process: Process) -> str:
             lines.append(f"- {txt}")
 
     # Contextos libres
-    if client.context_text and client.context_text.strip():
+    workspace_context = workspace_meta.get("context_text", "")
+    if workspace_context and workspace_context.strip():
         lines.append("")
-        lines.append("Contexto del cliente:")
-        lines.append(client.context_text.strip())
+        lines.append("Contexto del workspace:")
+        lines.append(workspace_context.strip())
 
-    if process.context_text and process.context_text.strip():
+    document_context = document_meta.get("context_text", "")
+    if document_context and document_context.strip():
         lines.append("")
-        lines.append("Contexto del proceso:")
-        lines.append(process.context_text.strip())
+        lines.append("Contexto del documento:")
+        lines.append(document_context.strip())
 
     return "\n".join(lines).strip() + "\n\n"

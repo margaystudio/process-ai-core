@@ -1,10 +1,10 @@
 """
-Funciones helper para trabajar con los modelos v2 (Workspace/Document).
+Funciones helper para trabajar con los modelos genéricos (Workspace/Document).
 
 Estas funciones facilitan:
-- Convertir entre modelos v1 y v2
-- Obtener workspaces/documents por dominio
 - Crear workspaces/documents con metadata apropiada
+- Obtener workspaces/documents por dominio
+- Trabajar con metadata JSON
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from typing import Dict, Any
 
 from sqlalchemy.orm import Session
 
-from .models_v2 import Workspace, Document, User, WorkspaceMembership
+from .models import Workspace, Document, User, WorkspaceMembership
 
 
 def create_organization_workspace(

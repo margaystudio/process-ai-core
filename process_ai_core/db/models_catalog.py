@@ -8,12 +8,12 @@ from .database import Base
 
 class CatalogOption(Base):
     """
-    Catálogo de opciones parametrizables (modelo A: guardamos value en Client/Process).
+    Catálogo de opciones parametrizables (modelo A: guardamos value en Workspace/Document).
 
     domain: el "campo" al que pertenece
       ej: "business_type", "audience", "detail_level", "formality", "process_type", "language_style"
 
-    value: lo que se guarda en Client/Process
+    value: lo que se guarda en Workspace/Document metadata_json
       ej: "operativo", "gestion", "alto", "bajo", "rrhh"
 
     label: texto para UI (lo que ve el usuario)

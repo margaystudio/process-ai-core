@@ -1,3 +1,10 @@
+"""
+Modelos de datos genéricos para soportar múltiples dominios.
+
+Estos modelos funcionan para cualquier dominio (procesos, recetas, etc.)
+usando Workspace/Document genéricos en lugar de Client/Process específicos.
+"""
+
 from __future__ import annotations
 
 import uuid
@@ -13,112 +20,130 @@ def _uuid() -> str:
     return str(uuid.uuid4())
 
 
-class Client(Base):
+class Workspace(Base):
     """
-    Cliente / organización (tenant).
-
-    Guarda defaults que luego se usan para armar el prompt:
-    - estilo de idioma
-    - audiencia por defecto (pistero / operativo / gestión)
-    - nivel de detalle por defecto
-    - formalidad por defecto
-    - contexto libre del negocio
-
-    Importante:
-    - En este MVP guardamos "value" del catálogo (modelo A).
-      Ej: default_audience="operativo" y el texto de prompt sale de catalog_option.
+    Workspace genérico (tenant) que puede ser:
+    - Una organización/cliente (para procesos)
+    - Un usuario individual (para recetas personales)
+    - Una comunidad/grupo (para recetas compartidas)
     """
-    __tablename__ = "clients"
+    __tablename__ = "workspaces"
 
     # Identidad
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
-    slug: Mapped[str] = mapped_column(String(64), unique=True, index=True)  # "gpu", "acme", etc.
+    slug: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     name: Mapped[str] = mapped_column(String(200))
 
-    # Defaults / contexto (alineado al MER)
-    country: Mapped[str] = mapped_column(String(2), default="UY")  # ISO2, ej UY/AR/CL
-    business_type: Mapped[str] = mapped_column(String(50), default="")  # catalog: business_type
-    language_style: Mapped[str] = mapped_column(String(50), default="es_uy_formal")  # catalog: language_style
+    # Tipo de workspace
+    workspace_type: Mapped[str] = mapped_column(String(20))  # "organization" | "user" | "community"
 
-    default_audience: Mapped[str] = mapped_column(String(50), default="operativo")   # catalog: audience
-    default_formality: Mapped[str] = mapped_column(String(50), default="media")      # catalog: formality
-    default_detail_level: Mapped[str] = mapped_column(String(50), default="estandar")# catalog: detail_level
-
-    # Contexto libre: "qué hace la empresa", sistemas típicos, jerga interna, etc.
-    context_text: Mapped[str] = mapped_column(Text, default="")
-
-    # Flex: para preferencias futuras sin migrar todo (lo mantenemos)
-    prefs_json: Mapped[str] = mapped_column(Text, default="{}")
+    # Metadata genérica (JSON flexible)
+    # Para organizaciones: business_type, country, language_style, defaults, etc.
+    # Para usuarios: preferences, cuisine, diet, etc.
+    # Para comunidades: visibility, members_count, etc.
+    metadata_json: Mapped[str] = mapped_column(Text, default="{}")
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     # Relaciones
-    processes: Mapped[list["Process"]] = relationship(back_populates="client")
+    documents: Mapped[list["Document"]] = relationship(back_populates="workspace")
+    memberships: Mapped[list["WorkspaceMembership"]] = relationship(back_populates="workspace")
 
 
-class Process(Base):
+class Document(Base):
     """
-    Proceso dentro de un cliente.
-
-    Puede heredar defaults del cliente o sobrescribirlos.
-    Ej:
-    - un proceso "operativo" (colgar el pico) => audience=operativo, detail_level=bajo
-    - un proceso RRHH => audience=gestion, detail_level=alto, formality=alta
+    Documento genérico que puede ser:
+    - Process (para dominio de procesos)
+    - Recipe (para dominio de recetas)
+    - Cualquier otro tipo de documento en el futuro
     """
-    __tablename__ = "processes"
+    __tablename__ = "documents"
 
     # Identidad
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
-    client_id: Mapped[str] = mapped_column(String(36), ForeignKey("clients.id"), index=True)
+    workspace_id: Mapped[str] = mapped_column(String(36), ForeignKey("workspaces.id"), index=True)
 
-    # Metadatos básicos
+    # Tipo de documento (determina qué dominio usar)
+    domain: Mapped[str] = mapped_column(String(20))  # "process" | "recipe"
+
+    # Nombre del documento
     name: Mapped[str] = mapped_column(String(200))
-    description: Mapped[str] = mapped_column(Text, default="")  # breve descripción
-    status: Mapped[str] = mapped_column(String(20), default="draft")  # draft|active|archived (ejemplo)
+    description: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(20), default="draft")  # draft|active|archived
 
-    # Atributos del proceso (MER) — guardamos VALUE del catálogo
-    process_type: Mapped[str] = mapped_column(String(50), default="")   # catalog: process_type (operativo/rrhh/it/etc)
-
-    # Overrides por proceso (si vacío => usa defaults del cliente)
-    audience: Mapped[str] = mapped_column(String(50), default="")       # catalog: audience
-    formality: Mapped[str] = mapped_column(String(50), default="")      # catalog: formality
-    detail_level: Mapped[str] = mapped_column(String(50), default="")   # catalog: detail_level
-
-    # Preferencias libres por proceso (si querés guardar flags sin tocar schema)
-    preferences_json: Mapped[str] = mapped_column(Text, default="{}")
-
-    # Contexto específico del proceso (ej: “se hace en Cloud Run, job GPU ETL Job”)
-    context_text: Mapped[str] = mapped_column(Text, default="")
+    # Metadata específica del dominio (JSON)
+    # Para procesos: process_type, audience, formality, detail_level, etc.
+    # Para recetas: cuisine, difficulty, servings, prep_time, cook_time, etc.
+    domain_metadata_json: Mapped[str] = mapped_column(Text, default="{}")
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     # Relaciones
-    client: Mapped["Client"] = relationship(back_populates="processes")
-    runs: Mapped[list["Run"]] = relationship(back_populates="process")
+    workspace: Mapped["Workspace"] = relationship(back_populates="documents")
+    runs: Mapped[list["Run"]] = relationship(back_populates="document")
+
+
+class User(Base):
+    """
+    Usuario del sistema (autenticación/autorización).
+    """
+    __tablename__ = "users"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    email: Mapped[str] = mapped_column(String(200), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(200))
+    password_hash: Mapped[str] = mapped_column(String(255), default="")  # Para autenticación futura
+
+    # Metadata del usuario (preferencias, etc.)
+    metadata_json: Mapped[str] = mapped_column(Text, default="{}")
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    # Relaciones
+    workspace_memberships: Mapped[list["WorkspaceMembership"]] = relationship(back_populates="user")
+
+
+class WorkspaceMembership(Base):
+    """
+    Relación muchos-a-muchos entre User y Workspace.
+    
+    Permite que un usuario pertenezca a múltiples workspaces con diferentes roles.
+    """
+    __tablename__ = "workspace_memberships"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), index=True)
+    workspace_id: Mapped[str] = mapped_column(String(36), ForeignKey("workspaces.id"), index=True)
+
+    # Rol del usuario en el workspace
+    role: Mapped[str] = mapped_column(String(20))  # "owner" | "admin" | "member" | "viewer"
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    # Relaciones
+    user: Mapped["User"] = relationship(back_populates="workspace_memberships")
+    workspace: Mapped["Workspace"] = relationship(back_populates="memberships")
 
 
 class Run(Base):
     """
-    Una ejecución/corrida del motor para generar un documento.
-
-    Guarda:
-    - manifest de inputs (qué archivos entraron, ids, metadata)
-    - modelos usados (text/transcribe)
-    - hash del prompt (para trazabilidad / caching)
-    - perfil de salida (mode) si querés distinguir "operativo vs gestión"
+    Ejecución genérica del motor (funciona para cualquier dominio).
     """
     __tablename__ = "runs"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
-    process_id: Mapped[str] = mapped_column(String(36), ForeignKey("processes.id"), index=True)
+    document_id: Mapped[str] = mapped_column(String(36), ForeignKey("documents.id"), index=True)
 
-    # Perfil de salida (podés mapearlo luego a catálogo si querés)
-    mode: Mapped[str] = mapped_column(String(20), default="operativo")  # operativo|gestion (por ahora)
+    # Dominio de esta ejecución
+    domain: Mapped[str] = mapped_column(String(20))  # "process" | "recipe"
+
+    # Perfil usado (específico del dominio)
+    profile: Mapped[str] = mapped_column(String(50), default="")
 
     # Inputs de la corrida
     input_manifest_json: Mapped[str] = mapped_column(Text, default="{}")
 
-    # Trazabilidad del prompt/modelos
+    # Trazabilidad
     prompt_hash: Mapped[str] = mapped_column(String(64), default="")
     model_text: Mapped[str] = mapped_column(String(100), default="")
     model_transcribe: Mapped[str] = mapped_column(String(100), default="")
@@ -126,16 +151,13 @@ class Run(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     # Relaciones
-    process: Mapped["Process"] = relationship(back_populates="runs")
+    document: Mapped["Document"] = relationship(back_populates="runs")
     artifacts: Mapped[list["Artifact"]] = relationship(back_populates="run")
 
 
 class Artifact(Base):
     """
     Salida generada por una Run.
-
-    type: json | md | pdf
-    path: ruta en disco (por ahora). A futuro podría ser un storage (S3/GCS).
     """
     __tablename__ = "artifacts"
 

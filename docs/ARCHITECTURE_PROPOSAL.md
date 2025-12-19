@@ -296,6 +296,24 @@ class Run(Base):
     # Relaciones
     document: Mapped["Document"] = relationship(back_populates="runs")
     artifacts: Mapped[list["Artifact"]] = relationship(back_populates="run")
+
+
+class Artifact(Base):
+    """
+    Salida generada por una Run.
+    """
+    __tablename__ = "artifacts"
+    
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    run_id: Mapped[str] = mapped_column(String(36), ForeignKey("runs.id"), index=True)
+    
+    type: Mapped[str] = mapped_column(String(10))  # json|md|pdf
+    path: Mapped[str] = mapped_column(Text)
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    
+    # Relaciones
+    run: Mapped["Run"] = relationship(back_populates="artifacts")
 ```
 
 ### Modelo Específico: Recetas
