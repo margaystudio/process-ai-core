@@ -32,6 +32,7 @@ Notas de diseño
 """
 
 import json
+from pathlib import Path
 from typing import Dict, List, Optional
 
 from .document_profiles import DocumentProfile
@@ -295,6 +296,7 @@ def render_markdown(
     profile: DocumentProfile,
     images_by_step: Optional[Dict[int, List[Dict[str, str]]]] = None,
     evidence_images: Optional[List[Dict[str, str]]] = None,
+    output_base: Optional[Path] = None,
 ) -> str:
     """
     Renderiza el Markdown final aplicando un DocumentProfile.
@@ -335,6 +337,12 @@ def render_markdown(
                 path = _norm_asset_path(img.get("path", ""))
                 if not path:
                     continue
+                # Validar que la imagen existe si tenemos output_base
+                if output_base:
+                    img_full_path = output_base / path
+                    if not img_full_path.exists():
+                        print(f"⚠️  Imagen no encontrada: {img_full_path} (ruta en markdown: {path})")
+                        continue
                 cap_title = (img.get("title") or "").strip() or f"Captura paso {step_n}"
                 valid.append({"path": path, "title": cap_title})
             if valid:
@@ -354,6 +362,12 @@ def render_markdown(
             path = _norm_asset_path(img.get("path", ""))
             if not path:
                 continue
+            # Validar que la imagen existe si tenemos output_base
+            if output_base:
+                img_full_path = output_base / path
+                if not img_full_path.exists():
+                    print(f"⚠️  Evidencia no encontrada: {img_full_path} (ruta en markdown: {path})")
+                    continue
             ev_title = (img.get("title") or "").strip() or f"Evidencia {i}"
             evidence_clean.append({"path": path, "title": ev_title})
 
@@ -450,13 +464,24 @@ def render_markdown(
         if 0 in captures_clean:
             lines.append("### Capturas adicionales (sin paso asignado)\n\n")
             for img in captures_clean[0]:
-                lines.append(f"![{img['title']}]({img['path']})\n\n")
+                img_title = img.get("title", "").strip() or "Captura adicional"
+                lines.append(f"**{img_title}**\n\n")
+                lines.append(f"![{img_title}]({img['path']})\n\n")
 
         # Pasos 1..N: con ancla para link desde pasos
         for step_n in sorted(k for k in captures_clean.keys() if k != 0):
-            lines.append(f"### Paso {step_n} {{#cap-paso-{step_n}}}\n\n")
+            # Formato Pandoc para anclas: usar formato más explícito
+            # Las llaves dobles {{ se escapan a una sola {
+            anchor_id = f"cap-paso-{step_n}"
+            lines.append(f"### Paso {step_n} {{#{anchor_id}}}\n\n")
             for img in captures_clean[step_n]:
-                lines.append(f"![{img['title']}]({img['path']})\n\n")
+                img_title = img.get("title", "").strip() or f"Captura del paso {step_n}"
+                # Título descriptivo antes de la imagen (en negrita)
+                lines.append(f"**{img_title}**\n\n")
+                # Imagen con alt text descriptivo
+                lines.append(f"![{img_title}]({img['path']})\n\n")
+            # Separador visual entre pasos (opcional, ayuda a la legibilidad)
+            lines.append("---\n\n")
 
     # EVIDENCIA VISUAL (imágenes sueltas)
     if evidence_clean:

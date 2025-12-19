@@ -200,3 +200,76 @@ async def get_process_run(run_id: str):
     # Por ahora devolvemos un error 404
     raise HTTPException(status_code=404, detail=f"Run {run_id} no encontrada")
 
+
+@router.post("/{run_id}/generate-pdf")
+async def generate_pdf_from_run(run_id: str):
+    """
+    Genera un PDF desde un run existente (sin ejecutar el pipeline completo).
+
+    Este endpoint es más rápido y económico que crear un nuevo run, ya que:
+    - No requiere llamadas a OpenAI
+    - Solo ejecuta Pandoc para convertir Markdown a PDF
+    - Reutiliza el markdown y las imágenes ya generadas
+
+    Args:
+        run_id: ID de la corrida existente
+
+    Returns:
+        JSON con la URL del PDF generado
+
+    Raises:
+        404: Si el run_id no existe o no tiene markdown
+        500: Si falla la generación del PDF
+    """
+    settings = get_settings()
+    run_dir = Path(settings.output_dir) / run_id
+    md_path = run_dir / "process.md"
+
+    # Verificar que el run existe y tiene markdown
+    if not run_dir.exists():
+        raise HTTPException(
+            status_code=404, detail=f"Run {run_id} no encontrado"
+        )
+
+    if not md_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=f"Markdown no encontrado para run {run_id}. El run debe tener un process.md generado.",
+        )
+
+    # Generar PDF
+    try:
+        from process_ai_core.export import export_pdf
+
+        pdf_path = export_pdf(
+            run_dir=run_dir,
+            md_path=md_path,
+            pdf_name="process.pdf",
+        )
+
+        return {
+            "run_id": run_id,
+            "status": "completed",
+            "pdf_url": f"/api/v1/artifacts/{run_id}/process.pdf",
+            "message": "PDF generado exitosamente",
+        }
+
+    except FileNotFoundError as e:
+        # Pandoc no está instalado
+        raise HTTPException(
+            status_code=500,
+            detail=f"Pandoc no está instalado o no está en PATH: {str(e)}",
+        ) from e
+    except RuntimeError as e:
+        # Error al generar PDF (LaTeX, imágenes faltantes, etc.)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error al generar PDF: {str(e)}",
+        ) from e
+    except Exception as e:
+        # Error inesperado
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error inesperado al generar PDF: {str(e)}",
+        ) from e
+

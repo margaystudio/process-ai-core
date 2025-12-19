@@ -101,11 +101,18 @@ class PdfPandocExporter:
         # ✅ SIEMPRE regenerar header (evita que quede uno viejo sin graphicx/float)
         # `graphicx` => soporte de imágenes
         # `float`    => soporte figure[H] (si usás raw_tex para fijar posición)
+        # `xcolor`   => soporte de colores (útil para tablas y texto)
+        # Configuración para mejorar el renderizado de imágenes
         header_tex = run_dir / "pandoc_header.tex"
-        header_tex.write_text(
-            "\\usepackage{graphicx}\n\\usepackage{float}\n",
-            encoding="utf-8",
-        )
+        header_content = """\\usepackage{graphicx}
+\\usepackage{float}
+\\usepackage{xcolor}
+% Configuración para imágenes: permitir rutas relativas y mejorar calidad
+\\graphicspath{{./}}
+% Configuración para que las imágenes se ajusten al ancho de página manteniendo aspecto
+\\setkeys{Gin}{width=0.9\\textwidth,height=0.9\\textheight,keepaspectratio}
+"""
+        header_tex.write_text(header_content, encoding="utf-8")
 
         # ✅ DEBUG (útil mientras estabilizás el pipeline)
         print(f"🧾 Pandoc header: {header_tex.resolve()}")
@@ -123,6 +130,10 @@ class PdfPandocExporter:
             "--pdf-engine=xelatex",
             "--include-in-header",
             str(header_tex.name),
+            # Mejorar renderizado de imágenes
+            "--wrap=none",  # No envolver líneas (preserva formato)
+            # Permitir rutas relativas para imágenes
+            "--resource-path=.",  # Buscar recursos (imágenes) en el directorio actual
         ]
 
         # ✅ DEBUG (útil mientras estabilizás el pipeline)

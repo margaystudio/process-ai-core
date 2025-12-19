@@ -135,6 +135,7 @@ def run_process_pipeline(
         profile,
         images_by_step=images_by_step,
         evidence_images=evidence_images,
+        output_base=output_base,  # Para validar que las imágenes existan
     )
 
     return ProcessRunResult(
