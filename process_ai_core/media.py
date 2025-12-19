@@ -35,6 +35,7 @@ import subprocess
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
+from .config import get_settings
 from .llm_client import (
     plan_steps_from_transcript_segments,
     select_best_frame_for_step,
@@ -48,20 +49,26 @@ from .domain_models import EnrichedAsset, RawAsset
 # Helpers de filesystem y ffmpeg
 # ============================================================
 
-def _ensure_output_assets_dir() -> Path:
+def _ensure_output_assets_dir(output_base: Path | None = None) -> Path:
     """
     Asegura la existencia del directorio base donde se guardan
     todos los assets generados automáticamente.
 
-    Ruta:
-        output/assets/
+    Args:
+        output_base: Directorio base opcional. Si se especifica, los assets
+                     se copian ahí. Si es None, usa settings.output_dir/assets/
 
     Returns:
-        Path al directorio output/assets
+        Path al directorio de assets
     """
-    out = Path("output") / "assets"
-    out.mkdir(parents=True, exist_ok=True)
-    return out
+    if output_base:
+        assets_dir = output_base / "assets"
+    else:
+        settings = get_settings()
+        assets_dir = Path(settings.output_dir) / settings.assets_dir
+    
+    assets_dir.mkdir(parents=True, exist_ok=True)
+    return assets_dir
 
 
 def _ffmpeg_extract_audio(video_path: Path, out_audio: Path) -> None:
@@ -179,6 +186,7 @@ def _join_segments_text(segments: List[Dict[str, Any]]) -> str:
 
 def enrich_assets(
     raw_assets: List[RawAsset],
+    output_base: Path | None = None,
 ) -> tuple[List[EnrichedAsset], Dict[int, List[Dict[str, str]]], List[Dict[str, str]]]:
     """
     Enriquecimiento central de assets.
@@ -213,8 +221,9 @@ def enrich_assets(
     images_by_step: Dict[int, List[Dict[str, str]]] = {}
     evidence_images: List[Dict[str, str]] = []
 
-    output_assets = _ensure_output_assets_dir()
-    evidence_dir = output_assets / "evidence"
+    settings = get_settings()
+    output_assets = _ensure_output_assets_dir(output_base)
+    evidence_dir = output_assets / settings.evidence_dir
     evidence_dir.mkdir(parents=True, exist_ok=True)
 
     # Debug de conteo inicial

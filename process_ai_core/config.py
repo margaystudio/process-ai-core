@@ -87,6 +87,10 @@ class Settings:
     # I/O
     input_dir: str = "input"
     output_dir: str = "output"
+    
+    # Rutas relativas para assets (desde output_dir)
+    assets_dir: str = "assets"  # output/assets/
+    evidence_dir: str = "evidence"  # output/assets/evidence/
 
 
 @lru_cache

@@ -66,6 +66,7 @@ def run_process_pipeline(
     raw_assets: Sequence[RawAsset],
     profile: DocumentProfile,
     context_block: str | None = None,
+    output_base: Path | None = None,
 ) -> ProcessRunResult:
     """
     Ejecuta el pipeline principal de documentación de procesos (sin I/O de archivos).
@@ -114,7 +115,9 @@ def run_process_pipeline(
             Diccionario tipado con JSON, modelo parseado, Markdown y metadatos de imágenes.
     """
     # 1) Enriquecer assets
-    enriched, images_by_step, evidence_images = enrich_assets(list(raw_assets))
+    enriched, images_by_step, evidence_images = enrich_assets(
+        list(raw_assets), output_base=output_base
+    )
 
     # 2) Construir prompt
     prompt_body = build_prompt_from_enriched(process_name, enriched)
