@@ -414,16 +414,67 @@ def select_best_frame_for_step(
 
 
 # ============================================================
-# Generación del documento de proceso
+# Generación de documentos (genérico)
+# ============================================================
+
+def generate_document_json(
+    prompt: str,
+    system_prompt: str,
+    user_message_prefix: str = "A continuación tenés el material bruto (texto, transcripciones, notas). "
+    "Leelo y generá el documento en formato JSON, siguiendo "
+    "estrictamente el esquema indicado en las instrucciones.\n\n",
+    temperature: float = 0.2,
+) -> str:
+    """
+    Genera el JSON final de un documento a partir de un prompt largo (genérico).
+
+    - Usa instrucciones de sistema proporcionadas (pueden ser específicas del dominio).
+    - Devuelve texto JSON (string), no parseado.
+    - El parseo y validación se hacen en otra capa.
+
+    Args:
+        prompt:
+            Prompt completo (contexto + transcripciones + evidencia).
+        system_prompt:
+            Prompt del sistema que define el rol y comportamiento del LLM.
+        user_message_prefix:
+            Prefijo del mensaje del usuario (puede personalizarse por dominio).
+        temperature:
+            Temperatura para la generación (default: 0.2).
+
+    Returns:
+        str:
+            JSON generado por el modelo (string).
+    """
+    settings = get_settings()
+    client = get_client()
+
+    completion = client.chat.completions.create(
+        model=settings.openai_model_text,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {
+                "role": "user",
+                "content": user_message_prefix + prompt,
+            },
+        ],
+        response_format={"type": "json_object"},
+        temperature=temperature,
+    )
+
+    return completion.choices[0].message.content or "{}"
+
+
+# ============================================================
+# Generación del documento de proceso (compatibilidad)
 # ============================================================
 
 def generate_process_document_json(prompt: str) -> str:
     """
-    Genera el JSON final del documento de proceso a partir de un prompt largo.
+    Genera el JSON final del documento de proceso (función de compatibilidad).
 
-    - Usa instrucciones de sistema estrictas (schema fijo).
-    - Devuelve texto JSON (string), no parseado.
-    - El parseo y validación se hacen en otra capa.
+    Esta función mantiene compatibilidad con código existente.
+    Internamente usa `generate_document_json` con el prompt específico de procesos.
 
     Args:
         prompt:
@@ -433,27 +484,13 @@ def generate_process_document_json(prompt: str) -> str:
         str:
             JSON generado por el modelo (string).
     """
-    settings = get_settings()
-    client = get_client()
-
     system_instructions = get_process_doc_system_prompt(language_style="es_uy_formal")
-
-    completion = client.chat.completions.create(
-        model=settings.openai_model_text,
-        messages=[
-            {"role": "system", "content": system_instructions},
-            {
-                "role": "user",
-                "content": (
-                    "A continuación tenés el material bruto (texto, transcripciones, notas). "
-                    "Leelo y generá el documento de proceso en formato JSON, siguiendo "
-                    "estrictamente el esquema indicado en las instrucciones.\n\n"
-                    + prompt
-                ),
-            },
-        ],
-        response_format={"type": "json_object"},
-        temperature=0.2,
+    return generate_document_json(
+        prompt=prompt,
+        system_prompt=system_instructions,
+        user_message_prefix=(
+            "A continuación tenés el material bruto (texto, transcripciones, notas). "
+            "Leelo y generá el documento de proceso en formato JSON, siguiendo "
+            "estrictamente el esquema indicado en las instrucciones.\n\n"
+        ),
     )
-
-    return completion.choices[0].message.content

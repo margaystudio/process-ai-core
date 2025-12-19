@@ -4,7 +4,7 @@ from __future__ import annotations
 process_ai_core.engine
 ======================
 
-Orquestador de alto nivel del pipeline de documentación de procesos.
+Orquestador de alto nivel del pipeline de documentación (genérico).
 
 Este módulo expone una **API interna** y estable para correr el flujo completo
 del core (ingest → enrich → LLM → parse → render), sin preocuparse por:
@@ -12,6 +12,7 @@ del core (ingest → enrich → LLM → parse → render), sin preocuparse por:
 - HTTP
 - frameworks web
 - detalles de CLI
+- dominio específico (procesos, recetas, etc.)
 
 La idea es que:
 
@@ -19,24 +20,21 @@ La idea es que:
 - Futuras APIs HTTP (FastAPI, etc.) también llamen a este módulo.
 - La UI web NUNCA hable directo con `media.py` / `llm_client.py`, sino con una
   capa backend que use este engine.
+- Cualquier dominio (procesos, recetas, etc.) puede usar el engine genérico.
 """
 
-from typing import Dict, List, Sequence, TypedDict
+from pathlib import Path
+from typing import Any, Dict, List, Sequence, TypedDict
 
-from .document_profiles import DocumentProfile
-from .domain_models import EnrichedAsset, ProcessDocument, RawAsset
-from .doc_engine import (
-    build_prompt_from_enriched,
-    parse_process_document,
-    render_markdown,
-)
-from .llm_client import generate_process_document_json
+from .core.abstractions import DocumentBuilder, DocumentRenderer
+from .domain_models import EnrichedAsset, RawAsset
+from .llm_client import generate_document_json
 from .media import enrich_assets
 
 
-class ProcessRunResult(TypedDict):
+class DocumentRunResult(TypedDict):
     """
-    Resultado de una corrida completa del pipeline.
+    Resultado de una corrida completa del pipeline (genérico).
 
     Esta estructura es deliberadamente simple y serializable, pensada para:
     - Devolver datos a una capa HTTP.
@@ -47,8 +45,8 @@ class ProcessRunResult(TypedDict):
     json_str: str
     """JSON crudo devuelto por el LLM (string)."""
 
-    doc: ProcessDocument
-    """Documento de proceso parseado (fuente de verdad tipada para el core)."""
+    doc: Any
+    """Documento parseado (fuente de verdad tipada, específico del dominio)."""
 
     markdown: str
     """Markdown final renderizado según el perfil indicado."""
@@ -60,16 +58,18 @@ class ProcessRunResult(TypedDict):
     """Imágenes sueltas de evidencia aportadas por el usuario."""
 
 
-def run_process_pipeline(
+def run_documentation_pipeline(
     *,
-    process_name: str,
+    document_name: str,
     raw_assets: Sequence[RawAsset],
-    profile: DocumentProfile,
+    builder: DocumentBuilder,
+    renderer: DocumentRenderer,
+    profile: Any,  # Perfil específico del dominio
     context_block: str | None = None,
     output_base: Path | None = None,
-) -> ProcessRunResult:
+) -> DocumentRunResult:
     """
-    Ejecuta el pipeline principal de documentación de procesos (sin I/O de archivos).
+    Ejecuta el pipeline genérico de documentación (funciona para cualquier dominio).
 
     Flujo:
     ------
@@ -80,70 +80,137 @@ def run_process_pipeline(
        - text   → lectura directa
 
     2) Construcción de prompt:
-       - `build_prompt_from_enriched(process_name, enriched_assets)`
+       - `builder.build_prompt(document_name, enriched_assets)`
        - opcionalmente se antepone `context_block` si se provee.
 
     3) Llamada al LLM:
-       - `generate_process_document_json(prompt)` → JSON con el documento.
+       - `generate_document_json(prompt, builder.get_system_prompt())` → JSON.
 
     4) Parsing:
-       - `parse_process_document(json_str)` → `ProcessDocument`.
+       - `builder.parse_document(json_str)` → modelo tipado del dominio.
 
     5) Render:
-       - `render_markdown(doc, profile, images_by_step, evidence_images)` → Markdown.
-
-    NOTA IMPORTANTE:
-    ----------------
-    - Esta función NO escribe archivos en disco.
-    - El export a PDF (Pandoc) y la persistencia quedan a cargo de la capa llamadora
-      (CLI, API HTTP, scripts, etc.).
+       - `renderer.render_markdown(doc, profile, images_by_step, evidence_images)` → Markdown.
 
     Args:
-        process_name:
-            Nombre humano del proceso (se usa en el prompt y en el título del documento).
+        document_name:
+            Nombre del documento (ej: "Proceso X", "Receta Y").
         raw_assets:
-            Lista de `RawAsset` descubiertos (desde filesystem, upload, DB, etc.).
+            Lista de `RawAsset` descubiertos.
+        builder:
+            Builder específico del dominio (implementa DocumentBuilder).
+        renderer:
+            Renderer específico del dominio (implementa DocumentRenderer).
         profile:
-            `DocumentProfile` que controla cómo se renderiza el Markdown (operativo/gestión).
+            Perfil de renderizado específico del dominio.
         context_block:
-            Bloque de texto opcional para anteponer al prompt principal. Suele provenir
-            de catálogos/DB (`prompt_context.build_context_block`) o de preferencias
-            elegidas en la UI.
+            Bloque de texto opcional para anteponer al prompt principal.
+        output_base:
+            Directorio base para validar rutas de imágenes.
 
     Returns:
-        ProcessRunResult:
+        DocumentRunResult:
             Diccionario tipado con JSON, modelo parseado, Markdown y metadatos de imágenes.
     """
-    # 1) Enriquecer assets
+    # 1) Enriquecer assets (genérico)
     enriched, images_by_step, evidence_images = enrich_assets(
         list(raw_assets), output_base=output_base
     )
+    # Asegurar que siempre sean dict/list (no None)
+    images_by_step = images_by_step or {}
+    evidence_images = evidence_images or []
 
-    # 2) Construir prompt
-    prompt_body = build_prompt_from_enriched(process_name, enriched)
+    # 2) Construir prompt (específico del dominio)
+    prompt_body = builder.build_prompt(document_name, enriched)
     prompt = f"{context_block}{prompt_body}" if context_block else prompt_body
 
-    # 3) LLM → JSON
-    json_str = generate_process_document_json(prompt)
-
-    # 4) Parse a modelo tipado
-    doc = parse_process_document(json_str)
-
-    # 5) Render Markdown final
-    markdown = render_markdown(
-        doc,
-        profile,
-        images_by_step=images_by_step,
-        evidence_images=evidence_images,
-        output_base=output_base,  # Para validar que las imágenes existan
+    # 3) LLM → JSON (genérico, pero usa system prompt del dominio)
+    json_str = generate_document_json(
+        prompt=prompt,
+        system_prompt=builder.get_system_prompt(),
     )
 
-    return ProcessRunResult(
+    # 4) Parsear (específico del dominio)
+    doc = builder.parse_document(json_str)
+
+    # 5) Renderizar (específico del dominio)
+    markdown = renderer.render_markdown(
+        document=doc,
+        profile=profile,
+        images_by_step=images_by_step or {},
+        evidence_images=evidence_images or [],
+        output_base=output_base,
+    )
+
+    return DocumentRunResult(
         json_str=json_str,
         doc=doc,
         markdown=markdown,
         images_by_step=images_by_step,
         evidence_images=evidence_images,
     )
+
+
+# ============================================================
+# Funciones de compatibilidad (procesos)
+# ============================================================
+
+def run_process_pipeline(
+    *,
+    process_name: str,
+    raw_assets: Sequence[RawAsset],
+    profile: Any,  # DocumentProfile
+    context_block: str | None = None,
+    output_base: Path | None = None,
+) -> Dict[str, Any]:
+    """
+    Ejecuta el pipeline de documentación de procesos (función de compatibilidad).
+
+    Esta función mantiene compatibilidad con código existente.
+    Internamente usa `run_documentation_pipeline` con el builder/renderer de procesos.
+
+    Args:
+        process_name:
+            Nombre del proceso.
+        raw_assets:
+            Lista de `RawAsset` descubiertos.
+        profile:
+            `DocumentProfile` que controla cómo se renderiza el Markdown.
+        context_block:
+            Bloque de texto opcional para anteponer al prompt principal.
+        output_base:
+            Directorio base para validar rutas de imágenes.
+
+    Returns:
+        Dict con JSON, modelo parseado, Markdown y metadatos de imágenes.
+    """
+    from .domains.processes.builder import ProcessBuilder
+    from .domains.processes.renderer import ProcessRenderer
+
+    builder = ProcessBuilder()
+    renderer = ProcessRenderer()
+
+    result = run_documentation_pipeline(
+        document_name=process_name,
+        raw_assets=raw_assets,
+        builder=builder,
+        renderer=renderer,
+        profile=profile,
+        context_block=context_block,
+        output_base=output_base,
+    )
+
+    # Mantener compatibilidad con el tipo ProcessRunResult
+    return {
+        "json_str": result["json_str"],
+        "doc": result["doc"],
+        "markdown": result["markdown"],
+        "images_by_step": result["images_by_step"],
+        "evidence_images": result["evidence_images"],
+    }
+
+
+# Alias para compatibilidad
+ProcessRunResult = DocumentRunResult
 
 

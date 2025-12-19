@@ -196,10 +196,209 @@ class RecipeBuilder:
 ✅ **Mantenibilidad**: Cambios en un dominio no afectan a otros
 ✅ **Testing**: Se puede testear el core genérico independientemente
 
+## Modelo de Datos Multi-Dominio
+
+### Problema
+
+- **Documentación de procesos**: Necesita `Client` (organización) → `Process` → `Run`
+- **Recetas**: ¿Necesita `User` individual? ¿`Community`? ¿`Chef`?
+
+### Solución: Workspace Genérico
+
+Refactorizar el modelo actual para usar un concepto genérico de **Workspace** (tenant) que puede representar:
+
+1. **Organización/Cliente** (para procesos)
+2. **Usuario individual** (para recetas personales)
+3. **Comunidad/Grupo** (para recetas compartidas)
+
+```python
+# db/models.py (genérico)
+
+class Workspace(Base):
+    """
+    Workspace genérico (tenant) que puede ser:
+    - Una organización/cliente (para procesos)
+    - Un usuario individual (para recetas personales)
+    - Una comunidad/grupo (para recetas compartidas)
+    """
+    __tablename__ = "workspaces"
+    
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    slug: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(200))
+    
+    # Tipo de workspace
+    workspace_type: Mapped[str] = mapped_column(String(20))  # "organization" | "user" | "community"
+    
+    # Metadata genérica (JSON flexible)
+    metadata_json: Mapped[str] = mapped_column(Text, default="{}")
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    
+    # Relaciones genéricas
+    documents: Mapped[list["Document"]] = relationship(back_populates="workspace")
+
+
+class Document(Base):
+    """
+    Documento genérico que puede ser:
+    - Process (para dominio de procesos)
+    - Recipe (para dominio de recetas)
+    """
+    __tablename__ = "documents"
+    
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    workspace_id: Mapped[str] = mapped_column(String(36), ForeignKey("workspaces.id"), index=True)
+    
+    # Tipo de documento (determina qué dominio usar)
+    domain: Mapped[str] = mapped_column(String(20))  # "process" | "recipe"
+    
+    # Nombre del documento
+    name: Mapped[str] = mapped_column(String(200))
+    description: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(20), default="draft")
+    
+    # Metadata específica del dominio (JSON)
+    domain_metadata_json: Mapped[str] = mapped_column(Text, default="{}")
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    
+    # Relaciones
+    workspace: Mapped["Workspace"] = relationship(back_populates="documents")
+    runs: Mapped[list["Run"]] = relationship(back_populates="document")
+
+
+class Run(Base):
+    """
+    Ejecución genérica del motor (funciona para cualquier dominio).
+    """
+    __tablename__ = "runs"
+    
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    document_id: Mapped[str] = mapped_column(String(36), ForeignKey("documents.id"), index=True)
+    
+    # Dominio de esta ejecución
+    domain: Mapped[str] = mapped_column(String(20))  # "process" | "recipe"
+    
+    # Perfil usado (específico del dominio)
+    profile: Mapped[str] = mapped_column(String(50), default="")
+    
+    # Inputs de la corrida
+    input_manifest_json: Mapped[str] = mapped_column(Text, default="{}")
+    
+    # Trazabilidad
+    prompt_hash: Mapped[str] = mapped_column(String(64), default="")
+    model_text: Mapped[str] = mapped_column(String(100), default="")
+    model_transcribe: Mapped[str] = mapped_column(String(100), default="")
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    
+    # Relaciones
+    document: Mapped["Document"] = relationship(back_populates="runs")
+    artifacts: Mapped[list["Artifact"]] = relationship(back_populates="run")
+```
+
+### Modelo Específico: Recetas
+
+Para el dominio de recetas, el `Workspace` puede ser:
+
+```python
+# Ejemplo: Workspace para recetas
+workspace = Workspace(
+    workspace_type="user",  # Usuario individual
+    name="Juan Pérez",
+    slug="juan-perez",
+    metadata_json='{"preferences": {"cuisine": "italian", "diet": "vegetarian"}}'
+)
+
+# O para una comunidad:
+workspace = Workspace(
+    workspace_type="community",
+    name="Chefs Uruguayos",
+    slug="chefs-uy",
+    metadata_json='{"members": [...], "visibility": "public"}'
+)
+
+# Documento de receta
+document = Document(
+    domain="recipe",
+    name="Pasta Carbonara",
+    workspace_id=workspace.id,
+    domain_metadata_json='{"cuisine": "italian", "difficulty": "medium", "servings": 4}'
+)
+```
+
+### Modelo Específico: Procesos
+
+Para procesos, el `Workspace` es una organización:
+
+```python
+# Workspace para procesos
+workspace = Workspace(
+    workspace_type="organization",
+    name="Acme Corp",
+    slug="acme",
+    metadata_json='{"business_type": "retail", "country": "UY"}'
+)
+
+# Documento de proceso
+document = Document(
+    domain="process",
+    name="Recepción de mercadería",
+    workspace_id=workspace.id,
+    domain_metadata_json='{"process_type": "operativo", "audience": "pistero"}'
+)
+```
+
+### Usuarios y Autenticación
+
+```python
+class User(Base):
+    """Usuario del sistema (autenticación/autorización)."""
+    __tablename__ = "users"
+    
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    email: Mapped[str] = mapped_column(String(200), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(200))
+    
+    # Relación con workspaces (un usuario puede tener múltiples workspaces)
+    workspace_memberships: Mapped[list["WorkspaceMembership"]] = relationship()
+
+
+class WorkspaceMembership(Base):
+    """Relación muchos-a-muchos entre User y Workspace."""
+    __tablename__ = "workspace_memberships"
+    
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), index=True)
+    workspace_id: Mapped[str] = mapped_column(String(36), ForeignKey("workspaces.id"), index=True)
+    
+    # Rol del usuario en el workspace
+    role: Mapped[str] = mapped_column(String(20))  # "owner" | "admin" | "member" | "viewer"
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+```
+
+### Ventajas de este Modelo
+
+✅ **Genérico**: Un solo modelo funciona para ambos dominios
+✅ **Flexible**: `metadata_json` permite campos específicos sin migraciones
+✅ **Escalable**: Fácil agregar nuevos dominios (ej: "tutorials", "manuals")
+✅ **Multi-tenant**: Soporta organizaciones, usuarios individuales y comunidades
+✅ **Colaboración**: `WorkspaceMembership` permite compartir documentos
+
+### Migración
+
+1. **Fase 1**: Crear nuevas tablas (`Workspace`, `Document`, `User`, `WorkspaceMembership`)
+2. **Fase 2**: Migrar datos de `Client` → `Workspace`, `Process` → `Document`
+3. **Fase 3**: Deprecar tablas viejas (mantener compatibilidad temporal)
+4. **Fase 4**: Eliminar tablas viejas
+
 ## Consideraciones
 
 - Los modelos genéricos (`RawAsset`, `EnrichedAsset`) quedan en el root
 - `llm_client.py` puede necesitar ser genérico (no solo `generate_process_document_json`)
 - Los perfiles de documento son específicos de cada dominio
 - La API HTTP puede tener endpoints por dominio o un endpoint genérico con parámetro de dominio
+- El modelo de datos usa `Workspace` genérico en lugar de `Client` específico
 

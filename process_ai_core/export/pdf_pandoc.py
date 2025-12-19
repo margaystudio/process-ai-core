@@ -111,6 +111,9 @@ class PdfPandocExporter:
 \\graphicspath{{./}}
 % Configuración para que las imágenes se ajusten al ancho de página manteniendo aspecto
 \\setkeys{Gin}{width=0.9\\textwidth,height=0.9\\textheight,keepaspectratio}
+% Evitar que las imágenes floten - mantenerlas en su posición
+\\usepackage{placeins}
+\\FloatBarrier
 """
         header_tex.write_text(header_content, encoding="utf-8")
 
