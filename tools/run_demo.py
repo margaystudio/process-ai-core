@@ -7,13 +7,7 @@ from typing import List
 
 from process_ai_core.config import get_settings
 from process_ai_core.domain_models import RawAsset
-from process_ai_core.media import enrich_assets
-from process_ai_core.doc_engine import (
-    build_prompt_from_enriched,
-    parse_process_document,
-    render_markdown,
-)
-from process_ai_core.llm_client import generate_process_document_json
+from process_ai_core.engine import run_process_pipeline
 from process_ai_core.document_profiles import get_profile
 from process_ai_core.export import export_pdf
 
@@ -231,10 +225,7 @@ def main() -> None:
     if not raw_assets:
         raise SystemExit(f"No encontré archivos en {input_dir}/(audio|video|evidence|text)")
 
-    # Enriquecer: transcripción, extracción de frames y recopilación de evidencia.
-    enriched, images_by_step, evidence_images = enrich_assets(raw_assets)
-
-    # Instrucciones adicionales de estilo/audiencia.
+    # Instrucciones adicionales de estilo/audiencia (bloque de contexto para el prompt).
     context_block = build_context_block(
         mode=args.mode,
         audience=args.audience.strip() or None,
@@ -242,26 +233,22 @@ def main() -> None:
         formality=args.formality.strip() or None,
     )
 
-    # Prompt principal basado en assets enriquecidos.
-    prompt_body = build_prompt_from_enriched(args.process_name, enriched)
-    prompt = context_block + prompt_body
+    profile = get_profile(args.mode)
 
-    # Generación del JSON (salida del modelo, validada por schema desde el system prompt).
-    json_str = generate_process_document_json(prompt)
+    # Ejecutar el pipeline completo (ingesta ya se hizo; acá enriquecemos, generamos JSON y renderizamos MD).
+    result = run_process_pipeline(
+        process_name=args.process_name,
+        raw_assets=raw_assets,
+        profile=profile,
+        context_block=context_block,
+    )
+
+    json_str = result["json_str"]
 
     json_path = output_dir / f"proceso_{args.mode}.json"
     json_path.write_text(json_str, encoding="utf-8")
 
-    # Parse y render.
-    doc = parse_process_document(json_str)
-    profile = get_profile(args.mode)
-
-    md = render_markdown(
-        doc,
-        profile,
-        images_by_step=images_by_step,
-        evidence_images=evidence_images,
-    )
+    md = result["markdown"]
     md_path = output_dir / f"proceso_{args.mode}.md"
     md_path.write_text(md, encoding="utf-8")
 

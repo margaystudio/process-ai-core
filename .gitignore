@@ -6,22 +6,3 @@ output/
 .idea/
 .vscode/
 var/
-
-# macOS
-.DS_Store
-
-# Database files
-data/
-*.sqlite
-*.db
-
-# Build artifacts
-*.egg-info/
-dist/
-build/
-
-# Temporary files
-archivos/
-
-# Editor config
-.cursor/

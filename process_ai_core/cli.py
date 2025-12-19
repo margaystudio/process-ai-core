@@ -33,11 +33,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from .config import get_settings
-from .doc_engine import build_prompt_from_enriched, parse_process_document, render_markdown
+from .document_profiles import get_profile
+from .engine import run_process_pipeline
 from .export import export_pdf  # Import dentro del paquete
 from .ingest import discover_raw_assets
-from .llm_client import generate_process_document_json
-from .media import enrich_assets
 
 
 def main() -> None:
@@ -64,70 +63,19 @@ def main() -> None:
     if not raw_assets:
         raise RuntimeError("No se encontraron insumos en la carpeta input/.")
 
-    # 1) Enriquecer assets (transcribir / copiar imágenes a output/assets / etc.)
-    #
-    # Contrato esperado:
-    # - Devuelve una lista de EnrichedAsset con extracted_text listo para prompt.
-    # - Para imágenes generadas desde video, suele incluir metadata.paso_sugerido.
-    enriched = enrich_assets(raw_assets)
+    # 1) Seleccionar un perfil de documento simple (por defecto usamos gestión)
+    profile = get_profile("gestion")
 
-    # 2) Construir prompt
-    process_name = "Proceso demo generado por process_ai_core"
-    prompt = build_prompt_from_enriched(process_name, enriched)
+    # 2) Ejecutar el pipeline completo en memoria (sin I/O de archivos)
+    result = run_process_pipeline(
+        process_name="Proceso demo generado por process_ai_core",
+        raw_assets=raw_assets,
+        profile=profile,
+        context_block=None,
+    )
 
-    # 3) LLM: generar JSON (documento estructurado)
-    json_str = generate_process_document_json(prompt)
-
-    # 4) Parse + render Markdown
-    doc = parse_process_document(json_str)
-
-    # ------------------------------------------------------------
-    # Construcción de images_by_step (compatibilidad / demo)
-    # ------------------------------------------------------------
-    # Este bloque intenta mapear imágenes a pasos cuando:
-    # - el EnrichedAsset es kind="image"
-    # - y viene metadata.paso_sugerido (normalmente inferido desde video)
-    #
-    # Para demos: extraemos la ruta 'assets/...' desde extracted_text.
-    # En una versión más prolija, esa ruta debería venir en metadata directamente.
-    images_by_step: dict[int, list[dict[str, str]]] = {}
-
-    for a in enriched:
-        if a.kind != "image":
-            continue
-
-        paso = a.metadata.get("paso_sugerido")
-        if not paso:
-            continue
-
-        try:
-            paso_i = int(paso)
-        except ValueError:
-            # Si alguien puso "paso_3" o algo no numérico, lo ignoramos
-            continue
-
-        # Extraer assets/<archivo> desde extracted_text (porque tu pipeline lo genera así):
-        # "[IMAGEN:...] ... archivo='assets/loquesea.png'"
-        import re
-
-        m = re.search(r"archivo='([^']+)'", a.extracted_text or "")
-        if not m:
-            continue
-
-        images_by_step.setdefault(paso_i, []).append(
-            {
-                "title": a.metadata.get("titulo", f"Imagen paso {paso_i}"),
-                "path": m.group(1),
-            }
-        )
-
-    # Render Markdown.
-    #
-    # NOTA:
-    # Si tu `render_markdown` actual requiere `profile` o soporta además
-    # `evidence_images`, este CLI puede quedar desactualizado. En ese caso,
-    # usá el runner más nuevo (tools/run_demo.py) o ajustá esta llamada.
-    md = render_markdown(doc, images_by_step=images_by_step)
+    json_str = result["json_str"]
+    md = result["markdown"]
 
     # 5) Persistir outputs
     output_dir = Path(settings.output_dir)
