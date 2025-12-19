@@ -14,9 +14,18 @@ pip install fastapi pydantic uvicorn[standard]
 
 ## Ejecución
 
+**IMPORTANTE**: Ejecutar desde la raíz del proyecto (donde está la carpeta `api/`)
+
 ```bash
-# Desde la raíz del proyecto
+# Opción 1: Usar el script helper
+./run_api.sh
+
+# Opción 2: Ejecutar manualmente desde la raíz
+cd /path/to/process-ai-core
 uvicorn api.main:app --reload --port 8000
+
+# Opción 3: Si estás en otro directorio, especificar el path
+PYTHONPATH=/path/to/process-ai-core uvicorn api.main:app --reload --port 8000
 ```
 
 La API estará disponible en `http://localhost:8000`
