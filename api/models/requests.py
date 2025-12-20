@@ -143,13 +143,34 @@ class FolderResponse(BaseModel):
     created_at: str = Field(..., description="Fecha de creación")
 
 
+class DocumentUpdateRequest(BaseModel):
+    """Request para actualizar un documento."""
+
+    name: Optional[str] = Field(default=None, description="Nombre del documento")
+    description: Optional[str] = Field(default=None, description="Descripción del documento")
+    status: Optional[str] = Field(default=None, description="Estado: draft|active|archived")
+    folder_id: Optional[str] = Field(default=None, description="ID de la carpeta")
+    
+    # Campos específicos de Process
+    audience: Optional[str] = Field(default=None, description="Audiencia (operativo|gestion)")
+    detail_level: Optional[str] = Field(default=None, description="Nivel de detalle")
+    context_text: Optional[str] = Field(default=None, description="Contexto libre")
+    
+    # Campos específicos de Recipe
+    cuisine: Optional[str] = Field(default=None, description="Tipo de cocina")
+    difficulty: Optional[str] = Field(default=None, description="Dificultad")
+    servings: Optional[int] = Field(default=None, description="Porciones")
+    prep_time: Optional[str] = Field(default=None, description="Tiempo de preparación")
+    cook_time: Optional[str] = Field(default=None, description="Tiempo de cocción")
+
+
 class DocumentResponse(BaseModel):
     """Response de un documento."""
 
     id: str = Field(..., description="ID único del documento")
     workspace_id: str = Field(..., description="ID del workspace")
     folder_id: Optional[str] = Field(default=None, description="ID de la carpeta")
-    domain: str = Field(..., description="Dominio: process|recipe")
+    document_type: str = Field(..., description="Tipo: process|recipe")
     name: str = Field(..., description="Nombre del documento")
     description: str = Field(..., description="Descripción")
     status: str = Field(..., description="Estado: draft|active|archived")

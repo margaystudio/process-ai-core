@@ -68,11 +68,26 @@ export interface Document {
   id: string;
   workspace_id: string;
   folder_id?: string;
-  domain: string;
+  document_type: string;
   name: string;
   description: string;
   status: string;
   created_at: string;
+}
+
+export interface DocumentUpdateRequest {
+  name?: string;
+  description?: string;
+  status?: string;
+  folder_id?: string;
+  audience?: string;
+  detail_level?: string;
+  context_text?: string;
+  cuisine?: string;
+  difficulty?: string;
+  servings?: number;
+  prep_time?: string;
+  cook_time?: string;
 }
 
 export interface FolderCreateRequest {
@@ -316,6 +331,62 @@ export async function listDocuments(workspaceId: string, folderId?: string, docu
   }
 
   const response = await fetch(url.toString());
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
+    throw new Error(error.detail || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Obtiene los runs de un documento.
+ */
+export async function getDocumentRuns(documentId: string): Promise<Array<{
+  run_id: string;
+  created_at: string;
+  artifacts: {
+    json?: string;
+    md?: string;
+    pdf?: string;
+  };
+}>> {
+  const response = await fetch(`${API_URL}/api/v1/documents/${documentId}/runs`);
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
+    throw new Error(error.detail || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Obtiene un documento por ID.
+ */
+export async function getDocument(documentId: string): Promise<Document> {
+  const response = await fetch(`${API_URL}/api/v1/documents/${documentId}`);
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
+    throw new Error(error.detail || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Actualiza un documento.
+ */
+export async function updateDocument(documentId: string, request: DocumentUpdateRequest): Promise<Document> {
+  const response = await fetch(`${API_URL}/api/v1/documents/${documentId}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(request),
+  });
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));

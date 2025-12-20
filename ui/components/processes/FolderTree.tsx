@@ -156,15 +156,16 @@ function FolderTreeNode({
             </div>
           ) : displayDocs.length > 0 ? (
             displayDocs.map(doc => (
-              <div
+              <a
                 key={doc.id}
-                className="flex items-center gap-2 py-1 px-2 text-xs text-gray-600 hover:bg-gray-50"
+                href={`/documents/${doc.id}`}
+                className="flex items-center gap-2 py-1 px-2 text-xs text-gray-600 hover:bg-gray-50 hover:text-blue-600 cursor-pointer"
                 style={{ paddingLeft: `${(level + 1) * 1.5 + 0.5}rem` }}
                 title={doc.description || doc.name}
               >
                 <span className="w-4">📄</span>
                 <span className="flex-1 truncate">{doc.name}</span>
-              </div>
+              </a>
             ))
           ) : null}
         </div>
@@ -291,15 +292,16 @@ export default function FolderTree({
               <div className="mt-2 pt-2 border-t border-gray-200">
                 <div className="text-xs text-gray-500 px-2 py-1 mb-1">Sin carpeta</div>
                 {documents.filter(d => !d.folder_id).map(doc => (
-                  <div
+                  <a
                     key={doc.id}
-                    className="flex items-center gap-2 py-1 px-2 text-xs text-gray-600 hover:bg-gray-50"
+                    href={`/documents/${doc.id}`}
+                    className="flex items-center gap-2 py-1 px-2 text-xs text-gray-600 hover:bg-gray-50 hover:text-blue-600 cursor-pointer"
                     style={{ paddingLeft: '0.5rem' }}
                     title={doc.description || doc.name}
                   >
                     <span className="w-4">📄</span>
                     <span className="flex-1 truncate">{doc.name}</span>
-                  </div>
+                  </a>
                 ))}
               </div>
             )}
