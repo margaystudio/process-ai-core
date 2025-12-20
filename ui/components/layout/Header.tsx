@@ -35,12 +35,22 @@ export default function Header() {
             <Link
               href="/"
               className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                isActive('/')
+                isActive('/') && pathname === '/'
                   ? 'bg-blue-100 text-blue-700'
                   : 'text-gray-700 hover:bg-gray-100'
               }`}
             >
               Inicio
+            </Link>
+            <Link
+              href="/workspace"
+              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                isActive('/workspace')
+                  ? 'bg-blue-100 text-blue-700'
+                  : 'text-gray-700 hover:bg-gray-100'
+              }`}
+            >
+              Documentos
             </Link>
             <Link
               href="/processes/new"
@@ -116,12 +126,23 @@ export default function Header() {
                 href="/"
                 onClick={() => setMobileMenuOpen(false)}
                 className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                  isActive('/')
+                  isActive('/') && pathname === '/'
                     ? 'bg-blue-100 text-blue-700'
                     : 'text-gray-700 hover:bg-gray-100'
                 }`}
               >
                 Inicio
+              </Link>
+              <Link
+                href="/workspace"
+                onClick={() => setMobileMenuOpen(false)}
+                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                  isActive('/workspace')
+                    ? 'bg-blue-100 text-blue-700'
+                    : 'text-gray-700 hover:bg-gray-100'
+                }`}
+              >
+                Documentos
               </Link>
               <Link
                 href="/processes/new"
