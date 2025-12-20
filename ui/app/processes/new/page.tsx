@@ -12,9 +12,8 @@ import { FileItemData } from '@/components/processes/FileItem'
 export default function NewProcessPage() {
   const [processName, setProcessName] = useState('')
   const [mode, setMode] = useState<'operativo' | 'gestion'>('operativo')
-  const [audience, setAudience] = useState('')
   const [detailLevel, setDetailLevel] = useState('')
-  const [formality, setFormality] = useState('')
+  const [contextText, setContextText] = useState('')
   
   const [files, setFiles] = useState<FileItemData[]>([])
   const [isModalOpen, setIsModalOpen] = useState(false)
@@ -51,9 +50,8 @@ export default function NewProcessPage() {
       formData.append('mode', mode)
       
       // Campos opcionales (solo si tienen valor)
-      if (audience) formData.append('audience', audience)
       if (detailLevel) formData.append('detail_level', detailLevel)
-      if (formality) formData.append('formality', formality)
+      if (contextText.trim()) formData.append('context_text', contextText.trim())
       
       // Agregar archivos según su tipo
       files.forEach((fileItem) => {
@@ -88,12 +86,10 @@ export default function NewProcessPage() {
             />
 
             <OptionalFields
-              audience={audience}
               detailLevel={detailLevel}
-              formality={formality}
-              onAudienceChange={setAudience}
+              contextText={contextText}
               onDetailLevelChange={setDetailLevel}
-              onFormalityChange={setFormality}
+              onContextTextChange={setContextText}
             />
 
             <div className="pt-6 border-t">

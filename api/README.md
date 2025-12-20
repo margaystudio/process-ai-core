@@ -39,10 +39,9 @@ Crea una nueva corrida del pipeline de documentación.
 **Request (multipart/form-data):**
 
 - `process_name` (string, requerido): Nombre del proceso
-- `mode` (string, opcional): `operativo` o `gestion` (default: `operativo`)
-- `audience` (string, opcional): Audiencia objetivo
+- `mode` (string, opcional): `operativo` o `gestion` (default: `operativo`) - Define la audiencia del documento
 - `detail_level` (string, opcional): Nivel de detalle
-- `formality` (string, opcional): Nivel de formalidad
+- `context_text` (string, opcional): Contexto adicional del proceso (texto libre)
 - `audio_files[]` (file[], opcional): Archivos de audio (.m4a, .mp3, .wav)
 - `video_files[]` (file[], opcional): Archivos de video (.mp4, .mov, .mkv)
 - `image_files[]` (file[], opcional): Archivos de imagen (.png, .jpg, .jpeg, .webp)
@@ -109,7 +108,8 @@ Descarga un artefacto generado (JSON, Markdown o PDF).
 curl -X POST "http://localhost:8000/api/v1/process-runs" \
   -F "process_name=Proceso de ejemplo" \
   -F "mode=gestion" \
-  -F "audience=direccion" \
+  -F "detail_level=detallado" \
+  -F "context_text=Este proceso requiere validación de supervisor" \
   -F "video_files=@video.mp4" \
   -F "image_files=@captura1.png" \
   -F "text_files=@notas.txt"

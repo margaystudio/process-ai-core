@@ -8,7 +8,7 @@ from process_ai_core.db.models_catalog import CatalogOption
 
 SEED = [
     # =========================================================
-    # audience (a quién va dirigido el documento)
+    # audience (a quién va dirigido el documento / modo del documento)
     # =========================================================
     dict(
         domain="audience",
@@ -67,31 +67,6 @@ SEED = [
             "Luego una sección de control interno con riesgos, evidencias, métricas y puntos a validar."
         ),
         sort_order=40,
-    ),
-
-    # =========================================================
-    # formality (tono)
-    # =========================================================
-    dict(
-        domain="formality",
-        value="baja",
-        label="Baja",
-        prompt_text="Formalidad: baja. Lenguaje cercano pero profesional, instrucciones claras.",
-        sort_order=10,
-    ),
-    dict(
-        domain="formality",
-        value="media",
-        label="Media",
-        prompt_text="Formalidad: media. Lenguaje profesional estándar.",
-        sort_order=20,
-    ),
-    dict(
-        domain="formality",
-        value="alta",
-        label="Alta",
-        prompt_text="Formalidad: alta. Lenguaje formal, apto auditoría y documentación interna.",
-        sort_order=30,
     ),
 
     # =========================================================

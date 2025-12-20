@@ -28,9 +28,8 @@ router = APIRouter(prefix="/api/v1/process-runs", tags=["process-runs"])
 async def create_process_run(
     process_name: str = Form(...),
     mode: ProcessMode = Form(ProcessMode.OPERATIVO),
-    audience: str = Form(None),
     detail_level: str = Form(None),
-    formality: str = Form(None),
+    context_text: str = Form(None),
     audio_files: List[UploadFile] = File(default=[]),
     video_files: List[UploadFile] = File(default=[]),
     image_files: List[UploadFile] = File(default=[]),
@@ -45,9 +44,7 @@ async def create_process_run(
     Args:
         process_name: Nombre del proceso a documentar
         mode: Modo del documento (operativo o gestión)
-        audience: Audiencia objetivo (opcional)
         detail_level: Nivel de detalle (opcional)
-        formality: Nivel de formalidad (opcional)
         audio_files: Archivos de audio (.m4a, .mp3, .wav)
         video_files: Archivos de video (.mp4, .mov, .mkv)
         image_files: Archivos de imagen (.png, .jpg, .jpeg, .webp)
@@ -117,14 +114,14 @@ async def create_process_run(
 
         # Construir contexto opcional
         context_block = None
-        if audience or detail_level or formality:
+        if detail_level or context_text:
             lines = ["=== CONTEXTO Y PREFERENCIAS ==="]
-            if audience:
-                lines.append(f"- Audiencia: {audience}")
             if detail_level:
                 lines.append(f"- Nivel de detalle: {detail_level}")
-            if formality:
-                lines.append(f"- Formalidad: {formality}")
+            if context_text:
+                lines.append("")
+                lines.append("=== CONTEXTO ADICIONAL ===")
+                lines.append(context_text)
             context_block = "\n".join(lines) + "\n\n"
 
         # Obtener perfil según modo

@@ -9,9 +9,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 export interface ProcessRunRequest {
   process_name: string;
   mode: 'operativo' | 'gestion';
-  audience?: string;
   detail_level?: string;
-  formality?: string;
 }
 
 export interface RecipeRunRequest {
@@ -30,6 +28,30 @@ export interface RunResponse {
     pdf?: string;
   };
   error?: string;
+}
+
+export interface WorkspaceCreateRequest {
+  name: string;
+  slug: string;
+  country?: string;
+  business_type?: string;
+  language_style?: string;
+  default_audience?: string;
+  context_text?: string;
+}
+
+export interface WorkspaceResponse {
+  id: string;
+  name: string;
+  slug: string;
+  workspace_type: string;
+  created_at: string;
+}
+
+export interface CatalogOption {
+  value: string;
+  label: string;
+  sort_order: number;
 }
 
 /**
@@ -115,3 +137,66 @@ export function getArtifactUrl(runId: string, filename: string): string {
   return `${API_URL}/api/v1/artifacts/${runId}/${filename}`;
 }
 
+/**
+ * Crea un nuevo workspace (cliente/organización).
+ */
+export async function createWorkspace(
+  request: WorkspaceCreateRequest
+): Promise<WorkspaceResponse> {
+  const response = await fetch(`${API_URL}/api/v1/workspaces`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(request),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
+    throw new Error(error.detail || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Lista todos los workspaces.
+ */
+export async function listWorkspaces(): Promise<WorkspaceResponse[]> {
+  const response = await fetch(`${API_URL}/api/v1/workspaces`);
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
+    throw new Error(error.detail || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Obtiene un workspace por ID.
+ */
+export async function getWorkspace(workspaceId: string): Promise<WorkspaceResponse> {
+  const response = await fetch(`${API_URL}/api/v1/workspaces/${workspaceId}`);
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
+    throw new Error(error.detail || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Obtiene las opciones del catálogo para un dominio.
+ */
+export async function getCatalogOptions(domain: string): Promise<CatalogOption[]> {
+  const response = await fetch(`${API_URL}/api/v1/catalog/${domain}`);
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
+    throw new Error(error.detail || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}

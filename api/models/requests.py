@@ -39,17 +39,9 @@ class ProcessRunRequest(BaseModel):
     )
 
     # Parámetros opcionales de contexto (para inyectar en el prompt)
-    audience: Optional[str] = Field(
-        default=None,
-        description="Audiencia objetivo (ej: direccion, operativo, rrhh)",
-    )
     detail_level: Optional[str] = Field(
         default=None,
         description="Nivel de detalle (ej: breve, estandar, detallado)",
-    )
-    formality: Optional[str] = Field(
-        default=None,
-        description="Nivel de formalidad (ej: baja, media, alta)",
     )
 
     # Nota: Los archivos se manejan aparte (multipart/form-data)
@@ -94,3 +86,25 @@ class RecipeRunResponse(BaseModel):
         default=None,
         description="Mensaje de error si status='error'",
     )
+
+
+class WorkspaceCreateRequest(BaseModel):
+    """Request para crear un workspace (cliente/organización)."""
+
+    name: str = Field(..., description="Nombre de la organización/cliente")
+    slug: str = Field(..., description="Slug único (usado en URLs)")
+    country: str = Field(default="UY", description="Código de país (ISO2)")
+    business_type: Optional[str] = Field(default=None, description="Tipo de negocio")
+    language_style: str = Field(default="es_uy_formal", description="Estilo de idioma")
+    default_audience: str = Field(default="operativo", description="Audiencia por defecto")
+    context_text: Optional[str] = Field(default=None, description="Contexto libre del negocio")
+
+
+class WorkspaceResponse(BaseModel):
+    """Response de un workspace."""
+
+    id: str = Field(..., description="ID único del workspace")
+    name: str = Field(..., description="Nombre del workspace")
+    slug: str = Field(..., description="Slug único")
+    workspace_type: str = Field(..., description="Tipo: organization|user|community")
+    created_at: str = Field(..., description="Fecha de creación")

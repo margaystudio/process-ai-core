@@ -25,8 +25,6 @@ def create_organization_workspace(
     business_type: str = "",
     language_style: str = "es_uy_formal",
     default_audience: str = "operativo",
-    default_formality: str = "media",
-    default_detail_level: str = "estandar",
     context_text: str = "",
 ) -> Workspace:
     """
@@ -40,8 +38,6 @@ def create_organization_workspace(
         business_type: Tipo de negocio
         language_style: Estilo de idioma
         default_audience: Audiencia por defecto
-        default_formality: Formalidad por defecto
-        default_detail_level: Nivel de detalle por defecto
         context_text: Contexto libre del negocio
     
     Returns:
@@ -52,8 +48,6 @@ def create_organization_workspace(
         "business_type": business_type,
         "language_style": language_style,
         "default_audience": default_audience,
-        "default_formality": default_formality,
-        "default_detail_level": default_detail_level,
         "context_text": context_text,
     }
 
@@ -104,7 +98,6 @@ def create_process_document(
     description: str = "",
     process_type: str = "",
     audience: str = "",
-    formality: str = "",
     detail_level: str = "",
     context_text: str = "",
 ) -> Document:
@@ -118,7 +111,6 @@ def create_process_document(
         description: Descripción breve
         process_type: Tipo de proceso
         audience: Audiencia (si vacío, usa default del workspace)
-        formality: Formalidad (si vacío, usa default del workspace)
         detail_level: Nivel de detalle (si vacío, usa default del workspace)
         context_text: Contexto específico del proceso
     
@@ -128,7 +120,6 @@ def create_process_document(
     metadata = {
         "process_type": process_type,
         "audience": audience,
-        "formality": formality,
         "detail_level": detail_level,
         "context_text": context_text,
     }
