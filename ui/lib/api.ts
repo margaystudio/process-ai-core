@@ -395,3 +395,23 @@ export async function updateDocument(documentId: string, request: DocumentUpdate
 
   return response.json();
 }
+
+/**
+ * Crea un nuevo run para un documento existente.
+ */
+export async function createDocumentRun(
+  documentId: string,
+  formData: FormData
+): Promise<RunResponse> {
+  const response = await fetch(`${API_URL}/api/v1/documents/${documentId}/runs`, {
+    method: 'POST',
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
+    throw new Error(error.detail || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}

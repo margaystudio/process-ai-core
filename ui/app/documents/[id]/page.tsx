@@ -2,9 +2,12 @@
 
 import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { getDocument, updateDocument, getCatalogOptions, getDocumentRuns, getArtifactUrl, CatalogOption, Document, DocumentUpdateRequest } from '@/lib/api'
+import { getDocument, updateDocument, getCatalogOptions, getDocumentRuns, createDocumentRun, getArtifactUrl, CatalogOption, Document, DocumentUpdateRequest } from '@/lib/api'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
 import FolderTree from '@/components/processes/FolderTree'
+import FileUploadModal, { FileType } from '@/components/processes/FileUploadModal'
+import FileList from '@/components/processes/FileList'
+import { FileItemData } from '@/components/processes/FileItem'
 
 export default function DocumentDetailPage() {
   const params = useParams()
@@ -17,6 +20,11 @@ export default function DocumentDetailPage() {
   const [error, setError] = useState<string | null>(null)
   const [isEditing, setIsEditing] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
+  const [isGenerating, setIsGenerating] = useState(false)
+  const [showNewVersionForm, setShowNewVersionForm] = useState(false)
+  const [newVersionFiles, setNewVersionFiles] = useState<FileItemData[]>([])
+  const [isNewVersionModalOpen, setIsNewVersionModalOpen] = useState(false)
+  const [revisionNotes, setRevisionNotes] = useState('')
   const [runs, setRuns] = useState<Array<{
     run_id: string;
     created_at: string;
@@ -130,6 +138,57 @@ export default function DocumentDetailPage() {
       setFolderId(document.folder_id || '')
     }
     setIsEditing(false)
+  }
+  
+  const handleAddNewVersionFile = (file: File, type: FileType, description: string) => {
+    const newFile: FileItemData = {
+      id: `${Date.now()}-${Math.random()}`,
+      file,
+      type,
+      description,
+    }
+    setNewVersionFiles([...newVersionFiles, newFile])
+  }
+  
+  const handleRemoveNewVersionFile = (id: string) => {
+    setNewVersionFiles(newVersionFiles.filter(f => f.id !== id))
+  }
+  
+  const handleGenerateNewVersion = async () => {
+    if (newVersionFiles.length === 0) {
+      setError('Debes agregar al menos un archivo para generar una nueva versión')
+      return
+    }
+    
+    try {
+      setIsGenerating(true)
+      setError(null)
+      
+      const formData = new FormData()
+      
+      // Agregar archivos según su tipo
+      newVersionFiles.forEach((fileItem) => {
+        const fieldName = `${fileItem.type}_files`
+        formData.append(fieldName, fileItem.file)
+      })
+      
+      const response = await createDocumentRun(documentId, formData)
+      
+      // Recargar runs
+      const documentRuns = await getDocumentRuns(documentId)
+      setRuns(documentRuns)
+      
+      // Limpiar formulario
+      setNewVersionFiles([])
+      setShowNewVersionForm(false)
+      
+      // Mostrar mensaje de éxito
+      setError(null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error al generar nueva versión')
+    } finally {
+      setIsGenerating(false)
+    }
   }
   
   if (loading) {
@@ -386,10 +445,87 @@ export default function DocumentDetailPage() {
                 </div>
               )}
               
-              {/* Sección de Runs y PDFs */}
-              {runs.length > 0 && (
-                <div className="mt-8 pt-8 border-t">
-                  <h2 className="text-xl font-semibold text-gray-900 mb-4">Versiones Generadas</h2>
+              {/* Sección de Generar Nueva Versión */}
+              <div className="mt-8 pt-8 border-t">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-xl font-semibold text-gray-900">Versiones Generadas</h2>
+                  <button
+                    onClick={() => setShowNewVersionForm(!showNewVersionForm)}
+                    className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 text-sm font-medium"
+                  >
+                    {showNewVersionForm ? 'Cancelar' : '+ Nueva Versión'}
+                  </button>
+                </div>
+                
+                {showNewVersionForm && (
+                  <div className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
+                    <h3 className="text-lg font-medium text-gray-900 mb-4">Generar Nueva Versión</h3>
+                    <p className="text-sm text-gray-600 mb-4">
+                      Sube nuevos archivos o agrega instrucciones de revisión para generar una versión corregida del documento.
+                      Si no subes archivos nuevos, se reutilizarán los del último run.
+                    </p>
+                    
+                    <div className="mb-4">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Instrucciones de Revisión
+                      </label>
+                      <textarea
+                        value={revisionNotes}
+                        onChange={(e) => setRevisionNotes(e.target.value)}
+                        rows={4}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        placeholder="Ej: Corregir errores gramaticales, mejorar la descripción del paso 3, agregar más detalle en la sección de indicadores..."
+                      />
+                      <p className="mt-1 text-xs text-gray-500">
+                        Describe las correcciones o mejoras que quieres aplicar al documento.
+                      </p>
+                    </div>
+                    
+                    <div className="mb-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <label className="block text-sm font-medium text-gray-700">
+                          Archivos (opcional)
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => setIsNewVersionModalOpen(true)}
+                          className="px-3 py-1.5 text-sm font-medium text-blue-600 hover:text-blue-700 border border-blue-600 rounded-md hover:bg-blue-50"
+                        >
+                          + Agregar archivo
+                        </button>
+                      </div>
+                      <FileList files={newVersionFiles} onRemove={handleRemoveNewVersionFile} />
+                      {newVersionFiles.length === 0 && (
+                        <p className="text-xs text-gray-500 mt-1">
+                          Si no agregas archivos nuevos, se reutilizarán los del último run.
+                        </p>
+                      )}
+                    </div>
+                    
+                    <div className="flex gap-3">
+                      <button
+                        onClick={handleGenerateNewVersion}
+                        disabled={isGenerating || (newVersionFiles.length === 0 && !revisionNotes.trim())}
+                        className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+                      >
+                        {isGenerating ? 'Generando...' : 'Generar Nueva Versión'}
+                      </button>
+                      <button
+                        onClick={() => {
+                          setShowNewVersionForm(false)
+                          setNewVersionFiles([])
+                          setRevisionNotes('')
+                        }}
+                        className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 font-medium"
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                  </div>
+                )}
+                
+                {/* Lista de runs */}
+                {runs.length > 0 ? (
                   <div className="space-y-4">
                     {runs.map((run) => (
                       <div key={run.run_id} className="border border-gray-200 rounded-lg p-4">
@@ -436,8 +572,18 @@ export default function DocumentDetailPage() {
                       </div>
                     ))}
                   </div>
-                </div>
-              )}
+                ) : (
+                  <p className="text-sm text-gray-500 text-center py-8">
+                    No hay versiones generadas aún. Usa el botón "Nueva Versión" para crear la primera.
+                  </p>
+                )}
+              </div>
+              
+              <FileUploadModal
+                isOpen={isNewVersionModalOpen}
+                onClose={() => setIsNewVersionModalOpen(false)}
+                onAdd={handleAddNewVersionFile}
+              />
             </div>
           </div>
         </div>
