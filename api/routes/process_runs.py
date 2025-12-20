@@ -30,6 +30,8 @@ async def create_process_run(
     mode: ProcessMode = Form(ProcessMode.OPERATIVO),
     detail_level: str = Form(None),
     context_text: str = Form(None),
+    folder_id: str = Form(...),  # Requerido
+    workspace_id: str = Form(...),  # Requerido
     audio_files: List[UploadFile] = File(default=[]),
     video_files: List[UploadFile] = File(default=[]),
     image_files: List[UploadFile] = File(default=[]),
@@ -54,7 +56,6 @@ async def create_process_run(
         ProcessRunResponse con run_id, status y paths a artefactos generados
     """
     settings = get_settings()
-    run_id = str(uuid.uuid4())
 
     # Validar que haya al menos un archivo
     total_files = (
@@ -64,6 +65,50 @@ async def create_process_run(
         raise HTTPException(
             status_code=400, detail="Se requiere al menos un archivo de entrada"
         )
+    
+    # Validar que folder_id y workspace_id estén presentes
+    if not folder_id:
+        raise HTTPException(
+            status_code=400, detail="folder_id es requerido"
+        )
+    if not workspace_id:
+        raise HTTPException(
+            status_code=400, detail="workspace_id es requerido"
+        )
+    
+    # Crear Document y Run (workspace_id y folder_id son requeridos)
+    from process_ai_core.db.database import get_db_session
+    from process_ai_core.db.helpers import (
+        create_process_document,
+        create_run,
+    )
+    
+    with get_db_session() as db_session:
+        # Crear Document (folder_id es requerido)
+        document = create_process_document(
+            session=db_session,
+            workspace_id=workspace_id,
+            name=process_name,
+            description="",
+            folder_id=folder_id,  # Requerido
+            audience=mode.value,
+            detail_level=detail_level or "",
+            context_text=context_text or "",
+        )
+        
+        # Asegurar que el document.id esté disponible
+        db_session.flush()
+        
+        # Crear Run
+        run = create_run(
+            session=db_session,
+            document_id=document.id,
+            document_type="process",
+            profile=mode.value,
+        )
+        # Asegurar que el run.id esté disponible
+        db_session.flush()
+        run_id = run.id
 
     # Crear directorio temporal para los uploads
     with tempfile.TemporaryDirectory() as temp_dir_str:
@@ -114,10 +159,21 @@ async def create_process_run(
 
         # Construir contexto opcional
         context_block = None
-        if detail_level or context_text:
+        if detail_level or context_text or folder_id:
             lines = ["=== CONTEXTO Y PREFERENCIAS ==="]
             if detail_level:
                 lines.append(f"- Nivel de detalle: {detail_level}")
+            
+            # Agregar información de la carpeta si existe
+            if folder_id:
+                from process_ai_core.db.database import get_db_session
+                from process_ai_core.db.helpers import get_folder_by_id
+                with get_db_session() as db_session:
+                    folder = get_folder_by_id(db_session, folder_id)
+                    if folder:
+                        folder_path = folder.path or folder.name
+                        lines.append(f"- Ubicación del proceso: {folder_path}. Considera el contexto de esta ubicación al generar el documento.")
+            
             if context_text:
                 lines.append("")
                 lines.append("=== CONTEXTO ADICIONAL ===")
@@ -166,6 +222,33 @@ async def create_process_run(
             }
             if pdf_generated:
                 artifacts["pdf"] = f"/api/v1/artifacts/{run_id}/process.pdf"
+
+            # Persistir Artifacts en la base de datos (si tenemos workspace_id)
+            if workspace_id:
+                from process_ai_core.db.database import get_db_session
+                from process_ai_core.db.helpers import create_artifact
+                
+                with get_db_session() as db_session:
+                    # Crear Artifacts
+                    create_artifact(
+                        session=db_session,
+                        run_id=run_id,
+                        artifact_type="json",
+                        file_path=f"output/{run_id}/process.json",
+                    )
+                    create_artifact(
+                        session=db_session,
+                        run_id=run_id,
+                        artifact_type="md",
+                        file_path=f"output/{run_id}/process.md",
+                    )
+                    if pdf_generated:
+                        create_artifact(
+                            session=db_session,
+                            run_id=run_id,
+                            artifact_type="pdf",
+                            file_path=f"output/{run_id}/process.pdf",
+                        )
 
             return ProcessRunResponse(
                 run_id=run_id,

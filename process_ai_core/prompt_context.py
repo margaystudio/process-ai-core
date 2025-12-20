@@ -43,8 +43,8 @@ from typing import Optional
 from sqlalchemy import select
 
 from process_ai_core.db.models_catalog import CatalogOption
-from process_ai_core.db.models import Workspace, Document
-from process_ai_core.db.helpers import get_workspace_metadata, get_document_metadata
+from process_ai_core.db.models import Workspace, Document, Process, Recipe, Folder
+from process_ai_core.db.helpers import get_workspace_metadata
 
 
 def _prompt_for(session, domain: str, value: Optional[str]) -> str:
@@ -110,12 +110,12 @@ def build_context_block(session, workspace: Workspace, document: Document) -> st
 
     Regla de override
     -----------------
-    Para audience / formality / detail_level:
-    - Si `document.domain_metadata_json` tiene valor, se usa ese.
+    Para audience / detail_level:
+    - Si el documento es Process y tiene valores, se usan esos.
     - Si está vacío, se usa el default del workspace.
 
-    Para process_type:
-    - Es propio del documento. Si no está definido, se omite.
+    Para formality:
+    - Se obtiene del workspace (ya no es campo del documento).
 
     Para language_style y business_type:
     - Son del workspace. Si no están definidos, se omiten.
@@ -141,19 +141,45 @@ def build_context_block(session, workspace: Workspace, document: Document) -> st
         String terminado en doble salto de línea (`\\n\\n`) para poder concatenarlo
         fácilmente al prompt principal.
     """
-    # Obtener metadata desde JSON
+    # Obtener metadata desde JSON del workspace
     workspace_meta = get_workspace_metadata(workspace)
-    document_meta = get_document_metadata(document)
 
-    # Overrides por documento (si vacío => defaults del workspace)
-    audience = document_meta.get("audience") or workspace_meta.get("default_audience", "")
-    formality = document_meta.get("formality") or workspace_meta.get("default_formality", "")
-    detail_level = document_meta.get("detail_level") or workspace_meta.get("default_detail_level", "")
+    # Obtener valores del documento según su tipo
+    audience = ""
+    detail_level = ""
+    document_context_text = ""
+    
+    if isinstance(document, Process):
+        # Si es Process, usar campos específicos
+        audience = document.audience or workspace_meta.get("default_audience", "")
+        detail_level = document.detail_level or workspace_meta.get("default_detail_level", "")
+        document_context_text = document.context_text or ""
+    elif isinstance(document, Recipe):
+        # Si es Recipe, no tiene audience/detail_level, usar defaults del workspace
+        audience = workspace_meta.get("default_audience", "")
+        detail_level = workspace_meta.get("default_detail_level", "")
+        # Recipes no tienen context_text por ahora
+        document_context_text = ""
+    else:
+        # Fallback para Document genérico (no debería pasar, pero por seguridad)
+        audience = workspace_meta.get("default_audience", "")
+        detail_level = workspace_meta.get("default_detail_level", "")
+        document_context_text = ""
+    
+    # Formality ya no es campo del documento, solo del workspace
+    formality = workspace_meta.get("default_formality", "")
 
     # Atributos propios del documento / workspace
-    process_type = document_meta.get("process_type", "")
     language_style = workspace_meta.get("language_style", "")
     business_type = workspace_meta.get("business_type", "")
+    
+    # Información de la carpeta (reemplaza process_type)
+    folder_context = ""
+    if document.folder_id:
+        folder = session.query(Folder).filter_by(id=document.folder_id).first()
+        if folder:
+            # Usar el path completo de la carpeta como contexto
+            folder_context = folder.path or folder.name
 
     lines: list[str] = []
     lines.append("=== CONTEXTO Y PREFERENCIAS (CATÁLOGOS) ===")
@@ -161,7 +187,6 @@ def build_context_block(session, workspace: Workspace, document: Document) -> st
     for domain, val in [
         ("business_type", business_type),
         ("language_style", language_style),
-        ("process_type", process_type),
         ("audience", audience),
         ("detail_level", detail_level),
         ("formality", formality),
@@ -169,6 +194,10 @@ def build_context_block(session, workspace: Workspace, document: Document) -> st
         txt = _prompt_for(session, domain, val)
         if txt:
             lines.append(f"- {txt}")
+    
+    # Agregar contexto de la carpeta si existe
+    if folder_context:
+        lines.append(f"- Ubicación del proceso: {folder_context}. Considera el contexto de esta ubicación al generar el documento.")
 
     # Contextos libres
     workspace_context = workspace_meta.get("context_text", "")
@@ -177,10 +206,9 @@ def build_context_block(session, workspace: Workspace, document: Document) -> st
         lines.append("Contexto del workspace:")
         lines.append(workspace_context.strip())
 
-    document_context = document_meta.get("context_text", "")
-    if document_context and document_context.strip():
+    if document_context_text and document_context_text.strip():
         lines.append("")
         lines.append("Contexto del documento:")
-        lines.append(document_context.strip())
+        lines.append(document_context_text.strip())
 
     return "\n".join(lines).strip() + "\n\n"

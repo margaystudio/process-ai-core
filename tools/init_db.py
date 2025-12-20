@@ -1,7 +1,7 @@
 from process_ai_core.db.database import Base, get_db_engine
 
 # Importante: registrar modelos ANTES de create_all
-from process_ai_core.db.models import Client, Process, Run, Artifact  # noqa: F401
+from process_ai_core.db.models import Workspace, Document, Process, Recipe, Run, Artifact, Folder, User, WorkspaceMembership  # noqa: F401
 from process_ai_core.db.models_catalog import CatalogOption  # noqa: F401
 
 

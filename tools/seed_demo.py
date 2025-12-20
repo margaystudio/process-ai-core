@@ -2,29 +2,25 @@
 from __future__ import annotations
 
 from process_ai_core.db.database import get_db_session
-from process_ai_core.db.models import Client, Process
+from process_ai_core.db.models import Workspace, Process
+from process_ai_core.db.helpers import create_organization_workspace
 
 
 def main():
     with get_db_session() as db:
-        # 1) Client (empresa / tenant)
+        # 1) Workspace (empresa / tenant) - reemplaza Client
         slug = "demo"
-        client = db.query(Client).filter(Client.slug == slug).first()
+        workspace = db.query(Workspace).filter(Workspace.slug == slug).first()
 
-        if not client:
-            client = Client(
-                slug=slug,
+        if not workspace:
+            workspace = create_organization_workspace(
+                session=db,
                 name="Cliente Demo",
+                slug=slug,
                 country="UY",
-                business_type="estaciones_servicio",     # catalog: business_type (si existe)
-                language_style="es_uy_formal",           # catalog: language_style
-
-                # defaults (catálogos)
-                default_audience="operativo",            # audience
-                default_detail_level="breve",            # detail_level
-                default_formality="media",               # formality
-
-                # contexto libre (esto es lo que antes metías en context_json)
+                business_type="estaciones_servicio",
+                language_style="es_uy_formal",
+                default_audience="operativo",
                 context_text=(
                     "Rubro: estaciones de servicio.\n"
                     "Objetivo de documentos: operativos, entendibles por personal de pista.\n"
@@ -32,31 +28,26 @@ def main():
                     "Tono: español uruguayo formal, claro y directo.\n"
                 ),
             )
-            db.add(client)
             db.commit()
-            db.refresh(client)
+            db.refresh(workspace)
 
-        # 2) Process (uno dentro del cliente)
+        # 2) Process (uno dentro del workspace)
         proc_name = "Atender cliente en pista"
         process = (
             db.query(Process)
-            .filter(Process.client_id == client.id, Process.name == proc_name)
+            .filter(Process.workspace_id == workspace.id, Process.name == proc_name)
             .first()
         )
 
         if not process:
             process = Process(
-                client_id=client.id,
+                workspace_id=workspace.id,
+                document_type="process",
                 name=proc_name,
                 status="draft",
                 description="Atención al cliente en pista: saludo, carga, cobro y cierre.",
-                process_type="operativo",   # catalog: process_type
-
-                # (opcional) overrides por proceso: si lo dejás vacío usa defaults del cliente
-                # audience="operativo",
-                # detail_level="breve",
-                # formality="media",
-
+                audience="operativo",
+                detail_level="breve",
                 context_text=(
                     "Proceso en pista. Prioridad: seguridad, claridad y secuencia.\n"
                     "Evitar textos largos y tecnicismos.\n"
@@ -66,7 +57,7 @@ def main():
             db.commit()
             db.refresh(process)
 
-        print("✅ Client:", client.id, client.slug, client.name)
+        print("✅ Workspace:", workspace.id, workspace.slug, workspace.name)
         print("✅ Process:", process.id, process.name)
 
 

@@ -108,3 +108,49 @@ class WorkspaceResponse(BaseModel):
     slug: str = Field(..., description="Slug único")
     workspace_type: str = Field(..., description="Tipo: organization|user|community")
     created_at: str = Field(..., description="Fecha de creación")
+
+
+class FolderCreateRequest(BaseModel):
+    """Request para crear una carpeta."""
+
+    workspace_id: str = Field(..., description="ID del workspace")
+    name: str = Field(..., description="Nombre de la carpeta")
+    path: Optional[str] = Field(default=None, description="Path completo de la carpeta")
+    parent_id: Optional[str] = Field(default=None, description="ID de la carpeta padre (opcional)")
+    sort_order: Optional[int] = Field(default=0, description="Orden de visualización")
+    metadata: Optional[dict] = Field(default=None, description="Metadata adicional (JSON)")
+
+
+class FolderUpdateRequest(BaseModel):
+    """Request para actualizar una carpeta."""
+
+    name: Optional[str] = Field(default=None, description="Nombre de la carpeta")
+    path: Optional[str] = Field(default=None, description="Path completo de la carpeta")
+    parent_id: Optional[str] = Field(default=None, description="ID de la carpeta padre (None para quitar parent)")
+    sort_order: Optional[int] = Field(default=None, description="Orden de visualización")
+    metadata: Optional[dict] = Field(default=None, description="Metadata adicional (JSON, se mergea con existente)")
+
+
+class FolderResponse(BaseModel):
+    """Response de una carpeta."""
+
+    id: str = Field(..., description="ID único de la carpeta")
+    workspace_id: str = Field(..., description="ID del workspace")
+    name: str = Field(..., description="Nombre de la carpeta")
+    path: str = Field(..., description="Path completo de la carpeta")
+    parent_id: Optional[str] = Field(default=None, description="ID de la carpeta padre")
+    sort_order: int = Field(..., description="Orden de visualización")
+    created_at: str = Field(..., description="Fecha de creación")
+
+
+class DocumentResponse(BaseModel):
+    """Response de un documento."""
+
+    id: str = Field(..., description="ID único del documento")
+    workspace_id: str = Field(..., description="ID del workspace")
+    folder_id: Optional[str] = Field(default=None, description="ID de la carpeta")
+    domain: str = Field(..., description="Dominio: process|recipe")
+    name: str = Field(..., description="Nombre del documento")
+    description: str = Field(..., description="Descripción")
+    status: str = Field(..., description="Estado: draft|active|archived")
+    created_at: str = Field(..., description="Fecha de creación")

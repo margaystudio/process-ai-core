@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import String, DateTime, ForeignKey, Text
+from sqlalchemy import String, DateTime, ForeignKey, Text, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -48,14 +48,15 @@ class Workspace(Base):
     # Relaciones
     documents: Mapped[list["Document"]] = relationship(back_populates="workspace")
     memberships: Mapped[list["WorkspaceMembership"]] = relationship(back_populates="workspace")
+    folders: Mapped[list["Folder"]] = relationship(back_populates="workspace")
 
 
 class Document(Base):
     """
-    Documento genérico que puede ser:
-    - Process (para dominio de procesos)
-    - Recipe (para dominio de recetas)
-    - Cualquier otro tipo de documento en el futuro
+    Clase base abstracta para documentos.
+    
+    Usa herencia de tabla unida (Joined Table Inheritance) para permitir que
+    Process, Recipe y futuros tipos de documentos hereden campos comunes.
     """
     __tablename__ = "documents"
 
@@ -63,24 +64,123 @@ class Document(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     workspace_id: Mapped[str] = mapped_column(String(36), ForeignKey("workspaces.id"), index=True)
 
-    # Tipo de documento (determina qué dominio usar)
-    domain: Mapped[str] = mapped_column(String(20))  # "process" | "recipe"
+    # Tipo de documento (discriminador para polimorfismo)
+    document_type: Mapped[str] = mapped_column(String(20))  # "process" | "recipe" | "will" | ...
 
     # Nombre del documento
     name: Mapped[str] = mapped_column(String(200))
     description: Mapped[str] = mapped_column(Text, default="")
     status: Mapped[str] = mapped_column(String(20), default="draft")  # draft|active|archived
 
-    # Metadata específica del dominio (JSON)
-    # Para procesos: process_type, audience, formality, detail_level, etc.
-    # Para recetas: cuisine, difficulty, servings, prep_time, cook_time, etc.
-    domain_metadata_json: Mapped[str] = mapped_column(Text, default="{}")
-
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    # Carpeta donde está ubicado el documento (obligatorio)
+    folder_id: Mapped[str] = mapped_column(String(36), ForeignKey("folders.id"), nullable=False, index=True)
 
     # Relaciones
     workspace: Mapped["Workspace"] = relationship(back_populates="documents")
+    folder: Mapped["Folder"] = relationship(back_populates="documents")
     runs: Mapped[list["Run"]] = relationship(back_populates="document")
+
+    # Configuración de herencia polimórfica
+    __mapper_args__ = {
+        "polymorphic_identity": "document",
+        "polymorphic_on": "document_type",
+    }
+
+
+class Process(Document):
+    """
+    Documento de proceso (hereda de Document).
+    
+    Representa un proceso operativo o de gestión dentro de una organización.
+    """
+    __tablename__ = "processes"
+
+    # Hereda id de Document (foreign key)
+    id: Mapped[str] = mapped_column(String(36), ForeignKey("documents.id"), primary_key=True)
+
+    # Campos específicos de procesos
+    audience: Mapped[str] = mapped_column(String(50), default="")  # "operativo" | "gestion"
+    detail_level: Mapped[str] = mapped_column(String(50), default="")  # "breve" | "estandar" | "detallado"
+    context_text: Mapped[str] = mapped_column(Text, default="")  # Contexto libre del proceso
+
+    # Configuración de herencia
+    __mapper_args__ = {
+        "polymorphic_identity": "process",
+    }
+
+
+class Recipe(Document):
+    """
+    Receta de cocina (hereda de Document).
+    
+    Representa una receta dentro de un workspace de usuario o comunidad.
+    """
+    __tablename__ = "recipes"
+
+    # Hereda id de Document (foreign key)
+    id: Mapped[str] = mapped_column(String(36), ForeignKey("documents.id"), primary_key=True)
+
+    # Campos específicos de recetas
+    cuisine: Mapped[str] = mapped_column(String(50), default="")  # "italian" | "mexican" | ...
+    difficulty: Mapped[str] = mapped_column(String(20), default="")  # "easy" | "medium" | "hard"
+    servings: Mapped[int] = mapped_column(Integer, default=0)
+    prep_time: Mapped[str] = mapped_column(String(50), default="")  # "15 min"
+    cook_time: Mapped[str] = mapped_column(String(50), default="")  # "30 min"
+
+    # Configuración de herencia
+    __mapper_args__ = {
+        "polymorphic_identity": "recipe",
+    }
+
+
+class Folder(Base):
+    """
+    Carpeta dentro de un workspace para organizar documentos.
+    
+    Permite crear una estructura jerárquica de carpetas donde se ubican los procesos.
+    La información de la carpeta (nombre, path) se puede usar en el prompt para
+    inferir el tipo de proceso o sector de la empresa.
+    """
+    __tablename__ = "folders"
+
+    # Identidad
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    workspace_id: Mapped[str] = mapped_column(String(36), ForeignKey("workspaces.id"), index=True)
+    
+    # Nombre de la carpeta
+    name: Mapped[str] = mapped_column(String(200))
+    
+    # Path completo de la carpeta (ej: "RRHH/Recursos Humanos" o "Operativo/Depósito")
+    # Permite estructura jerárquica
+    path: Mapped[str] = mapped_column(String(500), default="")
+    
+    # Carpeta padre (para estructura jerárquica, opcional)
+    parent_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("folders.id"), nullable=True, index=True)
+    
+    # Orden de visualización
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    
+    # Metadata adicional (JSON flexible)
+    # Puede contener: 
+    #   - description: Descripción de la carpeta
+    #   - prompt_text: Texto para usar en prompts
+    #   - permissions: Estructura de permisos (futuro)
+    #     {
+    #       "allowed_roles": ["admin", "member"],
+    #       "allowed_users": ["user_id_1", "user_id_2"],
+    #       "denied_users": ["user_id_3"]
+    #     }
+    metadata_json: Mapped[str] = mapped_column(Text, default="{}")
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    # Relaciones
+    workspace: Mapped["Workspace"] = relationship(back_populates="folders")
+    parent: Mapped["Folder | None"] = relationship("Folder", remote_side="Folder.id", back_populates="children")
+    children: Mapped[list["Folder"]] = relationship("Folder", back_populates="parent")
+    documents: Mapped[list["Document"]] = relationship(back_populates="folder", cascade="all, delete-orphan")
 
 
 class User(Base):
@@ -127,15 +227,18 @@ class WorkspaceMembership(Base):
 
 class Run(Base):
     """
-    Ejecución genérica del motor (funciona para cualquier dominio).
+    Ejecución del motor de documentación.
+    
+    Puede ejecutarse para cualquier tipo de Document (Process, Recipe, etc.)
+    gracias al polimorfismo de Document.
     """
     __tablename__ = "runs"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     document_id: Mapped[str] = mapped_column(String(36), ForeignKey("documents.id"), index=True)
 
-    # Dominio de esta ejecución
-    domain: Mapped[str] = mapped_column(String(20))  # "process" | "recipe"
+    # Tipo de documento (se infiere del documento asociado, pero lo guardamos para queries rápidas)
+    document_type: Mapped[str] = mapped_column(String(20))  # "process" | "recipe" | ...
 
     # Perfil usado (específico del dominio)
     profile: Mapped[str] = mapped_column(String(50), default="")

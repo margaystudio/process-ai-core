@@ -54,6 +54,36 @@ export interface CatalogOption {
   sort_order: number;
 }
 
+export interface Folder {
+  id: string;
+  workspace_id: string;
+  name: string;
+  path: string;
+  parent_id?: string;
+  sort_order: number;
+  created_at: string;
+}
+
+export interface Document {
+  id: string;
+  workspace_id: string;
+  folder_id?: string;
+  domain: string;
+  name: string;
+  description: string;
+  status: string;
+  created_at: string;
+}
+
+export interface FolderCreateRequest {
+  workspace_id: string;
+  name: string;
+  path?: string;
+  parent_id?: string;
+  sort_order?: number;
+  metadata?: Record<string, any>;
+}
+
 /**
  * Crea una nueva corrida de proceso.
  */
@@ -192,6 +222,100 @@ export async function getWorkspace(workspaceId: string): Promise<WorkspaceRespon
  */
 export async function getCatalogOptions(domain: string): Promise<CatalogOption[]> {
   const response = await fetch(`${API_URL}/api/v1/catalog/${domain}`);
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
+    throw new Error(error.detail || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Lista todas las carpetas de un workspace.
+ */
+export async function listFolders(workspaceId: string): Promise<Folder[]> {
+  const response = await fetch(`${API_URL}/api/v1/folders?workspace_id=${workspaceId}`);
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
+    throw new Error(error.detail || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Crea una nueva carpeta.
+ */
+export async function createFolder(request: FolderCreateRequest): Promise<Folder> {
+  const response = await fetch(`${API_URL}/api/v1/folders`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(request),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
+    throw new Error(error.detail || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Actualiza una carpeta existente.
+ */
+export async function updateFolder(folderId: string, request: Partial<FolderCreateRequest>): Promise<Folder> {
+  const response = await fetch(`${API_URL}/api/v1/folders/${folderId}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(request),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
+    throw new Error(error.detail || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Elimina una carpeta.
+ */
+export async function deleteFolder(folderId: string, moveDocumentsTo?: string): Promise<void> {
+  const url = new URL(`${API_URL}/api/v1/folders/${folderId}`);
+  if (moveDocumentsTo) {
+    url.searchParams.append('move_documents_to', moveDocumentsTo);
+  }
+
+  const response = await fetch(url.toString(), {
+    method: 'DELETE',
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
+    throw new Error(error.detail || `HTTP ${response.status}`);
+  }
+}
+
+/**
+ * Lista documentos de un workspace.
+ */
+export async function listDocuments(workspaceId: string, folderId?: string, documentType: string = 'process'): Promise<Document[]> {
+  const url = new URL(`${API_URL}/api/v1/documents`);
+  url.searchParams.append('workspace_id', workspaceId);
+  url.searchParams.append('document_type', documentType);
+  if (folderId) {
+    url.searchParams.append('folder_id', folderId);
+  }
+
+  const response = await fetch(url.toString());
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));

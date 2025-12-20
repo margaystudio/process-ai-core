@@ -1,17 +1,21 @@
 'use client'
 
-import { useState } from 'react'
-import { createProcessRun, getArtifactUrl } from '@/lib/api'
+import { useState, useEffect } from 'react'
+import { createProcessRun, getArtifactUrl, listWorkspaces, WorkspaceResponse } from '@/lib/api'
 import ProcessNameInput from '@/components/processes/ProcessNameInput'
 import ModeSelector from '@/components/processes/ModeSelector'
 import OptionalFields from '@/components/processes/OptionalFields'
+import FolderTree from '@/components/processes/FolderTree'
 import FileUploadModal, { FileType } from '@/components/processes/FileUploadModal'
 import FileList from '@/components/processes/FileList'
 import { FileItemData } from '@/components/processes/FileItem'
 
 export default function NewProcessPage() {
+  const [workspaces, setWorkspaces] = useState<WorkspaceResponse[]>([])
+  const [workspaceId, setWorkspaceId] = useState('')
   const [processName, setProcessName] = useState('')
   const [mode, setMode] = useState<'operativo' | 'gestion'>('operativo')
+  const [folderId, setFolderId] = useState('')
   const [detailLevel, setDetailLevel] = useState('')
   const [contextText, setContextText] = useState('')
   
@@ -21,6 +25,19 @@ export default function NewProcessPage() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<any>(null)
+
+  // Cargar workspaces al montar
+  useEffect(() => {
+    async function loadWorkspaces() {
+      try {
+        const data = await listWorkspaces()
+        setWorkspaces(data)
+      } catch (err) {
+        console.error('Error cargando workspaces:', err)
+      }
+    }
+    loadWorkspaces()
+  }, [])
 
   const handleAddFile = (file: File, type: FileType, description: string) => {
     const newFile: FileItemData = {
@@ -49,6 +66,10 @@ export default function NewProcessPage() {
       formData.append('process_name', processName)
       formData.append('mode', mode)
       
+      // Campos requeridos
+      formData.append('workspace_id', workspaceId)
+      formData.append('folder_id', folderId)
+      
       // Campos opcionales (solo si tienen valor)
       if (detailLevel) formData.append('detail_level', detailLevel)
       if (contextText.trim()) formData.append('context_text', contextText.trim())
@@ -70,110 +91,157 @@ export default function NewProcessPage() {
 
   return (
     <div className="min-h-screen p-8 bg-gray-50">
-      <div className="max-w-3xl mx-auto">
-        <div className="bg-white rounded-lg shadow-sm p-8">
-          <h1 className="text-3xl font-bold mb-6">Nuevo Proceso</h1>
-
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <ProcessNameInput 
-              value={processName}
-              onChange={setProcessName}
-            />
-
-            <ModeSelector 
-              value={mode}
-              onChange={setMode}
-            />
-
-            <OptionalFields
-              detailLevel={detailLevel}
-              contextText={contextText}
-              onDetailLevelChange={setDetailLevel}
-              onContextTextChange={setContextText}
-            />
-
-            <div className="pt-6 border-t">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-medium text-gray-900">Archivos</h3>
-                <button
-                  type="button"
-                  onClick={() => setIsModalOpen(true)}
-                  className="px-4 py-2 text-sm font-medium text-blue-600 hover:text-blue-700 border border-blue-600 rounded-md hover:bg-blue-50"
-                >
-                  + Agregar archivo
-                </button>
-              </div>
-
-              <FileList files={files} onRemove={handleRemoveFile} />
+      <div className="max-w-6xl mx-auto">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Columna izquierda: Árbol de carpetas */}
+          <div className="lg:col-span-1">
+            <div className="mb-2">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Carpeta * <span className="text-red-500">*</span>
+              </label>
+              {!folderId && (
+                <p className="text-xs text-red-600 mb-2">Debes seleccionar una carpeta para continuar</p>
+              )}
             </div>
+            <FolderTree
+              workspaceId={workspaceId}
+              selectedFolderId={folderId}
+              onSelectFolder={(id) => setFolderId(id || '')}
+              showSelectable={true}
+              showCrud={false}
+            />
+          </div>
 
-            <div className="pt-6 border-t">
-              <div className="flex gap-4">
-                <button
-                  type="submit"
-                  disabled={isSubmitting || !processName.trim() || files.length === 0}
-                  className="px-6 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
-                >
-                  {isSubmitting ? 'Procesando...' : 'Generar Documento'}
-                </button>
-                
-                <a
-                  href="/"
-                  className="px-6 py-3 border border-gray-300 rounded-md hover:bg-gray-50 font-medium"
-                >
-                  Cancelar
-                </a>
-              </div>
-            </div>
-          </form>
+          {/* Columna derecha: Formulario */}
+          <div className="lg:col-span-2">
+            <div className="bg-white rounded-lg shadow-sm p-8">
+              <h1 className="text-3xl font-bold mb-6">Nuevo Proceso</h1>
 
-          {error && (
-            <div className="mt-6 p-4 bg-red-50 border border-red-200 rounded-md text-red-700">
-              <p className="font-semibold">Error</p>
-              <p className="text-sm mt-1">{error}</p>
-            </div>
-          )}
+              <form onSubmit={handleSubmit} className="space-y-6">
+                <div>
+                  <label htmlFor="workspace" className="block text-sm font-medium text-gray-700 mb-2">
+                    Cliente *
+                  </label>
+                  <select
+                    id="workspace"
+                    value={workspaceId}
+                    onChange={(e) => {
+                      setWorkspaceId(e.target.value)
+                      setFolderId('') // Limpiar carpeta al cambiar workspace
+                    }}
+                    required
+                    className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    <option value="">Seleccionar cliente...</option>
+                    {workspaces.map((ws) => (
+                      <option key={ws.id} value={ws.id}>
+                        {ws.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-          {result && (
-            <div className="mt-6 p-4 bg-green-50 border border-green-200 rounded-md">
-              <p className="font-semibold text-green-800">¡Documento generado exitosamente!</p>
-              <p className="text-sm text-green-700 mt-2">Run ID: {result.run_id}</p>
-              {result.artifacts && (
-                <div className="mt-4 space-y-2">
-                  {result.artifacts.json && (
-                    <a
-                      href={getArtifactUrl(result.run_id, 'process.json')}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="block text-blue-600 hover:underline"
+                <ProcessNameInput 
+                  value={processName}
+                  onChange={setProcessName}
+                />
+
+                <ModeSelector 
+                  value={mode}
+                  onChange={setMode}
+                />
+
+                <OptionalFields
+                  detailLevel={detailLevel}
+                  contextText={contextText}
+                  onDetailLevelChange={setDetailLevel}
+                  onContextTextChange={setContextText}
+                />
+
+                <div className="pt-6 border-t">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-lg font-medium text-gray-900">Archivos</h3>
+                    <button
+                      type="button"
+                      onClick={() => setIsModalOpen(true)}
+                      className="px-4 py-2 text-sm font-medium text-blue-600 hover:text-blue-700 border border-blue-600 rounded-md hover:bg-blue-50"
                     >
-                      📄 Ver JSON
-                    </a>
-                  )}
-                  {result.artifacts.markdown && (
-                    <a
-                      href={getArtifactUrl(result.run_id, 'process.md')}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="block text-blue-600 hover:underline"
+                      + Agregar archivo
+                    </button>
+                  </div>
+
+                  <FileList files={files} onRemove={handleRemoveFile} />
+                </div>
+
+                <div className="pt-6 border-t">
+                  <div className="flex gap-4">
+                    <button
+                      type="submit"
+                      disabled={isSubmitting || !processName.trim() || files.length === 0 || !workspaceId || !folderId}
+                      className="px-6 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
                     >
-                      📝 Ver Markdown
-                    </a>
-                  )}
-                  {result.artifacts.pdf && (
+                      {isSubmitting ? 'Procesando...' : 'Generar Documento'}
+                    </button>
+                    
                     <a
-                      href={getArtifactUrl(result.run_id, 'process.pdf')}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="block text-blue-600 hover:underline"
+                      href="/"
+                      className="px-6 py-3 border border-gray-300 rounded-md hover:bg-gray-50 font-medium"
                     >
-                      📑 Ver PDF
+                      Cancelar
                     </a>
+                  </div>
+                </div>
+              </form>
+
+              {error && (
+                <div className="mt-6 p-4 bg-red-50 border border-red-200 rounded-md text-red-700">
+                  <p className="font-semibold">Error</p>
+                  <p className="text-sm mt-1">{error}</p>
+                </div>
+              )}
+
+              {result && (
+                <div className="mt-6 p-4 bg-green-50 border border-green-200 rounded-md">
+                  <p className="font-semibold text-green-800">¡Documento generado exitosamente!</p>
+                  <p className="text-sm text-green-700 mt-2">Run ID: {result.run_id}</p>
+                  {result.artifacts && (
+                    <div className="mt-4 space-y-2">
+                      {result.artifacts.json && (
+                        <a
+                          href={getArtifactUrl(result.run_id, 'process.json')}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="block text-blue-600 hover:underline"
+                        >
+                          📄 Ver JSON
+                        </a>
+                      )}
+                      {result.artifacts.markdown && (
+                        <a
+                          href={getArtifactUrl(result.run_id, 'process.md')}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="block text-blue-600 hover:underline"
+                        >
+                          📝 Ver Markdown
+                        </a>
+                      )}
+                      {result.artifacts.pdf && (
+                        <a
+                          href={getArtifactUrl(result.run_id, 'process.pdf')}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="block text-blue-600 hover:underline"
+                        >
+                          📑 Ver PDF
+                        </a>
+                      )}
+                    </div>
                   )}
                 </div>
               )}
             </div>
-          )}
+          </div>
         </div>
       </div>
 
