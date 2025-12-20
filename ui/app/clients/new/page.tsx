@@ -104,7 +104,7 @@ export default function NewClientPage() {
   }
 
   return (
-    <div className="min-h-screen p-8 bg-gray-50">
+    <div className="p-8">
       <div className="max-w-3xl mx-auto">
         <div className="bg-white rounded-lg shadow-sm p-8">
           <h1 className="text-3xl font-bold mb-6">Nuevo Cliente</h1>

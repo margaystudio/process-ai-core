@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { createProcessRun, getArtifactUrl, listWorkspaces, WorkspaceResponse } from '@/lib/api'
+import { createProcessRun, getArtifactUrl } from '@/lib/api'
+import { useWorkspace } from '@/contexts/WorkspaceContext'
 import ProcessNameInput from '@/components/processes/ProcessNameInput'
 import ModeSelector from '@/components/processes/ModeSelector'
 import OptionalFields from '@/components/processes/OptionalFields'
@@ -11,8 +12,7 @@ import FileList from '@/components/processes/FileList'
 import { FileItemData } from '@/components/processes/FileItem'
 
 export default function NewProcessPage() {
-  const [workspaces, setWorkspaces] = useState<WorkspaceResponse[]>([])
-  const [workspaceId, setWorkspaceId] = useState('')
+  const { selectedWorkspaceId, selectedWorkspace } = useWorkspace()
   const [processName, setProcessName] = useState('')
   const [mode, setMode] = useState<'operativo' | 'gestion'>('operativo')
   const [folderId, setFolderId] = useState('')
@@ -25,19 +25,6 @@ export default function NewProcessPage() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<any>(null)
-
-  // Cargar workspaces al montar
-  useEffect(() => {
-    async function loadWorkspaces() {
-      try {
-        const data = await listWorkspaces()
-        setWorkspaces(data)
-      } catch (err) {
-        console.error('Error cargando workspaces:', err)
-      }
-    }
-    loadWorkspaces()
-  }, [])
 
   const handleAddFile = (file: File, type: FileType, description: string) => {
     const newFile: FileItemData = {
@@ -67,7 +54,13 @@ export default function NewProcessPage() {
       formData.append('mode', mode)
       
       // Campos requeridos
-      formData.append('workspace_id', workspaceId)
+      if (!selectedWorkspaceId) {
+        throw new Error('Debes seleccionar un workspace en el header')
+      }
+      if (!folderId) {
+        throw new Error('Debes seleccionar una carpeta')
+      }
+      formData.append('workspace_id', selectedWorkspaceId)
       formData.append('folder_id', folderId)
       
       // Campos opcionales (solo si tienen valor)
@@ -90,26 +83,42 @@ export default function NewProcessPage() {
   }
 
   return (
-    <div className="min-h-screen p-8 bg-gray-50">
+    <div className="p-8">
       <div className="max-w-6xl mx-auto">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Columna izquierda: Árbol de carpetas */}
           <div className="lg:col-span-1">
-            <div className="mb-2">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Carpeta * <span className="text-red-500">*</span>
-              </label>
-              {!folderId && (
-                <p className="text-xs text-red-600 mb-2">Debes seleccionar una carpeta para continuar</p>
-              )}
-            </div>
-            <FolderTree
-              workspaceId={workspaceId}
-              selectedFolderId={folderId}
-              onSelectFolder={(id) => setFolderId(id || '')}
-              showSelectable={true}
-              showCrud={false}
-            />
+            {!selectedWorkspaceId ? (
+              <div className="bg-white rounded-lg border border-gray-200 p-6">
+                <p className="text-sm text-gray-600 mb-4">
+                  Por favor, selecciona un workspace en el header para continuar.
+                </p>
+                {selectedWorkspace && (
+                  <div className="mt-4 p-3 bg-blue-50 rounded-md">
+                    <p className="text-sm font-medium text-blue-900">Workspace actual:</p>
+                    <p className="text-sm text-blue-700">{selectedWorkspace.name}</p>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <>
+                <div className="mb-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Carpeta * <span className="text-red-500">*</span>
+                  </label>
+                  {!folderId && (
+                    <p className="text-xs text-red-600 mb-2">Debes seleccionar una carpeta para continuar</p>
+                  )}
+                </div>
+                <FolderTree
+                  workspaceId={selectedWorkspaceId}
+                  selectedFolderId={folderId}
+                  onSelectFolder={(id) => setFolderId(id || '')}
+                  showSelectable={true}
+                  showCrud={false}
+                />
+              </>
+            )}
           </div>
 
           {/* Columna derecha: Formulario */}
@@ -117,30 +126,20 @@ export default function NewProcessPage() {
             <div className="bg-white rounded-lg shadow-sm p-8">
               <h1 className="text-3xl font-bold mb-6">Nuevo Proceso</h1>
 
-              <form onSubmit={handleSubmit} className="space-y-6">
-                <div>
-                  <label htmlFor="workspace" className="block text-sm font-medium text-gray-700 mb-2">
-                    Cliente *
-                  </label>
-                  <select
-                    id="workspace"
-                    value={workspaceId}
-                    onChange={(e) => {
-                      setWorkspaceId(e.target.value)
-                      setFolderId('') // Limpiar carpeta al cambiar workspace
-                    }}
-                    required
-                    className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  >
-                    <option value="">Seleccionar cliente...</option>
-                    {workspaces.map((ws) => (
-                      <option key={ws.id} value={ws.id}>
-                        {ws.name}
-                      </option>
-                    ))}
-                  </select>
+              {!selectedWorkspaceId ? (
+                <div className="p-6 bg-yellow-50 border border-yellow-200 rounded-md">
+                  <p className="text-sm text-yellow-800">
+                    Por favor, selecciona un workspace en el header para crear un proceso.
+                  </p>
                 </div>
+              ) : (
+                <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-md">
+                  <p className="text-sm font-medium text-blue-900">Workspace:</p>
+                  <p className="text-sm text-blue-700">{selectedWorkspace?.name}</p>
+                </div>
+              )}
 
+              <form onSubmit={handleSubmit} className="space-y-6">
                 <ProcessNameInput 
                   value={processName}
                   onChange={setProcessName}
@@ -177,7 +176,7 @@ export default function NewProcessPage() {
                   <div className="flex gap-4">
                     <button
                       type="submit"
-                      disabled={isSubmitting || !processName.trim() || files.length === 0 || !workspaceId || !folderId}
+                      disabled={isSubmitting || !processName.trim() || files.length === 0 || !selectedWorkspaceId || !folderId}
                       className="px-6 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
                     >
                       {isSubmitting ? 'Procesando...' : 'Generar Documento'}
