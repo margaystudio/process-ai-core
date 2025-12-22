@@ -3,8 +3,10 @@
 import { useState, useEffect, useMemo } from 'react'
 import Link from 'next/link'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
-import { listDocuments, Document } from '@/lib/api'
+import { listDocuments, getDocumentRuns, Document } from '@/lib/api'
 import FolderTree from '@/components/processes/FolderTree'
+import DocumentCard from '@/components/documents/DocumentCard'
+import ArtifactViewerModal from '@/components/processes/ArtifactViewerModal'
 
 export default function WorkspacePage() {
   const { selectedWorkspaceId, selectedWorkspace } = useWorkspace()
@@ -13,6 +15,19 @@ export default function WorkspacePage() {
   const [error, setError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null)
+  
+  // Estado para el modal de visualización de PDF
+  const [viewerModal, setViewerModal] = useState<{
+    isOpen: boolean
+    runId: string
+    filename: string
+    type: 'json' | 'markdown' | 'pdf'
+  }>({
+    isOpen: false,
+    runId: '',
+    filename: '',
+    type: 'pdf',
+  })
 
   // Cargar documentos
   useEffect(() => {
@@ -55,6 +70,25 @@ export default function WorkspacePage() {
         doc.description.toLowerCase().includes(query)
     )
   }, [documents, searchQuery])
+
+  const handleViewPdf = async (document: Document) => {
+    try {
+      const runs = await getDocumentRuns(document.id)
+      if (runs.length > 0 && runs[0].artifacts.pdf) {
+        const filename = runs[0].artifacts.pdf.split('/').pop() || 'process.pdf'
+        setViewerModal({
+          isOpen: true,
+          runId: runs[0].run_id,
+          filename,
+          type: 'pdf',
+        })
+      } else {
+        alert('No hay PDF disponible para este documento')
+      }
+    } catch (err) {
+      alert('Error al cargar el PDF: ' + (err instanceof Error ? err.message : 'Error desconocido'))
+    }
+  }
 
   if (!selectedWorkspaceId) {
     return (
@@ -167,58 +201,15 @@ export default function WorkspacePage() {
                   </div>
                   <div className="space-y-3">
                     {filteredDocuments.map((doc) => (
-                      <Link
+                      <DocumentCard
                         key={doc.id}
-                        href={`/documents/${doc.id}`}
-                        className="block border border-gray-200 rounded-lg p-4 hover:border-blue-300 hover:shadow-md transition"
-                      >
-                        <div className="flex items-start justify-between">
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2 mb-2">
-                              <h3 className="text-lg font-semibold text-gray-900">
-                                {doc.name}
-                              </h3>
-                              <span
-                                className={`px-2 py-1 rounded-full text-xs font-medium ${
-                                  doc.status === 'approved'
-                                    ? 'bg-green-100 text-green-800'
-                                    : doc.status === 'pending_validation'
-                                    ? 'bg-yellow-100 text-yellow-800'
-                                    : doc.status === 'rejected'
-                                    ? 'bg-red-100 text-red-800'
-                                    : doc.status === 'archived'
-                                    ? 'bg-gray-100 text-gray-800'
-                                    : 'bg-gray-100 text-gray-800'
-                                }`}
-                              >
-                                {doc.status === 'approved'
-                                  ? 'Aprobado'
-                                  : doc.status === 'pending_validation'
-                                  ? 'Pendiente'
-                                  : doc.status === 'rejected'
-                                  ? 'Rechazado'
-                                  : doc.status === 'archived'
-                                  ? 'Archivado'
-                                  : 'Borrador'}
-                              </span>
-                            </div>
-                            {doc.description && (
-                              <p className="text-sm text-gray-600 mb-2 line-clamp-2">
-                                {doc.description}
-                              </p>
-                            )}
-                            <div className="flex items-center gap-4 text-xs text-gray-500">
-                              <span>
-                                Creado: {new Date(doc.created_at).toLocaleDateString('es-UY')}
-                              </span>
-                              <span className="capitalize">{doc.document_type}</span>
-                            </div>
-                          </div>
-                          <div className="ml-4">
-                            <span className="text-gray-400">→</span>
-                          </div>
-                        </div>
-                      </Link>
+                        document={doc}
+                        onView={() => {
+                          window.location.href = `/documents/${doc.id}`
+                        }}
+                        onViewPdf={() => handleViewPdf(doc)}
+                        showActions={true}
+                      />
                     ))}
                   </div>
                 </>
@@ -227,6 +218,14 @@ export default function WorkspacePage() {
           </div>
         </div>
       </div>
+
+      <ArtifactViewerModal
+        isOpen={viewerModal.isOpen}
+        onClose={() => setViewerModal({ ...viewerModal, isOpen: false })}
+        runId={viewerModal.runId}
+        filename={viewerModal.filename}
+        type={viewerModal.type}
+      />
     </div>
   )
 }

@@ -6,10 +6,12 @@ import { useWorkspace } from '@/contexts/WorkspaceContext'
 import { useUserRole } from '@/hooks/useUserRole'
 import {
   listDocumentsPendingApproval,
+  getDocumentRuns,
   Document,
 } from '@/lib/api'
 import DocumentCard from '@/components/documents/DocumentCard'
 import FolderTree from '@/components/processes/FolderTree'
+import ArtifactViewerModal from '@/components/processes/ArtifactViewerModal'
 
 export default function ApprovalQueuePage() {
   const router = useRouter()
@@ -20,6 +22,19 @@ export default function ApprovalQueuePage() {
   const [error, setError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null)
+  
+  // Estado para el modal de visualización de PDF
+  const [viewerModal, setViewerModal] = useState<{
+    isOpen: boolean
+    runId: string
+    filename: string
+    type: 'json' | 'markdown' | 'pdf'
+  }>({
+    isOpen: false,
+    runId: '',
+    filename: '',
+    type: 'pdf',
+  })
 
   // TODO: Obtener userId de autenticación
   const getUserId = (): string | null => {
@@ -61,6 +76,25 @@ export default function ApprovalQueuePage() {
 
   const handleReview = (document: Document) => {
     router.push(`/dashboard/approval-queue/${document.id}/review`)
+  }
+
+  const handleViewPdf = async (document: Document) => {
+    try {
+      const runs = await getDocumentRuns(document.id)
+      if (runs.length > 0 && runs[0].artifacts.pdf) {
+        const filename = runs[0].artifacts.pdf.split('/').pop() || 'process.pdf'
+        setViewerModal({
+          isOpen: true,
+          runId: runs[0].run_id,
+          filename,
+          type: 'pdf',
+        })
+      } else {
+        alert('No hay PDF disponible para este documento')
+      }
+    } catch (err) {
+      alert('Error al cargar el PDF: ' + (err instanceof Error ? err.message : 'Error desconocido'))
+    }
   }
 
   // Filtrar documentos por búsqueda y carpeta
@@ -204,6 +238,7 @@ export default function ApprovalQueuePage() {
                         key={doc.id}
                         document={doc}
                         onReview={() => handleReview(doc)}
+                        onViewPdf={() => handleViewPdf(doc)}
                         showActions={true}
                       />
                     ))}
@@ -214,6 +249,14 @@ export default function ApprovalQueuePage() {
           </div>
         </div>
       </div>
+
+      <ArtifactViewerModal
+        isOpen={viewerModal.isOpen}
+        onClose={() => setViewerModal({ ...viewerModal, isOpen: false })}
+        runId={viewerModal.runId}
+        filename={viewerModal.filename}
+        type={viewerModal.type}
+      />
     </div>
   )
 }

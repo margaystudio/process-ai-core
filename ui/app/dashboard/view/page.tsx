@@ -10,6 +10,8 @@ import {
   getArtifactUrl,
 } from '@/lib/api'
 import DocumentCard from '@/components/documents/DocumentCard'
+import FolderTree from '@/components/processes/FolderTree'
+import ArtifactViewerModal from '@/components/processes/ArtifactViewerModal'
 
 export default function ViewPage() {
   const { selectedWorkspaceId, selectedWorkspace } = useWorkspace()
@@ -19,6 +21,19 @@ export default function ViewPage() {
   const [error, setError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null)
+  
+  // Estado para el modal de visualización de PDF
+  const [viewerModal, setViewerModal] = useState<{
+    isOpen: boolean
+    runId: string
+    filename: string
+    type: 'json' | 'markdown' | 'pdf'
+  }>({
+    isOpen: false,
+    runId: '',
+    filename: '',
+    type: 'pdf',
+  })
 
   useEffect(() => {
     async function loadDocuments() {
@@ -70,6 +85,25 @@ export default function ViewPage() {
       }
     } catch (err) {
       alert('Error al abrir el documento')
+    }
+  }
+
+  const handleViewPdf = async (document: Document) => {
+    try {
+      const runs = await getDocumentRuns(document.id)
+      if (runs.length > 0 && runs[0].artifacts.pdf) {
+        const filename = runs[0].artifacts.pdf.split('/').pop() || 'process.pdf'
+        setViewerModal({
+          isOpen: true,
+          runId: runs[0].run_id,
+          filename,
+          type: 'pdf',
+        })
+      } else {
+        alert('No hay PDF disponible para este documento')
+      }
+    } catch (err) {
+      alert('Error al cargar el PDF: ' + (err instanceof Error ? err.message : 'Error desconocido'))
     }
   }
 
@@ -173,6 +207,7 @@ export default function ViewPage() {
                         key={doc.id}
                         document={doc}
                         onView={() => handleView(doc)}
+                        onViewPdf={() => handleViewPdf(doc)}
                         showActions={true}
                       />
                     ))}
@@ -183,6 +218,14 @@ export default function ViewPage() {
           </div>
         </div>
       </div>
+
+      <ArtifactViewerModal
+        isOpen={viewerModal.isOpen}
+        onClose={() => setViewerModal({ ...viewerModal, isOpen: false })}
+        runId={viewerModal.runId}
+        filename={viewerModal.filename}
+        type={viewerModal.type}
+      />
     </div>
   )
 }

@@ -103,6 +103,16 @@ export default function DocumentReviewPage() {
       return
     }
 
+    // Diálogo de confirmación
+    const confirmed = window.confirm(
+      `¿Estás seguro de que deseas aprobar el documento "${document?.name}"?\n\n` +
+      `Esta acción marcará el documento como aprobado y estará disponible para su uso.`
+    )
+
+    if (!confirmed) {
+      return
+    }
+
     setProcessing(true)
     try {
       await approveDocument(documentId, userId, selectedWorkspaceId)
@@ -123,6 +133,17 @@ export default function DocumentReviewPage() {
 
     if (!observations.trim()) {
       setError('Debes proporcionar observaciones al rechazar el documento')
+      return
+    }
+
+    // Diálogo de confirmación
+    const confirmed = window.confirm(
+      `¿Estás seguro de que deseas rechazar el documento "${document?.name}"?\n\n` +
+      `Observaciones: ${observations}\n\n` +
+      `El documento será marcado como rechazado y enviado de vuelta para corrección.`
+    )
+
+    if (!confirmed) {
       return
     }
 

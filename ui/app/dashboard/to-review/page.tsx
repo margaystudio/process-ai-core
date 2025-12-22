@@ -6,10 +6,12 @@ import { useWorkspace } from '@/contexts/WorkspaceContext'
 import { useUserRole } from '@/hooks/useUserRole'
 import {
   listDocumentsToReview,
+  getDocumentRuns,
   Document,
 } from '@/lib/api'
 import DocumentCard from '@/components/documents/DocumentCard'
 import FolderTree from '@/components/processes/FolderTree'
+import ArtifactViewerModal from '@/components/processes/ArtifactViewerModal'
 
 export default function ToReviewPage() {
   const router = useRouter()
@@ -20,6 +22,19 @@ export default function ToReviewPage() {
   const [error, setError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null)
+  
+  // Estado para el modal de visualización de PDF
+  const [viewerModal, setViewerModal] = useState<{
+    isOpen: boolean
+    runId: string
+    filename: string
+    type: 'json' | 'markdown' | 'pdf'
+  }>({
+    isOpen: false,
+    runId: '',
+    filename: '',
+    type: 'pdf',
+  })
 
   // TODO: Obtener userId de autenticación
   const getUserId = (): string | null => {
@@ -204,6 +219,7 @@ export default function ToReviewPage() {
                         key={doc.id}
                         document={doc}
                         onCorrect={() => handleCorrect(doc)}
+                        onViewPdf={() => handleViewPdf(doc)}
                         showActions={true}
                       />
                     ))}
@@ -214,6 +230,14 @@ export default function ToReviewPage() {
           </div>
         </div>
       </div>
+
+      <ArtifactViewerModal
+        isOpen={viewerModal.isOpen}
+        onClose={() => setViewerModal({ ...viewerModal, isOpen: false })}
+        runId={viewerModal.runId}
+        filename={viewerModal.filename}
+        type={viewerModal.type}
+      />
     </div>
   )
 }

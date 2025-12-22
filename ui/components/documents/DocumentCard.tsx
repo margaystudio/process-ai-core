@@ -9,6 +9,7 @@ interface DocumentCardProps {
   onReject?: () => void
   onCorrect?: () => void
   onReview?: () => void
+  onViewPdf?: () => void
   showActions?: boolean
   processing?: boolean
 }
@@ -20,6 +21,7 @@ export default function DocumentCard({
   onReject,
   onCorrect,
   onReview,
+  onViewPdf,
   showActions = false,
   processing = false,
 }: DocumentCardProps) {
@@ -48,6 +50,19 @@ export default function DocumentCard({
           <div className="flex items-center gap-2 mb-2">
             <h3 className="text-lg font-semibold text-gray-900">{document.name}</h3>
             {getStatusBadge()}
+            {onViewPdf && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onViewPdf()
+                }}
+                className="ml-auto px-2 py-1 text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-md transition flex items-center gap-1 border border-blue-200"
+                title="Ver PDF"
+              >
+                <span>📑</span>
+                <span>Ver PDF</span>
+              </button>
+            )}
           </div>
           {document.description && (
             <p className="text-sm text-gray-600 mb-3 line-clamp-2">{document.description}</p>
