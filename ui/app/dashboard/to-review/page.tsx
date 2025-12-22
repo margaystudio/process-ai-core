@@ -1,17 +1,18 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
 import { useUserRole } from '@/hooks/useUserRole'
+import { useUserId } from '@/hooks/useUserId'
 import {
   listDocumentsToReview,
-  getDocumentRuns,
   Document,
 } from '@/lib/api'
 import DocumentCard from '@/components/documents/DocumentCard'
 import FolderTree from '@/components/processes/FolderTree'
-import ArtifactViewerModal from '@/components/processes/ArtifactViewerModal'
+import { usePdfViewer } from '@/hooks/usePdfViewer'
+import { useDocumentFilter } from '@/hooks/useDocumentFilter'
 
 export default function ToReviewPage() {
   const router = useRouter()
@@ -23,26 +24,10 @@ export default function ToReviewPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null)
   
-  // Estado para el modal de visualización de PDF
-  const [viewerModal, setViewerModal] = useState<{
-    isOpen: boolean
-    runId: string
-    filename: string
-    type: 'json' | 'markdown' | 'pdf'
-  }>({
-    isOpen: false,
-    runId: '',
-    filename: '',
-    type: 'pdf',
-  })
+  // Hook para manejar visualización de PDFs
+  const { openPdf, ModalComponent } = usePdfViewer()
 
-  // TODO: Obtener userId de autenticación
-  const getUserId = (): string | null => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('userId')
-    }
-    return null
-  }
+  const userId = useUserId()
 
   useEffect(() => {
     async function loadDocuments() {
@@ -51,7 +36,6 @@ export default function ToReviewPage() {
         return
       }
 
-      const userId = getUserId()
       if (!userId) {
         setError('Usuario no autenticado')
         setLoading(false)
@@ -72,33 +56,14 @@ export default function ToReviewPage() {
     }
 
     loadDocuments()
-  }, [selectedWorkspaceId])
+  }, [selectedWorkspaceId, userId])
 
   const handleCorrect = (document: Document) => {
     router.push(`/documents/${document.id}/correct`)
   }
 
   // Filtrar documentos por búsqueda y carpeta
-  const filteredDocuments = useMemo(() => {
-    let filtered = documents
-
-    // Filtrar por carpeta
-    if (selectedFolderId) {
-      filtered = filtered.filter((doc) => doc.folder_id === selectedFolderId)
-    }
-
-    // Filtrar por búsqueda
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase()
-      filtered = filtered.filter(
-        (doc) =>
-          doc.name.toLowerCase().includes(query) ||
-          doc.description.toLowerCase().includes(query)
-      )
-    }
-
-    return filtered
-  }, [documents, searchQuery, selectedFolderId])
+  const filteredDocuments = useDocumentFilter(documents, searchQuery, selectedFolderId)
 
   // Verificar que el usuario es creador
   if (role && role !== 'creator') {
@@ -219,7 +184,7 @@ export default function ToReviewPage() {
                         key={doc.id}
                         document={doc}
                         onCorrect={() => handleCorrect(doc)}
-                        onViewPdf={() => handleViewPdf(doc)}
+                        onViewPdf={() => openPdf(doc)}
                         showActions={true}
                       />
                     ))}
@@ -231,13 +196,7 @@ export default function ToReviewPage() {
         </div>
       </div>
 
-      <ArtifactViewerModal
-        isOpen={viewerModal.isOpen}
-        onClose={() => setViewerModal({ ...viewerModal, isOpen: false })}
-        runId={viewerModal.runId}
-        filename={viewerModal.filename}
-        type={viewerModal.type}
-      />
+      <ModalComponent />
     </div>
   )
 }

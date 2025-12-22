@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect } from 'react'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
 import { useUserRole } from '@/hooks/useUserRole'
 import {
@@ -11,7 +11,8 @@ import {
 } from '@/lib/api'
 import DocumentCard from '@/components/documents/DocumentCard'
 import FolderTree from '@/components/processes/FolderTree'
-import ArtifactViewerModal from '@/components/processes/ArtifactViewerModal'
+import { usePdfViewer } from '@/hooks/usePdfViewer'
+import { useDocumentFilter } from '@/hooks/useDocumentFilter'
 
 export default function ViewPage() {
   const { selectedWorkspaceId, selectedWorkspace } = useWorkspace()
@@ -22,18 +23,8 @@ export default function ViewPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null)
   
-  // Estado para el modal de visualización de PDF
-  const [viewerModal, setViewerModal] = useState<{
-    isOpen: boolean
-    runId: string
-    filename: string
-    type: 'json' | 'markdown' | 'pdf'
-  }>({
-    isOpen: false,
-    runId: '',
-    filename: '',
-    type: 'pdf',
-  })
+  // Hook para manejar visualización de PDFs
+  const { openPdf, ModalComponent } = usePdfViewer()
 
   useEffect(() => {
     async function loadDocuments() {
@@ -61,19 +52,8 @@ export default function ViewPage() {
     loadDocuments()
   }, [selectedWorkspaceId, selectedFolderId])
 
-  // Filtrar documentos por búsqueda
-  const filteredDocuments = useMemo(() => {
-    if (!searchQuery.trim()) {
-      return documents
-    }
-
-    const query = searchQuery.toLowerCase()
-    return documents.filter(
-      (doc) =>
-        doc.name.toLowerCase().includes(query) ||
-        doc.description.toLowerCase().includes(query)
-    )
-  }, [documents, searchQuery])
+  // Filtrar documentos por búsqueda y carpeta
+  const filteredDocuments = useDocumentFilter(documents, searchQuery, selectedFolderId)
 
   const handleView = async (document: Document) => {
     try {
@@ -88,24 +68,6 @@ export default function ViewPage() {
     }
   }
 
-  const handleViewPdf = async (document: Document) => {
-    try {
-      const runs = await getDocumentRuns(document.id)
-      if (runs.length > 0 && runs[0].artifacts.pdf) {
-        const filename = runs[0].artifacts.pdf.split('/').pop() || 'process.pdf'
-        setViewerModal({
-          isOpen: true,
-          runId: runs[0].run_id,
-          filename,
-          type: 'pdf',
-        })
-      } else {
-        alert('No hay PDF disponible para este documento')
-      }
-    } catch (err) {
-      alert('Error al cargar el PDF: ' + (err instanceof Error ? err.message : 'Error desconocido'))
-    }
-  }
 
   // Verificar que el usuario es viewer
   if (role && role !== 'viewer') {
@@ -207,7 +169,7 @@ export default function ViewPage() {
                         key={doc.id}
                         document={doc}
                         onView={() => handleView(doc)}
-                        onViewPdf={() => handleViewPdf(doc)}
+                        onViewPdf={() => openPdf(doc)}
                         showActions={true}
                       />
                     ))}
@@ -219,13 +181,7 @@ export default function ViewPage() {
         </div>
       </div>
 
-      <ArtifactViewerModal
-        isOpen={viewerModal.isOpen}
-        onClose={() => setViewerModal({ ...viewerModal, isOpen: false })}
-        runId={viewerModal.runId}
-        filename={viewerModal.filename}
-        type={viewerModal.type}
-      />
+      <ModalComponent />
     </div>
   )
 }

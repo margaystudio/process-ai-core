@@ -9,7 +9,7 @@ import OptionalFields from '@/components/processes/OptionalFields'
 import FolderTree from '@/components/processes/FolderTree'
 import FileUploadModal, { FileType } from '@/components/processes/FileUploadModal'
 import FileList from '@/components/processes/FileList'
-import ArtifactViewerModal from '@/components/processes/ArtifactViewerModal'
+import { usePdfViewer } from '@/hooks/usePdfViewer'
 import { FileItemData } from '@/components/processes/FileItem'
 
 export default function NewProcessPage() {
@@ -28,18 +28,8 @@ export default function NewProcessPage() {
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<any>(null)
   
-  // Estado para el modal de visualización de artifacts
-  const [viewerModal, setViewerModal] = useState<{
-    isOpen: boolean
-    runId: string
-    filename: string
-    type: 'json' | 'markdown' | 'pdf'
-  }>({
-    isOpen: false,
-    runId: '',
-    filename: '',
-    type: 'json',
-  })
+  // Hook para manejar visualización de artifacts
+  const { openArtifactFromRun, ModalComponent } = usePdfViewer()
 
   const handleAddFile = (file: File, type: FileType, description: string) => {
     const newFile: FileItemData = {
@@ -226,12 +216,7 @@ export default function NewProcessPage() {
                     <div className="mt-4 space-y-2">
                       {result.artifacts.json && (
                         <button
-                          onClick={() => setViewerModal({
-                            isOpen: true,
-                            runId: result.run_id,
-                            filename: 'process.json',
-                            type: 'json',
-                          })}
+                          onClick={() => openArtifactFromRun(result.run_id, 'process.json', 'json')}
                           className="block text-blue-600 hover:underline text-left"
                         >
                           📄 Ver JSON
@@ -239,12 +224,7 @@ export default function NewProcessPage() {
                       )}
                       {result.artifacts.markdown && (
                         <button
-                          onClick={() => setViewerModal({
-                            isOpen: true,
-                            runId: result.run_id,
-                            filename: 'process.md',
-                            type: 'markdown',
-                          })}
+                          onClick={() => openArtifactFromRun(result.run_id, 'process.md', 'markdown')}
                           className="block text-blue-600 hover:underline text-left"
                         >
                           📝 Ver Markdown
@@ -252,12 +232,7 @@ export default function NewProcessPage() {
                       )}
                       {result.artifacts.pdf && (
                         <button
-                          onClick={() => setViewerModal({
-                            isOpen: true,
-                            runId: result.run_id,
-                            filename: 'process.pdf',
-                            type: 'pdf',
-                          })}
+                          onClick={() => openArtifactFromRun(result.run_id, 'process.pdf', 'pdf')}
                           className="block text-blue-600 hover:underline text-left"
                         >
                           📑 Ver PDF
@@ -278,13 +253,7 @@ export default function NewProcessPage() {
         onAdd={handleAddFile}
       />
 
-      <ArtifactViewerModal
-        isOpen={viewerModal.isOpen}
-        onClose={() => setViewerModal({ ...viewerModal, isOpen: false })}
-        runId={viewerModal.runId}
-        filename={viewerModal.filename}
-        type={viewerModal.type}
-      />
+      <ModalComponent />
     </div>
   )
 }

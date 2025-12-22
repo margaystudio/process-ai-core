@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
+import { useUserId } from '@/hooks/useUserId'
 import {
   getDocument,
   getDocumentRuns,
@@ -26,13 +27,7 @@ export default function DocumentReviewPage() {
   const [observations, setObservations] = useState('')
   const [processing, setProcessing] = useState(false)
 
-  // TODO: Obtener userId de autenticación
-  const getUserId = (): string | null => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('userId')
-    }
-    return null
-  }
+  const userId = useUserId()
 
   useEffect(() => {
     let blobUrl: string | null = null
@@ -97,7 +92,6 @@ export default function DocumentReviewPage() {
   }, [documentId])
 
   const handleApprove = async () => {
-    const userId = getUserId()
     if (!userId || !selectedWorkspaceId) {
       setError('Usuario no autenticado')
       return
@@ -125,7 +119,6 @@ export default function DocumentReviewPage() {
   }
 
   const handleReject = async () => {
-    const userId = getUserId()
     if (!userId || !selectedWorkspaceId) {
       setError('Usuario no autenticado')
       return

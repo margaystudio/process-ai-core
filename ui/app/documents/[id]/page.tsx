@@ -29,7 +29,7 @@ import { useWorkspace } from '@/contexts/WorkspaceContext'
 import FolderTree from '@/components/processes/FolderTree'
 import FileUploadModal, { FileType } from '@/components/processes/FileUploadModal'
 import FileList from '@/components/processes/FileList'
-import ArtifactViewerModal from '@/components/processes/ArtifactViewerModal'
+import { usePdfViewer } from '@/hooks/usePdfViewer'
 import { FileItemData } from '@/components/processes/FileItem'
 
 export default function DocumentDetailPage() {
@@ -79,18 +79,8 @@ export default function DocumentDetailPage() {
   const [auditLog, setAuditLog] = useState<AuditLogEntry[]>([])
   const [versions, setVersions] = useState<DocumentVersion[]>([])
   
-  // Estado para el modal de visualización de artifacts
-  const [viewerModal, setViewerModal] = useState<{
-    isOpen: boolean
-    runId: string
-    filename: string
-    type: 'json' | 'markdown' | 'pdf'
-  }>({
-    isOpen: false,
-    runId: '',
-    filename: '',
-    type: 'json',
-  })
+  // Hook para manejar visualización de artifacts
+  const { openArtifactFromRun, ModalComponent } = usePdfViewer()
   
   // Delete state
   const [isDeleting, setIsDeleting] = useState(false)
@@ -1057,12 +1047,7 @@ export default function DocumentDetailPage() {
                             <button
                               onClick={() => {
                                 const filename = run.artifacts.pdf!.split('/').pop() || 'process.pdf'
-                                setViewerModal({
-                                  isOpen: true,
-                                  runId: run.run_id,
-                                  filename,
-                                  type: 'pdf',
-                                })
+                                openArtifactFromRun(run.run_id, filename, 'pdf')
                               }}
                               className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm font-medium inline-flex items-center gap-2"
                             >
@@ -1073,12 +1058,7 @@ export default function DocumentDetailPage() {
                             <button
                               onClick={() => {
                                 const filename = run.artifacts.md!.split('/').pop() || 'process.md'
-                                setViewerModal({
-                                  isOpen: true,
-                                  runId: run.run_id,
-                                  filename,
-                                  type: 'markdown',
-                                })
+                                openArtifactFromRun(run.run_id, filename, 'markdown')
                               }}
                               className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 text-sm font-medium inline-flex items-center gap-2"
                             >
@@ -1089,12 +1069,7 @@ export default function DocumentDetailPage() {
                             <button
                               onClick={() => {
                                 const filename = run.artifacts.json!.split('/').pop() || 'process.json'
-                                setViewerModal({
-                                  isOpen: true,
-                                  runId: run.run_id,
-                                  filename,
-                                  type: 'json',
-                                })
+                                openArtifactFromRun(run.run_id, filename, 'json')
                               }}
                               className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 text-sm font-medium inline-flex items-center gap-2"
                             >
@@ -1118,13 +1093,7 @@ export default function DocumentDetailPage() {
                 onAdd={handleAddNewVersionFile}
               />
               
-              <ArtifactViewerModal
-                isOpen={viewerModal.isOpen}
-                onClose={() => setViewerModal({ ...viewerModal, isOpen: false })}
-                runId={viewerModal.runId}
-                filename={viewerModal.filename}
-                type={viewerModal.type}
-              />
+              <ModalComponent />
               
               {/* Sección de Historial y Trazabilidad */}
               <div className="mt-8 pt-8 border-t">

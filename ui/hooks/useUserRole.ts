@@ -3,30 +3,20 @@
 import { useState, useEffect } from 'react'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
 import { getUserRole } from '@/lib/api'
+import { useUserId } from './useUserId'
 
 /**
  * Hook para obtener el rol del usuario en el workspace seleccionado.
  * 
  * TODO: Obtener userId de autenticación cuando esté implementada.
- * Por ahora, usa un userId hardcodeado o de localStorage.
+ * Por ahora, usa un userId de localStorage.
  */
 export function useUserRole() {
   const { selectedWorkspaceId } = useWorkspace()
+  const userId = useUserId()
   const [role, setRole] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-
-  // TODO: Obtener userId de autenticación
-  // Por ahora, usar un userId de prueba o de localStorage
-  const getUserId = (): string | null => {
-    // Intentar obtener de localStorage (para desarrollo)
-    if (typeof window !== 'undefined') {
-      const stored = localStorage.getItem('userId')
-      if (stored) return stored
-    }
-    // TODO: Retornar null cuando tengamos autenticación real
-    return null
-  }
 
   useEffect(() => {
     async function loadRole() {
@@ -36,7 +26,6 @@ export function useUserRole() {
         return
       }
 
-      const userId = getUserId()
       if (!userId) {
         setError('Usuario no autenticado')
         setLoading(false)
@@ -57,7 +46,7 @@ export function useUserRole() {
     }
 
     loadRole()
-  }, [selectedWorkspaceId])
+  }, [selectedWorkspaceId, userId])
 
   return { role, loading, error }
 }
