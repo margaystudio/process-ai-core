@@ -1,6 +1,7 @@
 'use client'
 
 import { Document } from '@/lib/api'
+import { formatDate } from '@/utils/dateFormat'
 
 interface DocumentCardProps {
   document: Document
@@ -69,7 +70,7 @@ export default function DocumentCard({
           )}
           <div className="flex items-center gap-4 text-xs text-gray-500">
             <span>
-              Creado: {new Date(document.created_at).toLocaleDateString('es-UY')}
+              Creado: {formatDate(document.created_at)}
             </span>
             {document.folder_id && (
               <span className="text-gray-400">• Carpeta: {document.folder_id}</span>

@@ -18,6 +18,7 @@ import AIPatchForm from '@/components/documents/AIPatchForm'
 import ManualEditForm from '@/components/documents/ManualEditForm'
 import RegenerateForm from '@/components/documents/RegenerateForm'
 import DocumentPreview from '@/components/documents/DocumentPreview'
+import { formatDate } from '@/utils/dateFormat'
 
 type CorrectionOption = 'ai-patch' | 'manual-edit' | 'regenerate' | null
 
@@ -167,7 +168,7 @@ export default function CorrectDocumentPage() {
             )}
             {lastRejection.completed_at && (
               <p className="text-sm text-red-600">
-                Fecha: {new Date(lastRejection.completed_at).toLocaleDateString('es-UY')}
+                Fecha: {formatDate(lastRejection.completed_at)}
               </p>
             )}
           </div>

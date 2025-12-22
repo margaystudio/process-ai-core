@@ -31,6 +31,7 @@ import FileUploadModal, { FileType } from '@/components/processes/FileUploadModa
 import FileList from '@/components/processes/FileList'
 import { usePdfViewer } from '@/hooks/usePdfViewer'
 import { FileItemData } from '@/components/processes/FileItem'
+import { formatDateTime } from '@/utils/dateFormat'
 
 export default function DocumentDetailPage() {
   const params = useParams()
@@ -692,7 +693,7 @@ export default function DocumentDetailPage() {
                       Creado
                     </label>
                     <p className="text-gray-900">
-                      {new Date(document.created_at).toLocaleString('es-UY')}
+                      {formatDateTime(document.created_at)}
                     </p>
                   </div>
                 </div>
@@ -767,7 +768,7 @@ export default function DocumentDetailPage() {
                                    'Pendiente'}
                                 </span>
                                 <span className="text-xs text-gray-500">
-                                  {new Date(validation.created_at).toLocaleString('es-UY')}
+                                  {formatDateTime(validation.created_at)}
                                 </span>
                               </div>
                               {validation.observations && (
@@ -1038,7 +1039,7 @@ export default function DocumentDetailPage() {
                           <div>
                             <p className="text-sm font-medium text-gray-900">Run ID: {run.run_id.substring(0, 8)}...</p>
                             <p className="text-xs text-gray-500">
-                              {new Date(run.created_at).toLocaleString('es-UY')}
+                              {formatDateTime(run.created_at)}
                             </p>
                           </div>
                         </div>
@@ -1157,7 +1158,7 @@ export default function DocumentDetailPage() {
                                     </span>
                                   </div>
                                   <p className="text-xs text-gray-500">
-                                    Aprobada: {new Date(version.approved_at).toLocaleString('es-UY')}
+                                    Aprobada: {formatDateTime(version.approved_at)}
                                     {version.approved_by && ` por ${version.approved_by}`}
                                   </p>
                                   {version.run_id && (
@@ -1194,7 +1195,7 @@ export default function DocumentDetailPage() {
                                     </span>
                                   </div>
                                   <p className="text-xs text-gray-500 mb-1">
-                                    {new Date(entry.created_at).toLocaleString('es-UY')}
+                                    {formatDateTime(entry.created_at)}
                                   </p>
                                   {entry.changes_json && (
                                     <details className="mt-2">
