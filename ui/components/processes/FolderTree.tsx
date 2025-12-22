@@ -216,50 +216,58 @@ function FolderTreeNode({
     <div className="select-none">
       <div
         className={`
-          flex items-center gap-2 py-1.5 px-2 rounded-md cursor-pointer
+          flex items-center gap-2 py-1.5 px-2 rounded-md
           ${isSelected 
             ? 'bg-blue-100 text-blue-900 font-medium' 
             : 'hover:bg-gray-100 text-gray-700'
           }
         `}
         style={{ paddingLeft: `${level * 1.5 + 0.5}rem` }}
-        onClick={() => {
-          if (hasContent) {
-            setIsExpanded(!isExpanded)
-          }
-          if (onSelectFolder) {
-            onSelectFolder(isSelected ? null : node.folder.id)
-          }
-        }}
       >
         {hasContent ? (
-          <span className="text-gray-400 text-xs w-4">
+          <span 
+            className="text-gray-400 text-xs w-4 cursor-pointer"
+            onClick={(e) => {
+              e.stopPropagation()
+              setIsExpanded(!isExpanded)
+            }}
+          >
             {isExpanded ? '▼' : '▶'}
           </span>
         ) : (
           <span className="w-4" />
         )}
-        <span className="text-sm flex-1">
-          {isEditing ? (
-            <input
-              type="text"
-              value={editFolderName}
-              onChange={(e) => setEditFolderName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  handleUpdateFolder()
-                } else if (e.key === 'Escape') {
-                  setIsEditing(false)
-                  setEditFolderName(node.folder.name)
-                }
-              }}
-              onClick={(e) => e.stopPropagation()}
-              className="px-2 py-1 text-sm border border-blue-500 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
-              autoFocus
-            />
-          ) : (
-            node.folder.name
-          )}
+        <span 
+          className="text-gray-500 text-sm mr-1 cursor-pointer flex-1 flex items-center gap-2"
+          onClick={() => {
+            if (onSelectFolder) {
+              onSelectFolder(isSelected ? null : node.folder.id)
+            }
+          }}
+        >
+          <span>📁</span>
+          <span className="text-sm flex-1">
+            {isEditing ? (
+              <input
+                type="text"
+                value={editFolderName}
+                onChange={(e) => setEditFolderName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    handleUpdateFolder()
+                  } else if (e.key === 'Escape') {
+                    setIsEditing(false)
+                    setEditFolderName(node.folder.name)
+                  }
+                }}
+                onClick={(e) => e.stopPropagation()}
+                className="px-2 py-1 text-sm border border-blue-500 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                autoFocus
+              />
+            ) : (
+              node.folder.name
+            )}
+          </span>
         </span>
         {displayDocs.length > 0 && (
           <span className="text-xs text-gray-500">({displayDocs.length})</span>

@@ -29,6 +29,7 @@ import { useWorkspace } from '@/contexts/WorkspaceContext'
 import FolderTree from '@/components/processes/FolderTree'
 import FileUploadModal, { FileType } from '@/components/processes/FileUploadModal'
 import FileList from '@/components/processes/FileList'
+import ArtifactViewerModal from '@/components/processes/ArtifactViewerModal'
 import { FileItemData } from '@/components/processes/FileItem'
 
 export default function DocumentDetailPage() {
@@ -77,6 +78,19 @@ export default function DocumentDetailPage() {
   const [showHistory, setShowHistory] = useState(false)
   const [auditLog, setAuditLog] = useState<AuditLogEntry[]>([])
   const [versions, setVersions] = useState<DocumentVersion[]>([])
+  
+  // Estado para el modal de visualización de artifacts
+  const [viewerModal, setViewerModal] = useState<{
+    isOpen: boolean
+    runId: string
+    filename: string
+    type: 'json' | 'markdown' | 'pdf'
+  }>({
+    isOpen: false,
+    runId: '',
+    filename: '',
+    type: 'json',
+  })
   
   // Delete state
   const [isDeleting, setIsDeleting] = useState(false)
@@ -1040,34 +1054,52 @@ export default function DocumentDetailPage() {
                         </div>
                         <div className="flex gap-3">
                           {run.artifacts.pdf && (
-                            <a
-                              href={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}${run.artifacts.pdf}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
+                            <button
+                              onClick={() => {
+                                const filename = run.artifacts.pdf!.split('/').pop() || 'process.pdf'
+                                setViewerModal({
+                                  isOpen: true,
+                                  runId: run.run_id,
+                                  filename,
+                                  type: 'pdf',
+                                })
+                              }}
                               className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm font-medium inline-flex items-center gap-2"
                             >
                               📑 Ver PDF
-                            </a>
+                            </button>
                           )}
                           {run.artifacts.md && (
-                            <a
-                              href={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}${run.artifacts.md}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
+                            <button
+                              onClick={() => {
+                                const filename = run.artifacts.md!.split('/').pop() || 'process.md'
+                                setViewerModal({
+                                  isOpen: true,
+                                  runId: run.run_id,
+                                  filename,
+                                  type: 'markdown',
+                                })
+                              }}
                               className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 text-sm font-medium inline-flex items-center gap-2"
                             >
                               📝 Ver Markdown
-                            </a>
+                            </button>
                           )}
                           {run.artifacts.json && (
-                            <a
-                              href={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}${run.artifacts.json}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
+                            <button
+                              onClick={() => {
+                                const filename = run.artifacts.json!.split('/').pop() || 'process.json'
+                                setViewerModal({
+                                  isOpen: true,
+                                  runId: run.run_id,
+                                  filename,
+                                  type: 'json',
+                                })
+                              }}
                               className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 text-sm font-medium inline-flex items-center gap-2"
                             >
                               📄 Ver JSON
-                            </a>
+                            </button>
                           )}
                         </div>
                       </div>
@@ -1084,6 +1116,14 @@ export default function DocumentDetailPage() {
                 isOpen={isNewVersionModalOpen}
                 onClose={() => setIsNewVersionModalOpen(false)}
                 onAdd={handleAddNewVersionFile}
+              />
+              
+              <ArtifactViewerModal
+                isOpen={viewerModal.isOpen}
+                onClose={() => setViewerModal({ ...viewerModal, isOpen: false })}
+                runId={viewerModal.runId}
+                filename={viewerModal.filename}
+                type={viewerModal.type}
               />
               
               {/* Sección de Historial y Trazabilidad */}

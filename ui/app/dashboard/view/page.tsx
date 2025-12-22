@@ -115,22 +115,6 @@ export default function ViewPage() {
             />
           </div>
 
-          {/* Filtro de carpeta activo */}
-          {selectedFolderId && (
-            <div className="mt-3 pt-3 border-t border-gray-200">
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-gray-600">
-                  Filtrando por carpeta seleccionada
-                </span>
-                <button
-                  onClick={() => setSelectedFolderId(null)}
-                  className="text-sm text-blue-600 hover:text-blue-700"
-                >
-                  Limpiar filtro
-                </button>
-              </div>
-            </div>
-          )}
         </div>
 
         {/* Contenido principal */}
