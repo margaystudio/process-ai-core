@@ -2,7 +2,28 @@
 
 import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { getDocument, updateDocument, getCatalogOptions, getDocumentRuns, createDocumentRun, getArtifactUrl, CatalogOption, Document, DocumentUpdateRequest } from '@/lib/api'
+import { 
+  getDocument, 
+  updateDocument, 
+  deleteDocument,
+  getCatalogOptions, 
+  getDocumentRuns, 
+  createDocumentRun, 
+  getArtifactUrl, 
+  CatalogOption, 
+  Document, 
+  DocumentUpdateRequest,
+  createValidation,
+  approveValidation,
+  rejectValidation,
+  listValidations,
+  Validation,
+  patchDocumentWithAI,
+  updateDocumentContent,
+  getDocumentAuditLog,
+  AuditLogEntry,
+  DocumentVersion,
+} from '@/lib/api'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
 import FolderTree from '@/components/processes/FolderTree'
 import FileUploadModal, { FileType } from '@/components/processes/FileUploadModal'
@@ -34,6 +55,30 @@ export default function DocumentDetailPage() {
       pdf?: string;
     };
   }>>([])
+  
+  // Validation state
+  const [validations, setValidations] = useState<Validation[]>([])
+  const [isValidating, setIsValidating] = useState(false)
+  const [showValidationForm, setShowValidationForm] = useState(false)
+  const [validationObservations, setValidationObservations] = useState('')
+  const [rejectObservations, setRejectObservations] = useState('')
+  const [rejectingValidationId, setRejectingValidationId] = useState<string | null>(null)
+  
+  // Correction options
+  const [showCorrectionOptions, setShowCorrectionOptions] = useState(false)
+  const [correctionType, setCorrectionType] = useState<'manual' | 'ai_patch' | null>(null)
+  const [manualEditJson, setManualEditJson] = useState('')
+  const [aiPatchObservations, setAiPatchObservations] = useState('')
+  const [isPatching, setIsPatching] = useState(false)
+  const [isUpdatingContent, setIsUpdatingContent] = useState(false)
+  
+  // History and audit log
+  const [showHistory, setShowHistory] = useState(false)
+  const [auditLog, setAuditLog] = useState<AuditLogEntry[]>([])
+  const [versions, setVersions] = useState<DocumentVersion[]>([])
+  
+  // Delete state
+  const [isDeleting, setIsDeleting] = useState(false)
   
   // Form state
   const [name, setName] = useState('')
@@ -87,6 +132,28 @@ export default function DocumentDetailPage() {
           setRuns(documentRuns)
         } catch (err) {
           console.error('Error cargando runs:', err)
+        }
+        
+        // Load validations
+        try {
+          const docValidations = await listValidations(documentId)
+          setValidations(docValidations)
+        } catch (err) {
+          console.error('Error cargando validaciones:', err)
+        }
+        
+        // Load history if needed
+        if (showHistory) {
+          try {
+            const [log, vers] = await Promise.all([
+              getDocumentAuditLog(documentId),
+              getDocumentVersions(documentId),
+            ])
+            setAuditLog(log)
+            setVersions(vers)
+          } catch (err) {
+            console.error('Error cargando historial:', err)
+          }
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Error desconocido')
@@ -154,6 +221,172 @@ export default function DocumentDetailPage() {
     setNewVersionFiles(newVersionFiles.filter(f => f.id !== id))
   }
   
+  // Validation handlers
+  const handleCreateValidation = async () => {
+    if (!document) return
+    
+    try {
+      setIsValidating(true)
+      setError(null)
+      
+      const lastRun = runs.length > 0 ? runs[0] : null
+      const validation = await createValidation(documentId, {
+        run_id: lastRun?.run_id,
+        observations: validationObservations,
+      })
+      
+      setValidations([...validations, validation])
+      setShowValidationForm(false)
+      setValidationObservations('')
+      
+      // Reload document to update status
+      const updatedDoc = await getDocument(documentId)
+      setDocument(updatedDoc)
+      setStatus(updatedDoc.status)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error al crear validación')
+    } finally {
+      setIsValidating(false)
+    }
+  }
+  
+  const handleApproveValidation = async (validationId: string) => {
+    if (!document) return
+    
+    try {
+      setIsValidating(true)
+      setError(null)
+      
+      await approveValidation(validationId)
+      
+      // Reload validations and document
+      const [updatedValidations, updatedDoc] = await Promise.all([
+        listValidations(documentId),
+        getDocument(documentId),
+      ])
+      
+      setValidations(updatedValidations)
+      setDocument(updatedDoc)
+      setStatus(updatedDoc.status)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error al aprobar validación')
+    } finally {
+      setIsValidating(false)
+    }
+  }
+  
+  const handleRejectValidation = async (validationId: string) => {
+    if (!rejectObservations.trim()) {
+      setError('Debes proporcionar observaciones al rechazar')
+      return
+    }
+    
+    try {
+      setIsValidating(true)
+      setError(null)
+      
+      await rejectValidation(validationId, {
+        observations: rejectObservations,
+      })
+      
+      // Reload validations and document
+      const [updatedValidations, updatedDoc] = await Promise.all([
+        listValidations(documentId),
+        getDocument(documentId),
+      ])
+      
+      setValidations(updatedValidations)
+      setDocument(updatedDoc)
+      setStatus(updatedDoc.status)
+      setRejectingValidationId(null)
+      setRejectObservations('')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error al rechazar validación')
+    } finally {
+      setIsValidating(false)
+    }
+  }
+  
+  // Correction handlers
+  const handlePatchWithAI = async () => {
+    if (!aiPatchObservations.trim()) {
+      setError('Debes proporcionar observaciones para el patch')
+      return
+    }
+    
+    try {
+      setIsPatching(true)
+      setError(null)
+      
+      const lastRun = runs.length > 0 ? runs[0] : null
+      await patchDocumentWithAI(documentId, aiPatchObservations, lastRun?.run_id)
+      
+      // Reload runs and document
+      const [updatedRuns, updatedDoc] = await Promise.all([
+        getDocumentRuns(documentId),
+        getDocument(documentId),
+      ])
+      
+      setRuns(updatedRuns)
+      setDocument(updatedDoc)
+      setStatus(updatedDoc.status)
+      setShowCorrectionOptions(false)
+      setCorrectionType(null)
+      setAiPatchObservations('')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error al aplicar patch')
+    } finally {
+      setIsPatching(false)
+    }
+  }
+  
+  const handleManualEdit = async () => {
+    if (!manualEditJson.trim()) {
+      setError('Debes proporcionar el JSON editado')
+      return
+    }
+    
+    try {
+      setIsUpdatingContent(true)
+      setError(null)
+      
+      await updateDocumentContent(documentId, manualEditJson)
+      
+      // Reload document
+      const updatedDoc = await getDocument(documentId)
+      setDocument(updatedDoc)
+      setStatus(updatedDoc.status)
+      setShowCorrectionOptions(false)
+      setCorrectionType(null)
+      setManualEditJson('')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error al actualizar contenido')
+    } finally {
+      setIsUpdatingContent(false)
+    }
+  }
+  
+  const handleDelete = async () => {
+    if (!document) return
+    
+    if (!confirm(`¿Estás seguro de que deseas eliminar el documento "${document.name}"?\n\nEsta acción no se puede deshacer y eliminará:\n- El documento\n- Todas sus versiones\n- Todos los archivos generados`)) {
+      return
+    }
+    
+    try {
+      setIsDeleting(true)
+      setError(null)
+      
+      await deleteDocument(documentId)
+      
+      // Redirigir a la página principal después de eliminar
+      router.push('/workspace')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error al eliminar documento')
+      setIsDeleting(false)
+    }
+  }
+
   const handleGenerateNewVersion = async () => {
     if (newVersionFiles.length === 0) {
       setError('Debes agregar al menos un archivo para generar una nueva versión')
@@ -238,12 +471,21 @@ export default function DocumentDetailPage() {
               {isEditing ? 'Editar Documento' : document.name}
             </h1>
             {!isEditing && (
+            <div className="flex items-center gap-2">
               <button
                 onClick={() => setIsEditing(true)}
                 className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
               >
                 Editar
               </button>
+              <button
+                onClick={handleDelete}
+                disabled={isDeleting}
+                className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isDeleting ? 'Eliminando...' : 'Eliminar'}
+              </button>
+            </div>
             )}
           </div>
         </div>
@@ -319,7 +561,9 @@ export default function DocumentDetailPage() {
                       className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     >
                       <option value="draft">Borrador</option>
-                      <option value="active">Activo</option>
+                      <option value="pending_validation">Pendiente de Validación</option>
+                      <option value="approved">Aprobado</option>
+                      <option value="rejected">Rechazado</option>
                       <option value="archived">Archivado</option>
                     </select>
                   </div>
@@ -417,11 +661,15 @@ export default function DocumentDetailPage() {
                       Estado
                     </label>
                     <span className={`inline-block px-3 py-1 rounded-full text-sm ${
-                      document.status === 'active' ? 'bg-green-100 text-green-800' :
+                      document.status === 'approved' ? 'bg-green-100 text-green-800' :
+                      document.status === 'pending_validation' ? 'bg-yellow-100 text-yellow-800' :
+                      document.status === 'rejected' ? 'bg-red-100 text-red-800' :
                       document.status === 'archived' ? 'bg-gray-100 text-gray-800' :
-                      'bg-yellow-100 text-yellow-800'
+                      'bg-gray-100 text-gray-800'
                     }`}>
-                      {document.status === 'active' ? 'Activo' :
+                      {document.status === 'approved' ? 'Aprobado' :
+                       document.status === 'pending_validation' ? 'Pendiente de Validación' :
+                       document.status === 'rejected' ? 'Rechazado' :
                        document.status === 'archived' ? 'Archivado' :
                        'Borrador'}
                     </span>
@@ -444,6 +692,258 @@ export default function DocumentDetailPage() {
                   </div>
                 </div>
               )}
+              
+              {/* Sección de Validación */}
+              {document.status === 'pending_validation' || document.status === 'rejected' ? (
+                <div className="mt-8 pt-8 border-t">
+                  <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-xl font-semibold text-gray-900">Validación</h2>
+                    {document.status === 'pending_validation' && validations.filter(v => v.status === 'pending').length === 0 && (
+                      <button
+                        onClick={() => setShowValidationForm(true)}
+                        className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm font-medium"
+                      >
+                        Iniciar Validación
+                      </button>
+                    )}
+                  </div>
+                  
+                  {showValidationForm && (
+                    <div className="mb-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                      <h3 className="text-lg font-medium text-gray-900 mb-4">Nueva Validación</h3>
+                      <div className="mb-4">
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Observaciones Iniciales
+                        </label>
+                        <textarea
+                          value={validationObservations}
+                          onChange={(e) => setValidationObservations(e.target.value)}
+                          rows={3}
+                          className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          placeholder="Observaciones o notas iniciales para la validación..."
+                        />
+                      </div>
+                      <div className="flex gap-3">
+                        <button
+                          onClick={handleCreateValidation}
+                          disabled={isValidating}
+                          className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+                        >
+                          {isValidating ? 'Creando...' : 'Crear Validación'}
+                        </button>
+                        <button
+                          onClick={() => {
+                            setShowValidationForm(false)
+                            setValidationObservations('')
+                          }}
+                          className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 font-medium"
+                        >
+                          Cancelar
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Lista de validaciones */}
+                  {validations.length > 0 ? (
+                    <div className="space-y-4">
+                      {validations.map((validation) => (
+                        <div key={validation.id} className="border border-gray-200 rounded-lg p-4">
+                          <div className="flex items-start justify-between mb-3">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2 mb-2">
+                                <span className={`px-2 py-1 rounded text-xs font-medium ${
+                                  validation.status === 'approved' ? 'bg-green-100 text-green-800' :
+                                  validation.status === 'rejected' ? 'bg-red-100 text-red-800' :
+                                  'bg-yellow-100 text-yellow-800'
+                                }`}>
+                                  {validation.status === 'approved' ? 'Aprobada' :
+                                   validation.status === 'rejected' ? 'Rechazada' :
+                                   'Pendiente'}
+                                </span>
+                                <span className="text-xs text-gray-500">
+                                  {new Date(validation.created_at).toLocaleString('es-UY')}
+                                </span>
+                              </div>
+                              {validation.observations && (
+                                <p className="text-sm text-gray-700 whitespace-pre-wrap">
+                                  {validation.observations}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                          
+                          {validation.status === 'pending' && (
+                            <div className="flex gap-3 mt-4">
+                              <button
+                                onClick={() => handleApproveValidation(validation.id)}
+                                disabled={isValidating}
+                                className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+                              >
+                                ✓ Aprobar
+                              </button>
+                              <button
+                                onClick={() => setRejectingValidationId(validation.id)}
+                                disabled={isValidating}
+                                className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+                              >
+                                ✗ Rechazar
+                              </button>
+                            </div>
+                          )}
+                          
+                          {rejectingValidationId === validation.id && (
+                            <div className="mt-4 p-4 bg-red-50 rounded-lg border border-red-200">
+                              <label className="block text-sm font-medium text-gray-700 mb-2">
+                                Observaciones de Rechazo *
+                              </label>
+                              <textarea
+                                value={rejectObservations}
+                                onChange={(e) => setRejectObservations(e.target.value)}
+                                rows={3}
+                                className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-red-500 focus:border-red-500 mb-3"
+                                placeholder="Describe las razones del rechazo y las correcciones necesarias..."
+                              />
+                              <div className="flex gap-3">
+                                <button
+                                  onClick={() => handleRejectValidation(validation.id)}
+                                  disabled={isValidating || !rejectObservations.trim()}
+                                  className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+                                >
+                                  {isValidating ? 'Rechazando...' : 'Confirmar Rechazo'}
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setRejectingValidationId(null)
+                                    setRejectObservations('')
+                                  }}
+                                  className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 text-sm font-medium"
+                                >
+                                  Cancelar
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    !showValidationForm && (
+                      <p className="text-sm text-gray-500 text-center py-4">
+                        No hay validaciones aún. Usa el botón "Iniciar Validación" para crear una.
+                      </p>
+                    )
+                  )}
+                  
+                  {/* Opciones de corrección para documentos rechazados */}
+                  {document.status === 'rejected' && (
+                    <div className="mt-6 p-4 bg-yellow-50 rounded-lg border border-yellow-200">
+                      <div className="flex items-center justify-between mb-4">
+                        <h3 className="text-lg font-medium text-gray-900">Corregir Documento</h3>
+                        <button
+                          onClick={() => setShowCorrectionOptions(!showCorrectionOptions)}
+                          className="px-4 py-2 bg-yellow-600 text-white rounded-md hover:bg-yellow-700 text-sm font-medium"
+                        >
+                          {showCorrectionOptions ? 'Ocultar' : 'Mostrar Opciones'}
+                        </button>
+                      </div>
+                      
+                      {showCorrectionOptions && (
+                        <div className="space-y-4">
+                          <div className="flex gap-3">
+                            <button
+                              onClick={() => setCorrectionType('ai_patch')}
+                              className={`px-4 py-2 rounded-md text-sm font-medium ${
+                                correctionType === 'ai_patch'
+                                  ? 'bg-blue-600 text-white'
+                                  : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
+                              }`}
+                            >
+                              Patch por IA
+                            </button>
+                            <button
+                              onClick={() => setCorrectionType('manual')}
+                              className={`px-4 py-2 rounded-md text-sm font-medium ${
+                                correctionType === 'manual'
+                                  ? 'bg-blue-600 text-white'
+                                  : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
+                              }`}
+                            >
+                              Edición Manual
+                            </button>
+                          </div>
+                          
+                          {correctionType === 'ai_patch' && (
+                            <div className="p-4 bg-white rounded-lg border border-gray-200">
+                              <label className="block text-sm font-medium text-gray-700 mb-2">
+                                Observaciones para el LLM
+                              </label>
+                              <textarea
+                                value={aiPatchObservations}
+                                onChange={(e) => setAiPatchObservations(e.target.value)}
+                                rows={4}
+                                className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 mb-3"
+                                placeholder="Describe las correcciones que debe aplicar la IA..."
+                              />
+                              <div className="flex gap-3">
+                                <button
+                                  onClick={handlePatchWithAI}
+                                  disabled={isPatching || !aiPatchObservations.trim()}
+                                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+                                >
+                                  {isPatching ? 'Aplicando Patch...' : 'Aplicar Patch por IA'}
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setCorrectionType(null)
+                                    setAiPatchObservations('')
+                                  }}
+                                  className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 text-sm font-medium"
+                                >
+                                  Cancelar
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                          
+                          {correctionType === 'manual' && (
+                            <div className="p-4 bg-white rounded-lg border border-gray-200">
+                              <label className="block text-sm font-medium text-gray-700 mb-2">
+                                JSON Editado
+                              </label>
+                              <textarea
+                                value={manualEditJson}
+                                onChange={(e) => setManualEditJson(e.target.value)}
+                                rows={12}
+                                className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono text-sm mb-3"
+                                placeholder="Pega aquí el JSON del documento editado..."
+                              />
+                              <div className="flex gap-3">
+                                <button
+                                  onClick={handleManualEdit}
+                                  disabled={isUpdatingContent || !manualEditJson.trim()}
+                                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+                                >
+                                  {isUpdatingContent ? 'Guardando...' : 'Guardar Edición Manual'}
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setCorrectionType(null)
+                                    setManualEditJson('')
+                                  }}
+                                  className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 text-sm font-medium"
+                                >
+                                  Cancelar
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ) : null}
               
               {/* Sección de Generar Nueva Versión */}
               <div className="mt-8 pt-8 border-t">
@@ -584,6 +1084,144 @@ export default function DocumentDetailPage() {
                 onClose={() => setIsNewVersionModalOpen(false)}
                 onAdd={handleAddNewVersionFile}
               />
+              
+              {/* Sección de Historial y Trazabilidad */}
+              <div className="mt-8 pt-8 border-t">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-xl font-semibold text-gray-900">Historial y Trazabilidad</h2>
+                  <button
+                    onClick={async () => {
+                      if (!showHistory) {
+                        try {
+                          const [log, vers] = await Promise.all([
+                            getDocumentAuditLog(documentId),
+                            getDocumentVersions(documentId),
+                          ])
+                          setAuditLog(log)
+                          setVersions(vers)
+                        } catch (err) {
+                          console.error('Error cargando historial:', err)
+                          setError('Error al cargar el historial')
+                        }
+                      }
+                      setShowHistory(!showHistory)
+                    }}
+                    className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 text-sm font-medium"
+                  >
+                    {showHistory ? 'Ocultar Historial' : 'Ver Historial'}
+                  </button>
+                </div>
+                
+                {showHistory && (
+                  <div className="space-y-6">
+                    {/* Versiones */}
+                    {versions.length > 0 && (
+                      <div>
+                        <h3 className="text-lg font-medium text-gray-900 mb-3">Versiones Aprobadas</h3>
+                        <div className="space-y-3">
+                          {versions.map((version) => (
+                            <div
+                              key={version.id}
+                              className={`border rounded-lg p-4 ${
+                                version.is_current
+                                  ? 'border-green-500 bg-green-50'
+                                  : 'border-gray-200 bg-white'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <span className="font-medium text-gray-900">
+                                      Versión {version.version_number}
+                                    </span>
+                                    {version.is_current && (
+                                      <span className="px-2 py-1 bg-green-100 text-green-800 rounded text-xs font-medium">
+                                        Actual
+                                      </span>
+                                    )}
+                                    <span className="text-xs text-gray-500">
+                                      {version.content_type === 'generated' ? 'Generada' :
+                                       version.content_type === 'manual_edit' ? 'Edición Manual' :
+                                       version.content_type === 'ai_patch' ? 'Patch por IA' :
+                                       version.content_type}
+                                    </span>
+                                  </div>
+                                  <p className="text-xs text-gray-500">
+                                    Aprobada: {new Date(version.approved_at).toLocaleString('es-UY')}
+                                    {version.approved_by && ` por ${version.approved_by}`}
+                                  </p>
+                                  {version.run_id && (
+                                    <p className="text-xs text-gray-500">
+                                      Run ID: {version.run_id.substring(0, 8)}...
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Audit Log */}
+                    {auditLog.length > 0 && (
+                      <div>
+                        <h3 className="text-lg font-medium text-gray-900 mb-3">Registro de Auditoría</h3>
+                        <div className="space-y-2">
+                          {auditLog.map((entry) => (
+                            <div
+                              key={entry.id}
+                              className="border border-gray-200 rounded-lg p-3 bg-white"
+                            >
+                              <div className="flex items-start justify-between">
+                                <div className="flex-1">
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <span className="font-medium text-gray-900">
+                                      {entry.action}
+                                    </span>
+                                    <span className="text-xs text-gray-500">
+                                      {entry.entity_type}
+                                    </span>
+                                  </div>
+                                  <p className="text-xs text-gray-500 mb-1">
+                                    {new Date(entry.created_at).toLocaleString('es-UY')}
+                                  </p>
+                                  {entry.changes_json && (
+                                    <details className="mt-2">
+                                      <summary className="text-xs text-gray-600 cursor-pointer hover:text-gray-900">
+                                        Ver cambios
+                                      </summary>
+                                      <pre className="mt-2 p-2 bg-gray-50 rounded text-xs overflow-auto max-h-40">
+                                        {JSON.stringify(JSON.parse(entry.changes_json), null, 2)}
+                                      </pre>
+                                    </details>
+                                  )}
+                                  {entry.metadata_json && (
+                                    <details className="mt-2">
+                                      <summary className="text-xs text-gray-600 cursor-pointer hover:text-gray-900">
+                                        Ver metadata
+                                      </summary>
+                                      <pre className="mt-2 p-2 bg-gray-50 rounded text-xs overflow-auto max-h-40">
+                                        {JSON.stringify(JSON.parse(entry.metadata_json), null, 2)}
+                                      </pre>
+                                    </details>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    
+                    {versions.length === 0 && auditLog.length === 0 && (
+                      <p className="text-sm text-gray-500 text-center py-8">
+                        No hay historial disponible aún.
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>

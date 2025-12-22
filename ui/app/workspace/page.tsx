@@ -196,15 +196,23 @@ export default function WorkspacePage() {
                               </h3>
                               <span
                                 className={`px-2 py-1 rounded-full text-xs font-medium ${
-                                  doc.status === 'active'
+                                  doc.status === 'approved'
                                     ? 'bg-green-100 text-green-800'
+                                    : doc.status === 'pending_validation'
+                                    ? 'bg-yellow-100 text-yellow-800'
+                                    : doc.status === 'rejected'
+                                    ? 'bg-red-100 text-red-800'
                                     : doc.status === 'archived'
                                     ? 'bg-gray-100 text-gray-800'
-                                    : 'bg-yellow-100 text-yellow-800'
+                                    : 'bg-gray-100 text-gray-800'
                                 }`}
                               >
-                                {doc.status === 'active'
-                                  ? 'Activo'
+                                {doc.status === 'approved'
+                                  ? 'Aprobado'
+                                  : doc.status === 'pending_validation'
+                                  ? 'Pendiente'
+                                  : doc.status === 'rejected'
+                                  ? 'Rechazado'
                                   : doc.status === 'archived'
                                   ? 'Archivado'
                                   : 'Borrador'}

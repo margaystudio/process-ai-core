@@ -1,0 +1,259 @@
+'use client'
+
+import { useState, useEffect } from 'react'
+import { useRouter, useParams } from 'next/navigation'
+import {
+  getDocument,
+  getDocumentRuns,
+  getCurrentDocumentVersion,
+  listValidations,
+  patchDocumentWithAI,
+  updateDocumentContent,
+  createDocumentRun,
+  Document,
+  Validation,
+} from '@/lib/api'
+import CorrectionOptionCard from '@/components/documents/CorrectionOptionCard'
+import AIPatchForm from '@/components/documents/AIPatchForm'
+import ManualEditForm from '@/components/documents/ManualEditForm'
+import RegenerateForm from '@/components/documents/RegenerateForm'
+import DocumentPreview from '@/components/documents/DocumentPreview'
+
+type CorrectionOption = 'ai-patch' | 'manual-edit' | 'regenerate' | null
+
+export default function CorrectDocumentPage() {
+  const router = useRouter()
+  const params = useParams()
+  const documentId = params.id as string
+
+  const [document, setDocument] = useState<Document | null>(null)
+  const [validations, setValidations] = useState<Validation[]>([])
+  const [selectedOption, setSelectedOption] = useState<CorrectionOption>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [processing, setProcessing] = useState(false)
+
+  useEffect(() => {
+    async function loadData() {
+      try {
+        setLoading(true)
+        setError(null)
+
+        const [doc, validationsData] = await Promise.all([
+          getDocument(documentId),
+          listValidations(documentId),
+        ])
+
+        setDocument(doc)
+        // Obtener la última validación rechazada
+        const rejectedValidations = validationsData.filter((v) => v.status === 'rejected')
+        setValidations(rejectedValidations)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Error desconocido')
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    if (documentId) {
+      loadData()
+    }
+  }, [documentId])
+
+  const handleAIPatch = async (additionalObservations: string) => {
+    if (!document) return
+
+    setProcessing(true)
+    try {
+      const lastValidation = validations[0]
+      const allObservations = lastValidation
+        ? `${lastValidation.observations}\n\n${additionalObservations}`
+        : additionalObservations
+
+      await patchDocumentWithAI(document.id, allObservations)
+      router.push(`/documents/${document.id}`)
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Error al aplicar patch por IA')
+    } finally {
+      setProcessing(false)
+    }
+  }
+
+  const handleManualEdit = async (contentJson: string) => {
+    if (!document) return
+
+    setProcessing(true)
+    try {
+      await updateDocumentContent(document.id, contentJson)
+      router.push(`/documents/${document.id}`)
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Error al guardar cambios')
+    } finally {
+      setProcessing(false)
+    }
+  }
+
+  const handleRegenerate = async (formData: FormData) => {
+    if (!document) return
+
+    setProcessing(true)
+    try {
+      await createDocumentRun(document.id, formData)
+      router.push(`/documents/${document.id}`)
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Error al regenerar documento')
+    } finally {
+      setProcessing(false)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Cargando documento...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (error || !document) {
+    return (
+      <div className="p-8">
+        <div className="max-w-7xl mx-auto">
+          <div className="bg-red-50 border border-red-200 rounded-lg p-6">
+            <p className="text-red-800">Error: {error || 'Documento no encontrado'}</p>
+            <button
+              onClick={() => router.back()}
+              className="mt-4 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700"
+            >
+              Volver
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  const lastRejection = validations[0]
+
+  return (
+    <div className="p-8">
+      <div className="max-w-7xl mx-auto">
+        {/* Header */}
+        <div className="mb-6">
+          <button
+            onClick={() => router.back()}
+            className="text-blue-600 hover:text-blue-700 mb-4"
+          >
+            ← Volver
+          </button>
+          <h1 className="text-3xl font-bold text-gray-900">Corregir Documento</h1>
+          <p className="text-gray-600 mt-1">{document.name}</p>
+        </div>
+
+        {/* Observaciones del Rechazo */}
+        {lastRejection && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-6 mb-6">
+            <h2 className="text-lg font-semibold text-red-900 mb-2">
+              Observaciones del Rechazo
+            </h2>
+            <p className="text-red-800 whitespace-pre-wrap">{lastRejection.observations}</p>
+            {lastRejection.validator_user_id && (
+              <p className="text-sm text-red-600 mt-2">
+                Rechazado por usuario: {lastRejection.validator_user_id}
+              </p>
+            )}
+            {lastRejection.completed_at && (
+              <p className="text-sm text-red-600">
+                Fecha: {new Date(lastRejection.completed_at).toLocaleDateString('es-UY')}
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Layout: 2 columnas */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Columna principal: Opciones y formularios */}
+          <div className="lg:col-span-2">
+            {/* Cards de Opciones */}
+            {!selectedOption && (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                <CorrectionOptionCard
+                  title="🤖 Patch por IA"
+                  description="Correcciones automáticas usando IA"
+                  idealFor={[
+                    'Errores gramaticales',
+                    'Ajustes de estilo',
+                    'Correcciones menores',
+                  ]}
+                  note="Rápido y automático"
+                  onClick={() => setSelectedOption('ai-patch')}
+                />
+
+                <CorrectionOptionCard
+                  title="✏️ Edición Manual"
+                  description="Edita directamente el JSON del documento"
+                  idealFor={[
+                    'Cambios estructurales',
+                    'Control total del contenido',
+                    'Correcciones complejas',
+                  ]}
+                  note="Requiere conocimiento técnico"
+                  onClick={() => setSelectedOption('manual-edit')}
+                />
+
+                <CorrectionOptionCard
+                  title="🔄 Regenerar Documento"
+                  description="Crea una nueva versión con nuevos archivos multimedia"
+                  idealFor={[
+                    'Nuevos archivos disponibles',
+                    'Cambios en el proceso',
+                    'Regeneración completa',
+                  ]}
+                  note="Sube nuevos archivos"
+                  onClick={() => setSelectedOption('regenerate')}
+                />
+              </div>
+            )}
+
+            {/* Formularios Expandidos */}
+            {selectedOption === 'ai-patch' && (
+              <AIPatchForm
+                onPatch={handleAIPatch}
+                onCancel={() => setSelectedOption(null)}
+                processing={processing}
+                defaultObservations={lastRejection?.observations || ''}
+              />
+            )}
+
+            {selectedOption === 'manual-edit' && (
+              <ManualEditForm
+                documentId={document.id}
+                onSave={handleManualEdit}
+                onCancel={() => setSelectedOption(null)}
+                processing={processing}
+              />
+            )}
+
+            {selectedOption === 'regenerate' && (
+              <RegenerateForm
+                documentId={document.id}
+                onRegenerate={handleRegenerate}
+                onCancel={() => setSelectedOption(null)}
+                processing={processing}
+              />
+            )}
+          </div>
+
+          {/* Sidebar: Preview del Documento */}
+          <div className="lg:col-span-1">
+            <DocumentPreview documentId={document.id} />
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+

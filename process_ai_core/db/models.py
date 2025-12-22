@@ -70,7 +70,12 @@ class Document(Base):
     # Nombre del documento
     name: Mapped[str] = mapped_column(String(200))
     description: Mapped[str] = mapped_column(Text, default="")
-    status: Mapped[str] = mapped_column(String(20), default="draft")  # draft|active|archived
+    status: Mapped[str] = mapped_column(String(20), default="draft")  # draft | pending_validation | approved | rejected | archived
+    
+    # Versión aprobada actual (FK a document_versions)
+    # Nota: Esta columna se agregará con la migración migrate_add_validation_tables.py
+    # Por ahora, la hacemos opcional para no romper el código existente
+    approved_version_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("document_versions.id"), nullable=True, index=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
@@ -81,6 +86,10 @@ class Document(Base):
     workspace: Mapped["Workspace"] = relationship(back_populates="documents")
     folder: Mapped["Folder"] = relationship(back_populates="documents")
     runs: Mapped[list["Run"]] = relationship(back_populates="document")
+    validations: Mapped[list["Validation"]] = relationship("Validation", foreign_keys="[Validation.document_id]")
+    audit_logs: Mapped[list["AuditLog"]] = relationship("AuditLog", foreign_keys="[AuditLog.document_id]")
+    versions: Mapped[list["DocumentVersion"]] = relationship("DocumentVersion", foreign_keys="[DocumentVersion.document_id]")
+    approved_version: Mapped["DocumentVersion | None"] = relationship("DocumentVersion", foreign_keys=[approved_version_id], post_update=True)
 
     # Configuración de herencia polimórfica
     __mapper_args__ = {
@@ -186,21 +195,99 @@ class Folder(Base):
 class User(Base):
     """
     Usuario del sistema (autenticación/autorización).
+    
+    Soporta autenticación local y externa (OAuth/SSO).
     """
     __tablename__ = "users"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     email: Mapped[str] = mapped_column(String(200), unique=True, index=True)
     name: Mapped[str] = mapped_column(String(200))
-    password_hash: Mapped[str] = mapped_column(String(255), default="")  # Para autenticación futura
+    password_hash: Mapped[str] = mapped_column(String(255), default="")  # Para autenticación local
+    
+    # Autenticación externa (OAuth/SSO)
+    external_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)  # ID en el proveedor externo
+    auth_provider: Mapped[str | None] = mapped_column(String(50), nullable=True, default="local")  # "local" | "google" | "microsoft" | "okta" | "auth0"
+    auth_metadata_json: Mapped[str] = mapped_column(Text, default="{}")  # Tokens, refresh tokens, etc.
 
     # Metadata del usuario (preferencias, etc.)
     metadata_json: Mapped[str] = mapped_column(Text, default="{}")
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # Relaciones
     workspace_memberships: Mapped[list["WorkspaceMembership"]] = relationship(back_populates="user")
+
+
+class Role(Base):
+    """
+    Rol del sistema (ej: "approver", "creator", "viewer").
+    
+    Los roles tienen permisos asociados y pueden ser específicos de un tipo de workspace.
+    """
+    __tablename__ = "roles"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    name: Mapped[str] = mapped_column(String(50), unique=True, index=True)  # "owner", "admin", "approver", "creator", "viewer"
+    description: Mapped[str] = mapped_column(String(500), default="")
+    
+    # Tipo de workspace donde aplica (null = global)
+    workspace_type: Mapped[str | None] = mapped_column(String(20), nullable=True)  # "organization" | "user" | "community" | null
+    
+    # Si es un rol del sistema (no se puede eliminar)
+    is_system: Mapped[bool] = mapped_column(default=False)
+    
+    # Metadata adicional
+    metadata_json: Mapped[str] = mapped_column(Text, default="{}")
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    
+    # Relaciones
+    permissions: Mapped[list["Permission"]] = relationship(
+        "Permission",
+        secondary="role_permissions",
+        back_populates="roles",
+    )
+    workspace_memberships: Mapped[list["WorkspaceMembership"]] = relationship(back_populates="role_obj")
+
+
+class Permission(Base):
+    """
+    Permiso del sistema (ej: "documents.approve", "documents.create").
+    
+    Los permisos se agrupan por categoría y se asignan a roles.
+    """
+    __tablename__ = "permissions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    name: Mapped[str] = mapped_column(String(100), unique=True, index=True)  # "documents.approve", "documents.create", etc.
+    description: Mapped[str] = mapped_column(String(500), default="")
+    category: Mapped[str] = mapped_column(String(50), index=True)  # "documents", "workspaces", "users"
+    
+    # Metadata adicional
+    metadata_json: Mapped[str] = mapped_column(Text, default="{}")
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    
+    # Relaciones
+    roles: Mapped[list["Role"]] = relationship(
+        "Role",
+        secondary="role_permissions",
+        back_populates="permissions",
+    )
+
+
+class RolePermission(Base):
+    """
+    Tabla de relación muchos-a-muchos entre Role y Permission.
+    """
+    __tablename__ = "role_permissions"
+
+    role_id: Mapped[str] = mapped_column(String(36), ForeignKey("roles.id"), primary_key=True)
+    permission_id: Mapped[str] = mapped_column(String(36), ForeignKey("permissions.id"), primary_key=True)
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
 class WorkspaceMembership(Base):
@@ -208,21 +295,26 @@ class WorkspaceMembership(Base):
     Relación muchos-a-muchos entre User y Workspace.
     
     Permite que un usuario pertenezca a múltiples workspaces con diferentes roles.
+    Ahora usa role_id (FK a Role) en lugar de role (string).
     """
     __tablename__ = "workspace_memberships"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), index=True)
     workspace_id: Mapped[str] = mapped_column(String(36), ForeignKey("workspaces.id"), index=True)
-
-    # Rol del usuario en el workspace
-    role: Mapped[str] = mapped_column(String(20))  # "owner" | "admin" | "member" | "viewer"
+    
+    # Rol del usuario en el workspace (ahora es FK a Role)
+    role_id: Mapped[str] = mapped_column(String(36), ForeignKey("roles.id"), index=True)
+    
+    # Mantener role como string para compatibilidad durante migración (se eliminará después)
+    role: Mapped[str | None] = mapped_column(String(20), nullable=True)  # DEPRECATED: usar role_id
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     # Relaciones
     user: Mapped["User"] = relationship(back_populates="workspace_memberships")
     workspace: Mapped["Workspace"] = relationship(back_populates="memberships")
+    role_obj: Mapped["Role"] = relationship("Role", foreign_keys=[role_id], back_populates="workspace_memberships")
 
 
 class Run(Base):
@@ -252,10 +344,17 @@ class Run(Base):
     model_transcribe: Mapped[str] = mapped_column(String(100), default="")
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    
+    # Validación asociada (opcional)
+    validation_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("validations.id"), nullable=True, index=True)
+    
+    # Indicador de aprobación
+    is_approved: Mapped[bool] = mapped_column(default=False, index=True)
 
     # Relaciones
     document: Mapped["Document"] = relationship(back_populates="runs")
     artifacts: Mapped[list["Artifact"]] = relationship(back_populates="run")
+    validation: Mapped["Validation | None"] = relationship("Validation", foreign_keys=[validation_id])
 
 
 class Artifact(Base):
@@ -274,3 +373,113 @@ class Artifact(Base):
 
     # Relaciones
     run: Mapped["Run"] = relationship(back_populates="artifacts")
+
+
+class Validation(Base):
+    """
+    Validación realizada sobre un documento o run.
+    
+    Permite rastrear el proceso de validación con observaciones,
+    checklist ISO-friendly, y estado de aprobación/rechazo.
+    """
+    __tablename__ = "validations"
+    
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    document_id: Mapped[str] = mapped_column(String(36), ForeignKey("documents.id"), nullable=False, index=True)
+    run_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("runs.id"), nullable=True, index=True)
+    
+    # Validador (opcional, para cuando haya autenticación)
+    validator_user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id"), nullable=True, index=True)
+    
+    # Estado de la validación
+    status: Mapped[str] = mapped_column(String(20), default="pending")  # pending | approved | rejected
+    
+    # Observaciones del validador
+    observations: Mapped[str] = mapped_column(Text, default="")
+    
+    # Checklist ISO-friendly (JSON estructurado)
+    checklist_json: Mapped[str] = mapped_column(Text, default="{}")
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    
+    # Relaciones
+    document: Mapped["Document"] = relationship("Document", foreign_keys=[document_id], overlaps="validations")
+    run: Mapped["Run | None"] = relationship("Run", foreign_keys=[run_id])
+    validator: Mapped["User | None"] = relationship("User", foreign_keys=[validator_user_id])
+
+
+class AuditLog(Base):
+    """
+    Registro de auditoría de todas las acciones realizadas sobre documentos.
+    
+    Proporciona trazabilidad completa: quién hizo qué, cuándo, y qué cambió.
+    """
+    __tablename__ = "audit_logs"
+    
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    document_id: Mapped[str] = mapped_column(String(36), ForeignKey("documents.id"), nullable=False, index=True)
+    run_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("runs.id"), nullable=True, index=True)
+    
+    # Usuario que realizó la acción (opcional, para cuando haya autenticación)
+    user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id"), nullable=True, index=True)
+    
+    # Tipo de acción
+    action: Mapped[str] = mapped_column(String(50), nullable=False)  # created | updated | validated | rejected | edited | regenerated | approved
+    
+    # Entidad relacionada
+    entity_type: Mapped[str | None] = mapped_column(String(20), nullable=True)  # document | run | validation | version
+    entity_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    
+    # Cambios realizados (JSON con diff o descripción)
+    changes_json: Mapped[str] = mapped_column(Text, default="{}")
+    
+    # Metadata adicional (JSON flexible)
+    metadata_json: Mapped[str] = mapped_column(Text, default="{}")
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    
+    # Relaciones
+    document: Mapped["Document"] = relationship("Document", foreign_keys=[document_id], overlaps="audit_logs")
+    run: Mapped["Run | None"] = relationship("Run", foreign_keys=[run_id])
+    user: Mapped["User | None"] = relationship("User", foreign_keys=[user_id])
+
+
+class DocumentVersion(Base):
+    """
+    Versión aprobada de un documento.
+    
+    Solo la última versión aprobada (is_current=TRUE) es la "verdad" visible
+    para operarios y para RAG. Permite rastrear el historial de versiones.
+    """
+    __tablename__ = "document_versions"
+    
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    document_id: Mapped[str] = mapped_column(String(36), ForeignKey("documents.id"), nullable=False, index=True)
+    run_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("runs.id"), nullable=True, index=True)
+    
+    # Número de versión (incremental)
+    version_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    
+    # Tipo de contenido
+    content_type: Mapped[str] = mapped_column(String(20), nullable=False)  # generated | manual_edit | ai_patch
+    
+    # Contenido del documento
+    content_json: Mapped[str] = mapped_column(Text, nullable=False)  # JSON del ProcessDocument
+    content_markdown: Mapped[str] = mapped_column(Text, nullable=False)  # Markdown renderizado
+    
+    # Aprobación
+    approved_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    approved_by: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id"), nullable=True, index=True)
+    validation_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("validations.id"), nullable=True, index=True)
+    
+    # Indicador de versión actual
+    is_current: Mapped[bool] = mapped_column(default=False, index=True)
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    
+    # Relaciones
+    document: Mapped["Document"] = relationship("Document", foreign_keys=[document_id], overlaps="versions")
+    run: Mapped["Run | None"] = relationship("Run", foreign_keys=[run_id])
+    approver: Mapped["User | None"] = relationship("User", foreign_keys=[approved_by])
+    validation: Mapped["Validation | None"] = relationship("Validation", foreign_keys=[validation_id])

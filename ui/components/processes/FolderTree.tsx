@@ -10,6 +10,7 @@ interface FolderTreeProps {
   onSelectFolder?: (folderId: string | null) => void
   showSelectable?: boolean
   showCrud?: boolean
+  showDocuments?: boolean // Controla si se muestran los documentos dentro de las carpetas
 }
 
 interface FolderNode {
@@ -61,7 +62,8 @@ function FolderTreeNode({
   selectedFolderId, 
   onSelectFolder,
   workspaceId,
-  documents
+  documents,
+  showDocuments = true
 }: { 
   node: FolderNode
   level?: number
@@ -69,6 +71,7 @@ function FolderTreeNode({
   onSelectFolder?: (folderId: string | null) => void
   workspaceId?: string
   documents?: DocumentType[]
+  showDocuments?: boolean
 }) {
   const [isExpanded, setIsExpanded] = useState(level < 2) // Expandir primeros 2 niveles por defecto
   const [folderDocuments, setFolderDocuments] = useState<DocumentType[]>([])
@@ -147,27 +150,47 @@ function FolderTreeNode({
               onSelectFolder={onSelectFolder}
               workspaceId={workspaceId}
               documents={documents}
+              showDocuments={showDocuments}
             />
           ))}
-          {/* Documentos dentro de esta carpeta */}
-          {loadingDocs ? (
-            <div className="text-xs text-gray-400 px-2 py-1" style={{ paddingLeft: `${(level + 1) * 1.5 + 0.5}rem` }}>
-              Cargando...
-            </div>
-          ) : displayDocs.length > 0 ? (
+          {/* Documentos dentro de esta carpeta (solo si showDocuments es true) */}
+          {showDocuments && (
+            <>
+              {loadingDocs ? (
+                <div className="text-xs text-gray-400 px-2 py-1" style={{ paddingLeft: `${(level + 1) * 1.5 + 0.5}rem` }}>
+                  Cargando...
+                </div>
+              ) : displayDocs.length > 0 ? (
+                displayDocs.map(doc => (
+                  <a
+                    key={doc.id}
+                    href={`/documents/${doc.id}`}
+                    className="flex items-center gap-2 py-1 px-2 text-xs text-gray-600 hover:bg-gray-50 hover:text-blue-600 cursor-pointer"
+                    style={{ paddingLeft: `${(level + 1) * 1.5 + 0.5}rem` }}
+                    title={doc.description || doc.name}
+                  >
+                    <span className="w-4">📄</span>
+                    <span className="flex-1 truncate">{doc.name}</span>
+                  </a>
+                ))
+              ) : null}
+            </>
+          )}
+          {/* Si showDocuments es false, mostrar documentos grisados y no clickeables */}
+          {!showDocuments && displayDocs.length > 0 && (
             displayDocs.map(doc => (
-              <a
+              <div
                 key={doc.id}
-                href={`/documents/${doc.id}`}
-                className="flex items-center gap-2 py-1 px-2 text-xs text-gray-600 hover:bg-gray-50 hover:text-blue-600 cursor-pointer"
+                className="flex items-center gap-2 py-1 px-2 text-xs text-gray-400 cursor-default"
                 style={{ paddingLeft: `${(level + 1) * 1.5 + 0.5}rem` }}
                 title={doc.description || doc.name}
+                onClick={(e) => e.stopPropagation()}
               >
                 <span className="w-4">📄</span>
                 <span className="flex-1 truncate">{doc.name}</span>
-              </a>
+              </div>
             ))
-          ) : null}
+          )}
         </div>
       )}
     </div>
@@ -179,7 +202,8 @@ export default function FolderTree({
   selectedFolderId, 
   onSelectFolder,
   showSelectable = true,
-  showCrud = false
+  showCrud = false,
+  showDocuments = true
 }: FolderTreeProps) {
   const [folders, setFolders] = useState<Folder[]>([])
   const [documents, setDocuments] = useState<DocumentType[]>([])
@@ -285,6 +309,7 @@ export default function FolderTree({
                 onSelectFolder={showSelectable ? (id) => onSelectFolder?.(id || '') : undefined}
                 workspaceId={workspaceId}
                 documents={documents}
+                showDocuments={showDocuments}
               />
             ))}
             {/* Documentos sin carpeta */}
@@ -292,16 +317,29 @@ export default function FolderTree({
               <div className="mt-2 pt-2 border-t border-gray-200">
                 <div className="text-xs text-gray-500 px-2 py-1 mb-1">Sin carpeta</div>
                 {documents.filter(d => !d.folder_id).map(doc => (
-                  <a
-                    key={doc.id}
-                    href={`/documents/${doc.id}`}
-                    className="flex items-center gap-2 py-1 px-2 text-xs text-gray-600 hover:bg-gray-50 hover:text-blue-600 cursor-pointer"
-                    style={{ paddingLeft: '0.5rem' }}
-                    title={doc.description || doc.name}
-                  >
-                    <span className="w-4">📄</span>
-                    <span className="flex-1 truncate">{doc.name}</span>
-                  </a>
+                  showDocuments ? (
+                    <a
+                      key={doc.id}
+                      href={`/documents/${doc.id}`}
+                      className="flex items-center gap-2 py-1 px-2 text-xs text-gray-600 hover:bg-gray-50 hover:text-blue-600 cursor-pointer"
+                      style={{ paddingLeft: '0.5rem' }}
+                      title={doc.description || doc.name}
+                    >
+                      <span className="w-4">📄</span>
+                      <span className="flex-1 truncate">{doc.name}</span>
+                    </a>
+                  ) : (
+                    <div
+                      key={doc.id}
+                      className="flex items-center gap-2 py-1 px-2 text-xs text-gray-400 cursor-default"
+                      style={{ paddingLeft: '0.5rem' }}
+                      title={doc.description || doc.name}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <span className="w-4">📄</span>
+                      <span className="flex-1 truncate">{doc.name}</span>
+                    </div>
+                  )
                 ))}
               </div>
             )}

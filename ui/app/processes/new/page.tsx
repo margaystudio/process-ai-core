@@ -116,6 +116,7 @@ export default function NewProcessPage() {
                   onSelectFolder={(id) => setFolderId(id || '')}
                   showSelectable={true}
                   showCrud={false}
+                  showDocuments={false}
                 />
               </>
             )}

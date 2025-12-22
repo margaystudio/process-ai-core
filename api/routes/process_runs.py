@@ -57,6 +57,21 @@ async def create_process_run(
     """
     settings = get_settings()
 
+    # Validar permisos antes de procesar
+    from process_ai_core.db.database import get_db_session
+    from process_ai_core.db.permissions import has_permission
+    
+    with get_db_session() as session:
+        # Verificar que el usuario tiene permiso para crear documentos
+        # Nota: user_id debería venir del request, por ahora lo omitimos
+        # TODO: Agregar user_id al request cuando tengamos autenticación
+        # if not has_permission(session, user_id, workspace_id, "documents.create"):
+        #     raise HTTPException(
+        #         status_code=403,
+        #         detail="No tiene permisos para crear documentos"
+        #     )
+        pass  # Temporalmente sin verificación hasta tener user_id en el request
+
     # Validar que haya al menos un archivo
     total_files = (
         len(audio_files) + len(video_files) + len(image_files) + len(text_files)
@@ -76,40 +91,10 @@ async def create_process_run(
             status_code=400, detail="workspace_id es requerido"
         )
     
-    # Crear Document y Run (workspace_id y folder_id son requeridos)
-    from process_ai_core.db.database import get_db_session
-    from process_ai_core.db.helpers import (
-        create_process_document,
-        create_run,
-    )
+    # Generar run_id temporal para el procesamiento (antes de crear nada en BD)
+    # Esto permite que el pipeline use el ID, y solo creamos en BD si tiene éxito
+    run_id = str(uuid.uuid4())
     
-    with get_db_session() as db_session:
-        # Crear Document (folder_id es requerido)
-        document = create_process_document(
-            session=db_session,
-            workspace_id=workspace_id,
-            name=process_name,
-            description="",
-            folder_id=folder_id,  # Requerido
-            audience=mode.value,
-            detail_level=detail_level or "",
-            context_text=context_text or "",
-        )
-        
-        # Asegurar que el document.id esté disponible
-        db_session.flush()
-        
-        # Crear Run
-        run = create_run(
-            session=db_session,
-            document_id=document.id,
-            document_type="process",
-            profile=mode.value,
-        )
-        # Asegurar que el run.id esté disponible
-        db_session.flush()
-        run_id = run.id
-
     # Crear directorio temporal para los uploads
     with tempfile.TemporaryDirectory() as temp_dir_str:
         temp_dir = Path(temp_dir_str)
@@ -183,7 +168,8 @@ async def create_process_run(
         # Obtener perfil según modo
         profile = get_profile(mode.value)
 
-        # Ejecutar pipeline
+        # Ejecutar pipeline PRIMERO (antes de crear nada en BD)
+        # Si falla, no se crea nada en la base de datos
         try:
             output_dir = Path(settings.output_dir) / run_id
             output_dir.mkdir(parents=True, exist_ok=True)
@@ -196,10 +182,9 @@ async def create_process_run(
                 output_base=output_dir,  # Las imágenes se copiarán a output_dir/assets/
             )
 
-            # Persistir artefactos
+            # Persistir artefactos en disco
             json_path = output_dir / "process.json"
             md_path = output_dir / "process.md"
-            pdf_path = output_dir / "process.pdf"
 
             json_path.write_text(result["json_str"], encoding="utf-8")
             md_path.write_text(result["markdown"], encoding="utf-8")
@@ -223,32 +208,73 @@ async def create_process_run(
             if pdf_generated:
                 artifacts["pdf"] = f"/api/v1/artifacts/{run_id}/process.pdf"
 
-            # Persistir Artifacts en la base de datos (si tenemos workspace_id)
-            if workspace_id:
-                from process_ai_core.db.database import get_db_session
-                from process_ai_core.db.helpers import create_artifact
+            # SOLO AHORA crear Document, Run y Artifacts en BD (transacción atómica)
+            # Si algo falla aquí, el pipeline ya se ejecutó exitosamente
+            from process_ai_core.db.database import get_db_session
+            from process_ai_core.db.helpers import (
+                create_process_document,
+                create_run,
+                create_artifact,
+                update_document_status,
+            )
+            
+            with get_db_session() as db_session:
+                # Crear Document (folder_id es requerido)
+                document = create_process_document(
+                    session=db_session,
+                    workspace_id=workspace_id,
+                    name=process_name,
+                    description="",
+                    folder_id=folder_id,  # Requerido
+                    audience=mode.value,
+                    detail_level=detail_level or "",
+                    context_text=context_text or "",
+                )
                 
-                with get_db_session() as db_session:
-                    # Crear Artifacts
+                # Asegurar que el document.id esté disponible
+                db_session.flush()
+                document_id = document.id
+                
+                # Crear Run con el ID que ya usamos para el directorio
+                run = create_run(
+                    session=db_session,
+                    document_id=document_id,
+                    document_type="process",
+                    profile=mode.value,
+                    run_id=run_id,  # Usar el ID que ya generamos
+                )
+                db_session.flush()
+                
+                # Crear Artifacts
+                create_artifact(
+                    session=db_session,
+                    run_id=run_id,
+                    artifact_type="json",
+                    file_path=f"output/{run_id}/process.json",
+                )
+                create_artifact(
+                    session=db_session,
+                    run_id=run_id,
+                    artifact_type="md",
+                    file_path=f"output/{run_id}/process.md",
+                )
+                if pdf_generated:
                     create_artifact(
                         session=db_session,
                         run_id=run_id,
-                        artifact_type="json",
-                        file_path=f"output/{run_id}/process.json",
+                        artifact_type="pdf",
+                        file_path=f"output/{run_id}/process.pdf",
                     )
-                    create_artifact(
-                        session=db_session,
-                        run_id=run_id,
-                        artifact_type="md",
-                        file_path=f"output/{run_id}/process.md",
-                    )
-                    if pdf_generated:
-                        create_artifact(
-                            session=db_session,
-                            run_id=run_id,
-                            artifact_type="pdf",
-                            file_path=f"output/{run_id}/process.pdf",
-                        )
+                
+                # Actualizar estado del documento a pending_validation
+                update_document_status(
+                    session=db_session,
+                    document_id=document_id,
+                    status="pending_validation",
+                )
+                
+                # Commit se hace automáticamente al salir del with si no hay errores
+                # Si hay error, se hace rollback automáticamente
 
             return ProcessRunResponse(
                 run_id=run_id,
@@ -258,7 +284,17 @@ async def create_process_run(
             )
 
         except Exception as e:
+            # Si el pipeline falla, limpiar el directorio de salida si se creó
+            output_dir = Path(settings.output_dir) / run_id
+            if output_dir.exists():
+                import shutil
+                try:
+                    shutil.rmtree(output_dir)
+                except Exception:
+                    pass  # Ignorar errores al limpiar
+            
             # Error interno del servidor: devolver 500
+            # No se creó nada en BD porque el pipeline falló antes
             raise HTTPException(
                 status_code=500,
                 detail=f"Error procesando el pipeline: {str(e)}",

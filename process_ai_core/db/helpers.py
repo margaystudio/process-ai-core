@@ -15,7 +15,8 @@ from typing import Dict, Any
 
 from sqlalchemy.orm import Session
 
-from .models import Workspace, Document, Process, Recipe, User, WorkspaceMembership, Folder
+from .models import Workspace, Document, Process, Recipe, User, WorkspaceMembership, Folder, Validation, AuditLog, DocumentVersion, Run
+from datetime import datetime
 
 
 def create_organization_workspace(
@@ -340,6 +341,7 @@ def create_run(
     document_id: str,
     document_type: str,
     profile: str = "",
+    run_id: str | None = None,
 ) -> "Run":
     """
     Crea un Run (ejecución del pipeline).
@@ -349,13 +351,14 @@ def create_run(
         document_id: ID del documento asociado
         document_type: Tipo de documento ("process" | "recipe" | ...)
         profile: Perfil usado
+        run_id: ID opcional para el run (si no se proporciona, se genera uno)
     
     Returns:
         Run creado
     """
     from process_ai_core.db.models import Run
     run = Run(
-        id=str(uuid.uuid4()),
+        id=run_id or str(uuid.uuid4()),
         document_id=document_id,
         document_type=document_type,
         profile=profile,
@@ -451,4 +454,374 @@ def get_recipes_by_workspace(session: Session, workspace_id: str) -> list[Recipe
         .order_by(Recipe.created_at.desc())
         .all()
     )
+
+
+# ============================================================
+# Helpers de Validación y Auditoría
+# ============================================================
+
+def create_validation(
+    session: Session,
+    document_id: str,
+    run_id: str | None = None,
+    validator_user_id: str | None = None,
+    observations: str = "",
+    checklist_json: str = "{}",
+) -> Validation:
+    """
+    Crea una nueva validación para un documento o run.
+    
+    Args:
+        session: Sesión de base de datos
+        document_id: ID del documento
+        run_id: ID del run (opcional, si es validación de un run específico)
+        validator_user_id: ID del usuario validador (opcional)
+        observations: Observaciones del validador
+        checklist_json: Checklist en formato JSON
+    
+    Returns:
+        Validation creada
+    """
+    validation = Validation(
+        id=str(uuid.uuid4()),
+        document_id=document_id,
+        run_id=run_id,
+        validator_user_id=validator_user_id,
+        status="pending",
+        observations=observations,
+        checklist_json=checklist_json,
+    )
+    session.add(validation)
+    
+    # Crear audit log
+    create_audit_log(
+        session=session,
+        document_id=document_id,
+        run_id=run_id,
+        user_id=validator_user_id,
+        action="validated",
+        entity_type="validation",
+        entity_id=validation.id,
+        metadata_json=json.dumps({"status": "pending"}),
+    )
+    
+    return validation
+
+
+def approve_validation(
+    session: Session,
+    validation_id: str,
+    user_id: str | None = None,
+) -> Validation:
+    """
+    Aprueba una validación.
+    
+    Args:
+        session: Sesión de base de datos
+        validation_id: ID de la validación
+        user_id: ID del usuario que aprueba (opcional)
+    
+    Returns:
+        Validation aprobada
+    """
+    validation = session.query(Validation).filter_by(id=validation_id).first()
+    if not validation:
+        raise ValueError(f"Validación {validation_id} no encontrada")
+    
+    validation.status = "approved"
+    validation.completed_at = datetime.utcnow()
+    
+    # Actualizar estado del documento
+    document = session.query(Document).filter_by(id=validation.document_id).first()
+    if document:
+        document.status = "approved"
+    
+    # Si hay un run asociado, marcarlo como aprobado
+    if validation.run_id:
+        run = session.query(Run).filter_by(id=validation.run_id).first()
+        if run:
+            run.is_approved = True
+            run.validation_id = validation_id
+    
+    # Crear audit log
+    create_audit_log(
+        session=session,
+        document_id=validation.document_id,
+        run_id=validation.run_id,
+        user_id=user_id,
+        action="approved",
+        entity_type="validation",
+        entity_id=validation_id,
+        metadata_json=json.dumps({"status": "approved"}),
+    )
+    
+    return validation
+
+
+def reject_validation(
+    session: Session,
+    validation_id: str,
+    observations: str,
+    user_id: str | None = None,
+) -> Validation:
+    """
+    Rechaza una validación con observaciones.
+    
+    Args:
+        session: Sesión de base de datos
+        validation_id: ID de la validación
+        observations: Observaciones del rechazo
+        user_id: ID del usuario que rechaza (opcional)
+    
+    Returns:
+        Validation rechazada
+    """
+    validation = session.query(Validation).filter_by(id=validation_id).first()
+    if not validation:
+        raise ValueError(f"Validación {validation_id} no encontrada")
+    
+    validation.status = "rejected"
+    validation.observations = observations
+    validation.completed_at = datetime.utcnow()
+    
+    # Actualizar estado del documento
+    document = session.query(Document).filter_by(id=validation.document_id).first()
+    if document:
+        document.status = "rejected"
+    
+    # Crear audit log
+    create_audit_log(
+        session=session,
+        document_id=validation.document_id,
+        run_id=validation.run_id,
+        user_id=user_id,
+        action="rejected",
+        entity_type="validation",
+        entity_id=validation_id,
+        changes_json=json.dumps({"observations": observations}),
+        metadata_json=json.dumps({"status": "rejected"}),
+    )
+    
+    return validation
+
+
+def create_audit_log(
+    session: Session,
+    document_id: str,
+    action: str,
+    run_id: str | None = None,
+    user_id: str | None = None,
+    entity_type: str | None = None,
+    entity_id: str | None = None,
+    changes_json: str = "{}",
+    metadata_json: str = "{}",
+) -> AuditLog:
+    """
+    Crea un registro de auditoría.
+    
+    Args:
+        session: Sesión de base de datos
+        document_id: ID del documento
+        action: Acción realizada (created, updated, validated, rejected, etc.)
+        run_id: ID del run (opcional)
+        user_id: ID del usuario (opcional)
+        entity_type: Tipo de entidad relacionada (opcional)
+        entity_id: ID de la entidad relacionada (opcional)
+        changes_json: Cambios realizados en formato JSON
+        metadata_json: Metadata adicional en formato JSON
+    
+    Returns:
+        AuditLog creado
+    """
+    audit_log = AuditLog(
+        id=str(uuid.uuid4()),
+        document_id=document_id,
+        run_id=run_id,
+        user_id=user_id,
+        action=action,
+        entity_type=entity_type,
+        entity_id=entity_id,
+        changes_json=changes_json,
+        metadata_json=metadata_json,
+    )
+    session.add(audit_log)
+    return audit_log
+
+
+def create_document_version(
+    session: Session,
+    document_id: str,
+    run_id: str | None,
+    content_type: str,
+    content_json: str,
+    content_markdown: str,
+    validation_id: str | None = None,
+    approved_by: str | None = None,
+) -> DocumentVersion:
+    """
+    Crea una nueva versión aprobada de un documento.
+    
+    Args:
+        session: Sesión de base de datos
+        document_id: ID del documento
+        run_id: ID del run (opcional, NULL si es edición manual)
+        content_type: Tipo de contenido (generated | manual_edit | ai_patch)
+        content_json: JSON del documento
+        content_markdown: Markdown del documento
+        validation_id: ID de la validación asociada (opcional)
+        approved_by: ID del usuario que aprobó (opcional)
+    
+    Returns:
+        DocumentVersion creada
+    """
+    # Obtener el número de versión siguiente
+    last_version = (
+        session.query(DocumentVersion)
+        .filter_by(document_id=document_id)
+        .order_by(DocumentVersion.version_number.desc())
+        .first()
+    )
+    version_number = (last_version.version_number + 1) if last_version else 1
+    
+    # Marcar todas las versiones anteriores como no actuales
+    session.query(DocumentVersion).filter_by(
+        document_id=document_id,
+        is_current=True
+    ).update({"is_current": False})
+    
+    # Crear nueva versión
+    version = DocumentVersion(
+        id=str(uuid.uuid4()),
+        document_id=document_id,
+        run_id=run_id,
+        version_number=version_number,
+        content_type=content_type,
+        content_json=content_json,
+        content_markdown=content_markdown,
+        approved_at=datetime.utcnow(),
+        approved_by=approved_by,
+        validation_id=validation_id,
+        is_current=True,
+    )
+    session.add(version)
+    
+    # Actualizar documento con la versión aprobada
+    document = session.query(Document).filter_by(id=document_id).first()
+    if document:
+        document.approved_version_id = version.id
+        document.status = "approved"
+    
+    # Crear audit log
+    create_audit_log(
+        session=session,
+        document_id=document_id,
+        run_id=run_id,
+        user_id=approved_by,
+        action="approved",
+        entity_type="version",
+        entity_id=version.id,
+        metadata_json=json.dumps({
+            "version_number": version_number,
+            "content_type": content_type,
+        }),
+    )
+    
+    return version
+
+
+def update_document_status(
+    session: Session,
+    document_id: str,
+    status: str,
+) -> Document:
+    """
+    Actualiza el estado de un documento.
+    
+    Args:
+        session: Sesión de base de datos
+        document_id: ID del documento
+        status: Nuevo estado (draft | pending_validation | approved | rejected | archived)
+    
+    Returns:
+        Document actualizado
+    """
+    document = session.query(Document).filter_by(id=document_id).first()
+    if not document:
+        raise ValueError(f"Documento {document_id} no encontrado")
+    
+    old_status = document.status
+    document.status = status
+    
+    # Crear audit log
+    create_audit_log(
+        session=session,
+        document_id=document_id,
+        action="updated",
+        changes_json=json.dumps({
+            "status": {"old": old_status, "new": status}
+        }),
+    )
+    
+    return document
+
+
+def delete_document(
+    session: Session,
+    document_id: str,
+) -> bool:
+    """
+    Elimina un documento y todos sus datos asociados.
+    
+    Elimina:
+    - El documento (y su registro específico Process/Recipe)
+    - Todos los runs asociados
+    - Todos los artifacts asociados
+    - Todas las validaciones asociadas
+    - Todos los audit logs asociados
+    - Todas las versiones asociadas
+    
+    Args:
+        session: Sesión de base de datos
+        document_id: ID del documento a eliminar
+    
+    Returns:
+        True si se eliminó correctamente
+    
+    Raises:
+        ValueError: Si el documento no existe
+    """
+    from process_ai_core.db.models import Run, Artifact, Validation, AuditLog, DocumentVersion
+    
+    document = session.query(Document).filter_by(id=document_id).first()
+    if not document:
+        raise ValueError(f"Documento {document_id} no encontrado")
+    
+    # Eliminar en orden (respetando foreign keys)
+    # 1. Artifacts (dependen de Runs)
+    runs = session.query(Run).filter_by(document_id=document_id).all()
+    for run in runs:
+        session.query(Artifact).filter_by(run_id=run.id).delete()
+    
+    # 2. Runs
+    session.query(Run).filter_by(document_id=document_id).delete()
+    
+    # 3. Validations
+    session.query(Validation).filter_by(document_id=document_id).delete()
+    
+    # 4. Document Versions
+    session.query(DocumentVersion).filter_by(document_id=document_id).delete()
+    
+    # 5. Audit Logs
+    session.query(AuditLog).filter_by(document_id=document_id).delete()
+    
+    # 6. Documento específico (Process/Recipe)
+    if document.document_type == "process":
+        session.query(Process).filter_by(id=document_id).delete()
+    elif document.document_type == "recipe":
+        session.query(Recipe).filter_by(id=document_id).delete()
+    
+    # 7. Documento base
+    session.delete(document)
+    
+    return True
 
