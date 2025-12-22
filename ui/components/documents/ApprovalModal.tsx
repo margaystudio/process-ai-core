@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react'
 import { Document, getDocumentRuns, getArtifactUrl } from '@/lib/api'
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+
 interface ApprovalModalProps {
   document: Document
   isOpen: boolean
@@ -29,7 +31,12 @@ export default function ApprovalModal({
         setLoadingPdf(true)
         const runs = await getDocumentRuns(document.id)
         if (runs.length > 0 && runs[0].artifacts.pdf) {
-          setPdfUrl(runs[0].artifacts.pdf)
+          // Convertir URL relativa a absoluta
+          const relativeUrl = runs[0].artifacts.pdf
+          const absoluteUrl = relativeUrl.startsWith('http') 
+            ? relativeUrl 
+            : `${API_URL}${relativeUrl}`
+          setPdfUrl(absoluteUrl)
         }
       } catch (err) {
         console.error('Error cargando PDF:', err)

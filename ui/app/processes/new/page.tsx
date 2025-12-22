@@ -9,6 +9,7 @@ import OptionalFields from '@/components/processes/OptionalFields'
 import FolderTree from '@/components/processes/FolderTree'
 import FileUploadModal, { FileType } from '@/components/processes/FileUploadModal'
 import FileList from '@/components/processes/FileList'
+import ArtifactViewerModal from '@/components/processes/ArtifactViewerModal'
 import { FileItemData } from '@/components/processes/FileItem'
 
 export default function NewProcessPage() {
@@ -18,6 +19,7 @@ export default function NewProcessPage() {
   const [folderId, setFolderId] = useState('')
   const [detailLevel, setDetailLevel] = useState('')
   const [contextText, setContextText] = useState('')
+  const [description, setDescription] = useState('')
   
   const [files, setFiles] = useState<FileItemData[]>([])
   const [isModalOpen, setIsModalOpen] = useState(false)
@@ -25,6 +27,19 @@ export default function NewProcessPage() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<any>(null)
+  
+  // Estado para el modal de visualización de artifacts
+  const [viewerModal, setViewerModal] = useState<{
+    isOpen: boolean
+    runId: string
+    filename: string
+    type: 'json' | 'markdown' | 'pdf'
+  }>({
+    isOpen: false,
+    runId: '',
+    filename: '',
+    type: 'json',
+  })
 
   const handleAddFile = (file: File, type: FileType, description: string) => {
     const newFile: FileItemData = {
@@ -66,6 +81,7 @@ export default function NewProcessPage() {
       // Campos opcionales (solo si tienen valor)
       if (detailLevel) formData.append('detail_level', detailLevel)
       if (contextText.trim()) formData.append('context_text', contextText.trim())
+      if (description.trim()) formData.append('description', description.trim())
       
       // Agregar archivos según su tipo
       files.forEach((fileItem) => {
@@ -115,7 +131,7 @@ export default function NewProcessPage() {
                   selectedFolderId={folderId}
                   onSelectFolder={(id) => setFolderId(id || '')}
                   showSelectable={true}
-                  showCrud={false}
+                  showCrud={true}
                   showDocuments={false}
                 />
               </>
@@ -154,8 +170,10 @@ export default function NewProcessPage() {
                 <OptionalFields
                   detailLevel={detailLevel}
                   contextText={contextText}
+                  description={description}
                   onDetailLevelChange={setDetailLevel}
                   onContextTextChange={setContextText}
+                  onDescriptionChange={setDescription}
                 />
 
                 <div className="pt-6 border-t">
@@ -207,34 +225,43 @@ export default function NewProcessPage() {
                   {result.artifacts && (
                     <div className="mt-4 space-y-2">
                       {result.artifacts.json && (
-                        <a
-                          href={getArtifactUrl(result.run_id, 'process.json')}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="block text-blue-600 hover:underline"
+                        <button
+                          onClick={() => setViewerModal({
+                            isOpen: true,
+                            runId: result.run_id,
+                            filename: 'process.json',
+                            type: 'json',
+                          })}
+                          className="block text-blue-600 hover:underline text-left"
                         >
                           📄 Ver JSON
-                        </a>
+                        </button>
                       )}
                       {result.artifacts.markdown && (
-                        <a
-                          href={getArtifactUrl(result.run_id, 'process.md')}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="block text-blue-600 hover:underline"
+                        <button
+                          onClick={() => setViewerModal({
+                            isOpen: true,
+                            runId: result.run_id,
+                            filename: 'process.md',
+                            type: 'markdown',
+                          })}
+                          className="block text-blue-600 hover:underline text-left"
                         >
                           📝 Ver Markdown
-                        </a>
+                        </button>
                       )}
                       {result.artifacts.pdf && (
-                        <a
-                          href={getArtifactUrl(result.run_id, 'process.pdf')}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="block text-blue-600 hover:underline"
+                        <button
+                          onClick={() => setViewerModal({
+                            isOpen: true,
+                            runId: result.run_id,
+                            filename: 'process.pdf',
+                            type: 'pdf',
+                          })}
+                          className="block text-blue-600 hover:underline text-left"
                         >
                           📑 Ver PDF
-                        </a>
+                        </button>
                       )}
                     </div>
                   )}
@@ -249,6 +276,14 @@ export default function NewProcessPage() {
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         onAdd={handleAddFile}
+      />
+
+      <ArtifactViewerModal
+        isOpen={viewerModal.isOpen}
+        onClose={() => setViewerModal({ ...viewerModal, isOpen: false })}
+        runId={viewerModal.runId}
+        filename={viewerModal.filename}
+        type={viewerModal.type}
       />
     </div>
   )

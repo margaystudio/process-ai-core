@@ -6,15 +6,19 @@ import { getCatalogOptions, CatalogOption } from '@/lib/api'
 interface OptionalFieldsProps {
   detailLevel: string
   contextText: string
+  description: string
   onDetailLevelChange: (value: string) => void
   onContextTextChange: (value: string) => void
+  onDescriptionChange: (value: string) => void
 }
 
 export default function OptionalFields({
   detailLevel,
   contextText,
+  description,
   onDetailLevelChange,
   onContextTextChange,
+  onDescriptionChange,
 }: OptionalFieldsProps) {
   const [detailLevelOptions, setDetailLevelOptions] = useState<CatalogOption[]>([])
   const [loading, setLoading] = useState(true)
@@ -78,6 +82,24 @@ export default function OptionalFields({
             <option value="detallado">Detallado</option>
           </select>
         )}
+      </div>
+
+      <div>
+        <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-2">
+          Descripción
+        </label>
+        <textarea
+          id="description"
+          name="description"
+          value={description}
+          onChange={(e) => onDescriptionChange(e.target.value)}
+          rows={3}
+          className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-y"
+          placeholder="Descripción breve del proceso (opcional). Si no la completás, la IA la generará automáticamente."
+        />
+        <p className="mt-1 text-sm text-gray-500">
+          Descripción breve del proceso. Si la dejás vacía, la IA la generará automáticamente basándose en el contenido.
+        </p>
       </div>
 
       <div>

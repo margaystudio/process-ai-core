@@ -1,30 +1,23 @@
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
+import { useRouter } from 'next/navigation'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
 import { useUserRole } from '@/hooks/useUserRole'
 import {
   listDocumentsPendingApproval,
-  approveDocument,
-  rejectDocument,
   Document,
-  getDocumentRuns,
 } from '@/lib/api'
 import DocumentCard from '@/components/documents/DocumentCard'
-import RejectModal from '@/components/documents/RejectModal'
-import ApprovalModal from '@/components/documents/ApprovalModal'
 import FolderTree from '@/components/processes/FolderTree'
 
 export default function ApprovalQueuePage() {
+  const router = useRouter()
   const { selectedWorkspaceId, selectedWorkspace } = useWorkspace()
   const { role } = useUserRole()
   const [documents, setDocuments] = useState<Document[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [selectedDocument, setSelectedDocument] = useState<Document | null>(null)
-  const [showRejectModal, setShowRejectModal] = useState(false)
-  const [showApprovalModal, setShowApprovalModal] = useState(false)
-  const [processing, setProcessing] = useState<string | null>(null) // documentId en proceso
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null)
 
@@ -66,55 +59,8 @@ export default function ApprovalQueuePage() {
     loadDocuments()
   }, [selectedWorkspaceId])
 
-  const handleApprove = async (document: Document) => {
-    const userId = getUserId()
-    if (!userId || !selectedWorkspaceId) return
-
-    setProcessing(document.id)
-    try {
-      await approveDocument(document.id, userId, selectedWorkspaceId)
-      // Recargar documentos
-      const docs = await listDocumentsPendingApproval(selectedWorkspaceId, userId)
-      setDocuments(docs)
-      setShowApprovalModal(false)
-      setSelectedDocument(null)
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Error al aprobar documento')
-    } finally {
-      setProcessing(null)
-    }
-  }
-
-  const handleReject = async (document: Document, observations: string) => {
-    const userId = getUserId()
-    if (!userId || !selectedWorkspaceId) return
-
-    setProcessing(document.id)
-    try {
-      await rejectDocument(document.id, observations, userId, selectedWorkspaceId)
-      // Recargar documentos
-      const docs = await listDocumentsPendingApproval(selectedWorkspaceId, userId)
-      setDocuments(docs)
-      setShowRejectModal(false)
-      setSelectedDocument(null)
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Error al rechazar documento')
-    } finally {
-      setProcessing(null)
-    }
-  }
-
-  const handleViewDetails = async (document: Document) => {
-    setSelectedDocument(document)
-    // Cargar runs del documento para mostrar preview
-    try {
-      const runs = await getDocumentRuns(document.id)
-      // Por ahora, solo abrimos el modal
-      setShowApprovalModal(true)
-    } catch (err) {
-      console.error('Error cargando detalles:', err)
-      setShowApprovalModal(true)
-    }
+  const handleReview = (document: Document) => {
+    router.push(`/dashboard/approval-queue/${document.id}/review`)
   }
 
   // Filtrar documentos por búsqueda y carpeta
@@ -273,17 +219,8 @@ export default function ApprovalQueuePage() {
                       <DocumentCard
                         key={doc.id}
                         document={doc}
-                        onView={() => handleViewDetails(doc)}
-                        onApprove={() => {
-                          setSelectedDocument(doc)
-                          setShowApprovalModal(true)
-                        }}
-                        onReject={() => {
-                          setSelectedDocument(doc)
-                          setShowRejectModal(true)
-                        }}
+                        onReview={() => handleReview(doc)}
                         showActions={true}
-                        processing={processing === doc.id}
                       />
                     ))}
                   </div>
@@ -292,33 +229,6 @@ export default function ApprovalQueuePage() {
             </div>
           </div>
         </div>
-
-        {/* Modales */}
-        {selectedDocument && (
-          <>
-            <ApprovalModal
-              document={selectedDocument}
-              isOpen={showApprovalModal}
-              onClose={() => {
-                setShowApprovalModal(false)
-                setSelectedDocument(null)
-              }}
-              onApprove={() => handleApprove(selectedDocument)}
-              processing={processing === selectedDocument.id}
-            />
-
-            <RejectModal
-              document={selectedDocument}
-              isOpen={showRejectModal}
-              onClose={() => {
-                setShowRejectModal(false)
-                setSelectedDocument(null)
-              }}
-              onReject={(observations) => handleReject(selectedDocument, observations)}
-              processing={processing === selectedDocument.id}
-            />
-          </>
-        )}
       </div>
     </div>
   )

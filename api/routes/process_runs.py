@@ -30,6 +30,7 @@ async def create_process_run(
     mode: ProcessMode = Form(ProcessMode.OPERATIVO),
     detail_level: str = Form(None),
     context_text: str = Form(None),
+    description: str = Form(None),  # Opcional: si no se proporciona, la IA la inferirá
     folder_id: str = Form(...),  # Requerido
     workspace_id: str = Form(...),  # Requerido
     audio_files: List[UploadFile] = File(default=[]),
@@ -188,6 +189,19 @@ async def create_process_run(
 
             json_path.write_text(result["json_str"], encoding="utf-8")
             md_path.write_text(result["markdown"], encoding="utf-8")
+            
+            # Si no se proporcionó descripción, inferirla del JSON generado
+            inferred_description = description
+            if not inferred_description or not inferred_description.strip():
+                try:
+                    import json
+                    doc_json = json.loads(result["json_str"])
+                    # Usar el campo "objetivo" del JSON como descripción
+                    if "objetivo" in doc_json and doc_json["objetivo"]:
+                        inferred_description = doc_json["objetivo"].strip()
+                except Exception:
+                    # Si falla el parsing, dejar vacío
+                    inferred_description = ""
 
             # Generar PDF si se requiere
             pdf_generated = False
@@ -220,11 +234,13 @@ async def create_process_run(
             
             with get_db_session() as db_session:
                 # Crear Document (folder_id es requerido)
+                # Usar descripción del usuario o la inferida del JSON
+                final_description = inferred_description or ""
                 document = create_process_document(
                     session=db_session,
                     workspace_id=workspace_id,
                     name=process_name,
-                    description="",
+                    description=final_description,
                     folder_id=folder_id,  # Requerido
                     audience=mode.value,
                     detail_level=detail_level or "",

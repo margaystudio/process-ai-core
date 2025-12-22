@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react'
 import { getDocumentRuns, getArtifactUrl } from '@/lib/api'
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+
 interface DocumentPreviewProps {
   documentId: string
 }
@@ -19,7 +21,12 @@ export default function DocumentPreview({ documentId }: DocumentPreviewProps) {
         setError(null)
         const runs = await getDocumentRuns(documentId)
         if (runs.length > 0 && runs[0].artifacts.pdf) {
-          setPdfUrl(runs[0].artifacts.pdf)
+          // Convertir URL relativa a absoluta
+          const relativeUrl = runs[0].artifacts.pdf
+          const absoluteUrl = relativeUrl.startsWith('http') 
+            ? relativeUrl 
+            : `${API_URL}${relativeUrl}`
+          setPdfUrl(absoluteUrl)
         } else {
           setError('No hay PDF disponible')
         }

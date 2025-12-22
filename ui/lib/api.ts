@@ -775,7 +775,7 @@ export async function approveDocument(
   workspaceId: string
 ): Promise<{ message: string; validation_id: string; version_id: string | null }> {
   const response = await fetch(
-    `${API_URL}/api/v1/validations/documents/${documentId}/approve`,
+    `${API_URL}/api/v1/documents/${documentId}/approve`,
     {
       method: 'POST',
       headers: {
@@ -822,7 +822,7 @@ export async function rejectDocument(
   workspaceId: string
 ): Promise<{ message: string; validation_id: string }> {
   const response = await fetch(
-    `${API_URL}/api/v1/validations/documents/${documentId}/reject`,
+    `${API_URL}/api/v1/documents/${documentId}/reject`,
     {
       method: 'POST',
       headers: {

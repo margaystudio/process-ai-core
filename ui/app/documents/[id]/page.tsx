@@ -21,6 +21,7 @@ import {
   patchDocumentWithAI,
   updateDocumentContent,
   getDocumentAuditLog,
+  getDocumentVersions,
   AuditLogEntry,
   DocumentVersion,
 } from '@/lib/api'

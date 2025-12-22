@@ -8,6 +8,7 @@ interface DocumentCardProps {
   onApprove?: () => void
   onReject?: () => void
   onCorrect?: () => void
+  onReview?: () => void
   showActions?: boolean
   processing?: boolean
 }
@@ -18,6 +19,7 @@ export default function DocumentCard({
   onApprove,
   onReject,
   onCorrect,
+  onReview,
   showActions = false,
   processing = false,
 }: DocumentCardProps) {
@@ -70,6 +72,15 @@ export default function DocumentCard({
               className="px-3 py-1.5 text-sm text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-md transition"
             >
               Ver Detalles
+            </button>
+          )}
+          {onReview && (
+            <button
+              onClick={onReview}
+              disabled={processing}
+              className="px-4 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
+            >
+              {processing ? 'Procesando...' : 'Iniciar Revisión'}
             </button>
           )}
           {onApprove && (

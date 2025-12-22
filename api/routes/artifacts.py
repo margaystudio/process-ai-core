@@ -2,12 +2,13 @@
 Endpoint para servir artefactos generados (JSON, Markdown, PDF).
 
 Este endpoint permite descargar los archivos generados por el pipeline.
+Para PDFs, se sirven inline para poder visualizarlos en iframes.
 """
 
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 
 from process_ai_core.config import get_settings
 
@@ -47,6 +48,24 @@ async def get_artifact(run_id: str, filename: str):
     }
     content_type = content_type_map.get(artifact_path.suffix, "application/octet-stream")
 
+    # Para PDFs, servir inline para que se puedan ver en iframes
+    if artifact_path.suffix == ".pdf":
+        with open(artifact_path, "rb") as f:
+            content = f.read()
+        return Response(
+            content=content,
+            media_type=content_type,
+            headers={
+                "Content-Disposition": "inline; filename=\"" + filename + "\"",
+                "Content-Type": "application/pdf",
+                "X-Content-Type-Options": "nosniff",
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0",
+            }
+        )
+    
+    # Para otros archivos, permitir descarga
     return FileResponse(
         path=str(artifact_path),
         media_type=content_type,
