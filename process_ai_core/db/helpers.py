@@ -825,3 +825,100 @@ def delete_document(
     
     return True
 
+
+# ============================================================================
+# Funciones helper para usuarios y autenticación
+# ============================================================================
+
+def get_user_by_external_id(session: Session, external_id: str) -> User | None:
+    """
+    Busca un usuario por su external_id (ID del proveedor de autenticación).
+    
+    Args:
+        session: Sesión de base de datos
+        external_id: ID del usuario en el proveedor externo (ej: Supabase user ID)
+    
+    Returns:
+        User si existe, None si no
+    """
+    return session.query(User).filter_by(external_id=external_id).first()
+
+
+def get_user_by_email(session: Session, email: str) -> User | None:
+    """
+    Busca un usuario por su email.
+    
+    Args:
+        session: Sesión de base de datos
+        email: Email del usuario
+    
+    Returns:
+        User si existe, None si no
+    """
+    return session.query(User).filter_by(email=email).first()
+
+
+def create_or_update_user_from_supabase(
+    session: Session,
+    supabase_user_id: str,
+    email: str,
+    name: str,
+    auth_provider: str = "supabase",
+    metadata: dict | None = None,
+) -> tuple[User, bool]:
+    """
+    Crea o actualiza un usuario desde datos de Supabase Auth.
+    
+    Si el usuario ya existe (por external_id o email), lo actualiza.
+    Si no existe, lo crea.
+    
+    Args:
+        session: Sesión de base de datos
+        supabase_user_id: ID del usuario en Supabase (sub del JWT)
+        email: Email del usuario
+        name: Nombre del usuario
+        auth_provider: Proveedor de autenticación (default: "supabase")
+        metadata: Metadata adicional del usuario (avatar, etc.)
+    
+    Returns:
+        Tupla (User, created) donde created es True si se creó, False si se actualizó
+    """
+    # Buscar por external_id primero
+    user = get_user_by_external_id(session, supabase_user_id)
+    created = False
+    
+    if not user:
+        # Si no existe por external_id, buscar por email
+        user = get_user_by_email(session, email)
+        
+        if user:
+            # Usuario existe pero no tiene external_id, actualizarlo
+            user.external_id = supabase_user_id
+            user.auth_provider = auth_provider
+            if metadata:
+                user.metadata_json = json.dumps(metadata)
+            user.updated_at = datetime.utcnow()
+        else:
+            # Crear nuevo usuario
+            user = User(
+                id=str(uuid.uuid4()),
+                email=email,
+                name=name,
+                external_id=supabase_user_id,
+                auth_provider=auth_provider,
+                metadata_json=json.dumps(metadata or {}),
+                auth_metadata_json=json.dumps({}),
+            )
+            session.add(user)
+            created = True
+    else:
+        # Usuario existe, actualizar datos
+        user.email = email
+        user.name = name
+        user.auth_provider = auth_provider
+        if metadata:
+            user.metadata_json = json.dumps(metadata)
+        user.updated_at = datetime.utcnow()
+    
+    return user, created
+

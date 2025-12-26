@@ -56,3 +56,4 @@ class ProcessDocument:
     material_referencia: str
     videos: List[VideoRef] = field(default_factory=list)
 
+

@@ -57,3 +57,4 @@ class RecipeDocument:
     equipment: str
     videos: List[VideoRef] = field(default_factory=list)
 
+

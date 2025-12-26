@@ -67,3 +67,4 @@ if __name__ == "__main__":
     migrate_user_table()
     print("✅ Migración finalizada!")
 
+

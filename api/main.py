@@ -9,17 +9,28 @@ Uso:
 """
 
 import logging
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from dotenv import load_dotenv
 
-from .routes import artifacts, catalog, documents, folders, process_runs, recipe_runs, users, validations, workspaces
+from .routes import artifacts, auth, catalog, documents, folders, process_runs, recipe_runs, users, validations, workspaces
 
-# Configurar logging
+# Cargar variables de entorno
+load_dotenv()
+
+# Determinar ambiente
+ENVIRONMENT = os.getenv("ENVIRONMENT", "local")
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+
+# Configurar logging según ambiente
+log_level = getattr(logging, LOG_LEVEL, logging.INFO)
 logging.basicConfig(
-    level=logging.INFO,
+    level=log_level,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+logger.info(f"🚀 Iniciando API en ambiente: {ENVIRONMENT}")
 
 app = FastAPI(
     title="Process AI Core API",
@@ -27,16 +38,22 @@ app = FastAPI(
     version="0.1.0",
 )
 
-# CORS: permitir requests desde la UI (Next.js)
+# CORS: configurar según ambiente
+cors_origins_str = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:3001")
+cors_origins = [origin.strip() for origin in cors_origins_str.split(",") if origin.strip()]
+
+logger.info(f"🌐 CORS origins configurados: {cors_origins}")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001"],  # Next.js dev
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # Registrar rutas
+app.include_router(auth.router)
 app.include_router(catalog.router)
 app.include_router(workspaces.router)
 app.include_router(folders.router)

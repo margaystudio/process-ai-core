@@ -26,6 +26,7 @@ import {
   DocumentVersion,
 } from '@/lib/api'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
+import { useLoading } from '@/contexts/LoadingContext'
 import FolderTree from '@/components/processes/FolderTree'
 import FileUploadModal, { FileType } from '@/components/processes/FileUploadModal'
 import FileList from '@/components/processes/FileList'
@@ -231,54 +232,58 @@ export default function DocumentDetailPage() {
   const handleCreateValidation = async () => {
     if (!document) return
     
-    try {
-      setIsValidating(true)
-      setError(null)
-      
-      const lastRun = runs.length > 0 ? runs[0] : null
-      const validation = await createValidation(documentId, {
-        run_id: lastRun?.run_id,
-        observations: validationObservations,
-      })
-      
-      setValidations([...validations, validation])
-      setShowValidationForm(false)
-      setValidationObservations('')
-      
-      // Reload document to update status
-      const updatedDoc = await getDocument(documentId)
-      setDocument(updatedDoc)
-      setStatus(updatedDoc.status)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al crear validación')
-    } finally {
-      setIsValidating(false)
-    }
+    await withLoading(async () => {
+      try {
+        setIsValidating(true)
+        setError(null)
+        
+        const lastRun = runs.length > 0 ? runs[0] : null
+        const validation = await createValidation(documentId, {
+          run_id: lastRun?.run_id,
+          observations: validationObservations,
+        })
+        
+        setValidations([...validations, validation])
+        setShowValidationForm(false)
+        setValidationObservations('')
+        
+        // Reload document to update status
+        const updatedDoc = await getDocument(documentId)
+        setDocument(updatedDoc)
+        setStatus(updatedDoc.status)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Error al crear validación')
+      } finally {
+        setIsValidating(false)
+      }
+    })
   }
   
   const handleApproveValidation = async (validationId: string) => {
     if (!document) return
     
-    try {
-      setIsValidating(true)
-      setError(null)
-      
-      await approveValidation(validationId)
-      
-      // Reload validations and document
-      const [updatedValidations, updatedDoc] = await Promise.all([
-        listValidations(documentId),
-        getDocument(documentId),
-      ])
-      
-      setValidations(updatedValidations)
-      setDocument(updatedDoc)
-      setStatus(updatedDoc.status)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al aprobar validación')
-    } finally {
-      setIsValidating(false)
-    }
+    await withLoading(async () => {
+      try {
+        setIsValidating(true)
+        setError(null)
+        
+        await approveValidation(validationId)
+        
+        // Reload validations and document
+        const [updatedValidations, updatedDoc] = await Promise.all([
+          listValidations(documentId),
+          getDocument(documentId),
+        ])
+        
+        setValidations(updatedValidations)
+        setDocument(updatedDoc)
+        setStatus(updatedDoc.status)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Error al aprobar validación')
+      } finally {
+        setIsValidating(false)
+      }
+    })
   }
   
   const handleRejectValidation = async (validationId: string) => {
@@ -352,24 +357,26 @@ export default function DocumentDetailPage() {
       return
     }
     
-    try {
-      setIsUpdatingContent(true)
-      setError(null)
-      
-      await updateDocumentContent(documentId, manualEditJson)
-      
-      // Reload document
-      const updatedDoc = await getDocument(documentId)
-      setDocument(updatedDoc)
-      setStatus(updatedDoc.status)
-      setShowCorrectionOptions(false)
-      setCorrectionType(null)
-      setManualEditJson('')
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al actualizar contenido')
-    } finally {
-      setIsUpdatingContent(false)
-    }
+    await withLoading(async () => {
+      try {
+        setIsUpdatingContent(true)
+        setError(null)
+        
+        await updateDocumentContent(documentId, manualEditJson)
+        
+        // Reload document
+        const updatedDoc = await getDocument(documentId)
+        setDocument(updatedDoc)
+        setStatus(updatedDoc.status)
+        setShowCorrectionOptions(false)
+        setCorrectionType(null)
+        setManualEditJson('')
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Error al actualizar contenido')
+      } finally {
+        setIsUpdatingContent(false)
+      }
+    })
   }
   
   const handleDelete = async () => {
@@ -379,18 +386,20 @@ export default function DocumentDetailPage() {
       return
     }
     
-    try {
-      setIsDeleting(true)
-      setError(null)
-      
-      await deleteDocument(documentId)
-      
-      // Redirigir a la página principal después de eliminar
-      router.push('/workspace')
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al eliminar documento')
-      setIsDeleting(false)
-    }
+    await withLoading(async () => {
+      try {
+        setIsDeleting(true)
+        setError(null)
+        
+        await deleteDocument(documentId)
+        
+        // Redirigir a la página principal después de eliminar
+        router.push('/workspace')
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Error al eliminar documento')
+        setIsDeleting(false)
+      }
+    })
   }
 
   const handleGenerateNewVersion = async () => {

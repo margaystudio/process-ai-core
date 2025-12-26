@@ -243,3 +243,4 @@ def assign_permission_to_role(
     session.add(role_permission)
     return role_permission
 
+

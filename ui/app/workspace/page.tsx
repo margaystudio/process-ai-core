@@ -53,6 +53,43 @@ export default function WorkspacePage() {
 
 
   if (!selectedWorkspaceId) {
+    // Si no hay workspace seleccionado, verificar si hay workspaces disponibles
+    const { workspaces, loading: workspacesLoading } = useWorkspace()
+    
+    if (workspacesLoading) {
+      return (
+        <div className="p-8">
+          <div className="max-w-7xl mx-auto">
+            <div className="animate-pulse text-gray-500">Cargando workspaces...</div>
+          </div>
+        </div>
+      )
+    }
+    
+    if (workspaces.length === 0) {
+      // No hay workspaces, redirigir a onboarding
+      return (
+        <div className="p-8">
+          <div className="max-w-7xl mx-auto">
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
+              <h2 className="text-xl font-semibold text-blue-900 mb-2">
+                No tienes workspaces
+              </h2>
+              <p className="text-blue-800 mb-4">
+                Para comenzar, necesitas crear o unirte a un workspace.
+              </p>
+              <Link
+                href="/onboarding"
+                className="inline-block px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 font-medium"
+              >
+                Crear Workspace
+              </Link>
+            </div>
+          </div>
+        </div>
+      )
+    }
+    
     return (
       <div className="p-8">
         <div className="max-w-7xl mx-auto">

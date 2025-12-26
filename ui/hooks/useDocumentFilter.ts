@@ -38,3 +38,4 @@ export function useDocumentFilter(
   }, [documents, searchQuery, selectedFolderId])
 }
 
+

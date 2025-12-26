@@ -8,7 +8,7 @@ Este endpoint maneja:
 - POST /api/v1/users/{user_id}/workspaces/{workspace_id}/membership: Agregar usuario a workspace con rol
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy.exc import IntegrityError
 
 from process_ai_core.db.database import get_db_session
@@ -138,7 +138,7 @@ async def get_user(user_id: str):
 async def add_user_to_workspace(
     user_id: str,
     workspace_id: str,
-    role_name: str,  # "owner" | "admin" | "creator" | "viewer" | "approver"
+    role_name: str = Query(default="owner", description="Rol del usuario en el workspace"),  # "owner" | "admin" | "creator" | "viewer" | "approver"
 ):
     """
     Agrega un usuario a un workspace con un rol específico.
@@ -213,6 +213,51 @@ async def add_user_to_workspace(
             "role": role_name,  # Retornar nombre del rol para compatibilidad
             "created_at": existing.created_at.isoformat(),
         }
+
+
+@router.get("/{user_id}/workspaces")
+async def get_user_workspaces(user_id: str):
+    """
+    Obtiene todos los workspaces a los que pertenece un usuario.
+    
+    Args:
+        user_id: ID del usuario
+    
+    Returns:
+        Lista de workspaces con información de membresía
+    """
+    with get_db_session() as session:
+        from process_ai_core.db.models import Workspace, Role
+        
+        # Obtener todas las membresías del usuario
+        memberships = session.query(WorkspaceMembership).filter_by(user_id=user_id).all()
+        
+        workspaces = []
+        for membership in memberships:
+            workspace = session.query(Workspace).filter_by(id=membership.workspace_id).first()
+            if not workspace:
+                continue
+            
+            # Obtener el nombre del rol
+            role_name = None
+            if membership.role_id:
+                role = session.query(Role).filter_by(id=membership.role_id).first()
+                if role:
+                    role_name = role.name
+            else:
+                # Compatibilidad: usar role string si role_id no existe
+                role_name = membership.role
+            
+            workspaces.append({
+                "id": workspace.id,
+                "name": workspace.name,
+                "slug": workspace.slug,
+                "workspace_type": workspace.workspace_type,
+                "role": role_name,
+                "created_at": workspace.created_at.isoformat(),
+            })
+        
+        return workspaces
 
 
 @router.get("/{user_id}/role/{workspace_id}")

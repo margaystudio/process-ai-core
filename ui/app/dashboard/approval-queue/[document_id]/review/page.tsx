@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
+import { useLoading } from '@/contexts/LoadingContext'
 import { useUserId } from '@/hooks/useUserId'
 import {
   getDocument,
@@ -19,6 +20,7 @@ export default function DocumentReviewPage() {
   const router = useRouter()
   const documentId = params.document_id as string
   const { selectedWorkspaceId } = useWorkspace()
+  const { withLoading } = useLoading()
   
   const [document, setDocument] = useState<Document | null>(null)
   const [pdfUrl, setPdfUrl] = useState<string | null>(null)
@@ -107,15 +109,17 @@ export default function DocumentReviewPage() {
       return
     }
 
-    setProcessing(true)
-    try {
-      await approveDocument(documentId, userId, selectedWorkspaceId)
-      // Redirigir a la cola de aprobación
-      router.push('/dashboard/approval-queue')
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al aprobar documento')
-      setProcessing(false)
-    }
+    await withLoading(async () => {
+      setProcessing(true)
+      try {
+        await approveDocument(documentId, userId, selectedWorkspaceId)
+        // Redirigir a la cola de aprobación
+        router.push('/dashboard/approval-queue')
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Error al aprobar documento')
+        setProcessing(false)
+      }
+    })
   }
 
   const handleReject = async () => {
@@ -140,15 +144,17 @@ export default function DocumentReviewPage() {
       return
     }
 
-    setProcessing(true)
-    try {
-      await rejectDocument(documentId, observations, userId, selectedWorkspaceId)
-      // Redirigir a la cola de aprobación
-      router.push('/dashboard/approval-queue')
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al rechazar documento')
-      setProcessing(false)
-    }
+    await withLoading(async () => {
+      setProcessing(true)
+      try {
+        await rejectDocument(documentId, observations, userId, selectedWorkspaceId)
+        // Redirigir a la cola de aprobación
+        router.push('/dashboard/approval-queue')
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Error al rechazar documento')
+        setProcessing(false)
+      }
+    })
   }
 
   if (loading) {

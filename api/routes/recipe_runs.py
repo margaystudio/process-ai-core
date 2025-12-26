@@ -254,3 +254,4 @@ async def generate_pdf_from_run(run_id: str):
             detail=f"Error inesperado al generar PDF: {str(e)}",
         ) from e
 
+

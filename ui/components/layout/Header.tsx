@@ -24,9 +24,46 @@ export default function Header() {
           {/* Logo y título */}
           <div className="flex items-center">
             <Link href="/" className="flex items-center space-x-3">
-              <div className="flex-shrink-0">
-                <span className="text-2xl font-bold text-blue-600">Process AI</span>
+              <div className="flex-shrink-0 flex items-center">
+                <img
+                  src="/margay-logo.png"
+                  alt="Margay Logo"
+                  className="h-10 w-10 object-contain"
+                  onError={(e) => {
+                    // Fallback a SVG si la imagen no existe
+                    const target = e.target as HTMLImageElement
+                    target.style.display = 'none'
+                    const fallback = target.nextElementSibling as HTMLElement
+                    if (fallback) {
+                      fallback.style.display = 'block'
+                    }
+                  }}
+                />
+                {/* Fallback SVG de margay si la imagen no existe */}
+                <svg
+                  className="h-10 w-10"
+                  viewBox="0 0 100 100"
+                  fill="none"
+                  xmlns="http://www.w3.org/2000/svg"
+                  style={{ display: 'none' }}
+                >
+                  {/* Cabeza del margay */}
+                  <circle cx="50" cy="40" r="25" fill="#8B7355" stroke="#654321" strokeWidth="2"/>
+                  {/* Orejas */}
+                  <path d="M35 25 L30 15 L40 20 Z" fill="#8B7355" stroke="#654321" strokeWidth="1.5"/>
+                  <path d="M65 25 L70 15 L60 20 Z" fill="#8B7355" stroke="#654321" strokeWidth="1.5"/>
+                  {/* Ojos */}
+                  <circle cx="43" cy="38" r="3" fill="#000"/>
+                  <circle cx="57" cy="38" r="3" fill="#000"/>
+                  {/* Nariz */}
+                  <path d="M50 45 L48 50 L52 50 Z" fill="#000"/>
+                  {/* Manchas características del margay */}
+                  <ellipse cx="45" cy="50" rx="4" ry="6" fill="#654321" opacity="0.6"/>
+                  <ellipse cx="55" cy="50" rx="4" ry="6" fill="#654321" opacity="0.6"/>
+                  <ellipse cx="50" cy="60" rx="5" ry="3" fill="#654321" opacity="0.6"/>
+                </svg>
               </div>
+              <span className="text-2xl font-bold text-blue-600">Process AI</span>
             </Link>
           </div>
 

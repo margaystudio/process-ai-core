@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { createProcessRun, getArtifactUrl } from '@/lib/api'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
+import { useLoading } from '@/contexts/LoadingContext'
 import ProcessNameInput from '@/components/processes/ProcessNameInput'
 import ModeSelector from '@/components/processes/ModeSelector'
 import OptionalFields from '@/components/processes/OptionalFields'
@@ -14,6 +15,7 @@ import { FileItemData } from '@/components/processes/FileItem'
 
 export default function NewProcessPage() {
   const { selectedWorkspaceId, selectedWorkspace } = useWorkspace()
+  const { withLoading } = useLoading()
   const [processName, setProcessName] = useState('')
   const [mode, setMode] = useState<'operativo' | 'gestion'>('operativo')
   const [folderId, setFolderId] = useState('')
@@ -47,45 +49,48 @@ export default function NewProcessPage() {
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
-    setIsSubmitting(true)
-    setError(null)
-    setResult(null)
+    
+    await withLoading(async () => {
+      setIsSubmitting(true)
+      setError(null)
+      setResult(null)
 
-    try {
-      const formData = new FormData()
-      
-      // Campos requeridos
-      formData.append('process_name', processName)
-      formData.append('mode', mode)
-      
-      // Campos requeridos
-      if (!selectedWorkspaceId) {
-        throw new Error('Debes seleccionar un workspace en el header')
+      try {
+        const formData = new FormData()
+        
+        // Campos requeridos
+        formData.append('process_name', processName)
+        formData.append('mode', mode)
+        
+        // Campos requeridos
+        if (!selectedWorkspaceId) {
+          throw new Error('Debes seleccionar un workspace en el header')
+        }
+        if (!folderId) {
+          throw new Error('Debes seleccionar una carpeta')
+        }
+        formData.append('workspace_id', selectedWorkspaceId)
+        formData.append('folder_id', folderId)
+        
+        // Campos opcionales (solo si tienen valor)
+        if (detailLevel) formData.append('detail_level', detailLevel)
+        if (contextText.trim()) formData.append('context_text', contextText.trim())
+        if (description.trim()) formData.append('description', description.trim())
+        
+        // Agregar archivos según su tipo
+        files.forEach((fileItem) => {
+          const fieldName = `${fileItem.type}_files`
+          formData.append(fieldName, fileItem.file)
+        })
+        
+        const response = await createProcessRun(formData)
+        setResult(response)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Error desconocido')
+      } finally {
+        setIsSubmitting(false)
       }
-      if (!folderId) {
-        throw new Error('Debes seleccionar una carpeta')
-      }
-      formData.append('workspace_id', selectedWorkspaceId)
-      formData.append('folder_id', folderId)
-      
-      // Campos opcionales (solo si tienen valor)
-      if (detailLevel) formData.append('detail_level', detailLevel)
-      if (contextText.trim()) formData.append('context_text', contextText.trim())
-      if (description.trim()) formData.append('description', description.trim())
-      
-      // Agregar archivos según su tipo
-      files.forEach((fileItem) => {
-        const fieldName = `${fileItem.type}_files`
-        formData.append(fieldName, fileItem.file)
-      })
-      
-      const response = await createProcessRun(formData)
-      setResult(response)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error desconocido')
-    } finally {
-      setIsSubmitting(false)
-    }
+    })
   }
 
   return (

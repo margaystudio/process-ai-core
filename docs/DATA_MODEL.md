@@ -264,3 +264,4 @@ recipes = session.query(Recipe).all()
 - Los campos comunes están en `documents`, los específicos en `processes`/`recipes`
 - La relación con `Run` y `Artifact` funciona con cualquier tipo de `Document`
 
+

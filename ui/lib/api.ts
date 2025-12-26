@@ -219,6 +219,43 @@ export async function listWorkspaces(): Promise<WorkspaceResponse[]> {
 }
 
 /**
+ * Obtiene los workspaces de un usuario específico.
+ */
+export async function getUserWorkspaces(userId: string): Promise<WorkspaceResponse[]> {
+  const response = await fetch(`${API_URL}/api/v1/users/${userId}/workspaces`);
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
+    throw new Error(error.detail || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Agrega un usuario a un workspace con un rol específico.
+ */
+export async function addUserToWorkspace(
+  userId: string,
+  workspaceId: string,
+  roleName: string
+): Promise<{ id: string; user_id: string; workspace_id: string; role: string; created_at: string }> {
+  const response = await fetch(
+    `${API_URL}/api/v1/users/${userId}/workspaces/${workspaceId}/membership?role_name=${encodeURIComponent(roleName)}`,
+    {
+      method: 'POST',
+    }
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
+    throw new Error(error.detail || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+/**
  * Obtiene un workspace por ID.
  */
 export async function getWorkspace(workspaceId: string): Promise<WorkspaceResponse> {
@@ -675,6 +712,35 @@ export async function patchDocumentWithAI(
 /**
  * Obtiene el rol de un usuario en un workspace.
  */
+export async function syncUser(userData: {
+  supabase_user_id: string
+  email: string
+  name: string
+  auth_provider?: string
+  metadata?: Record<string, any>
+}): Promise<{ user_id: string; email: string; name: string; created: boolean }> {
+  const response = await fetch(`${API_URL}/api/v1/auth/sync-user`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      supabase_user_id: userData.supabase_user_id,
+      email: userData.email,
+      name: userData.name,
+      auth_provider: userData.auth_provider || 'supabase',
+      metadata: userData.metadata || {},
+    }),
+  })
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }))
+    throw new Error(error.detail || `HTTP ${response.status}`)
+  }
+
+  return response.json()
+}
+
 export async function getUserRole(
   userId: string,
   workspaceId: string

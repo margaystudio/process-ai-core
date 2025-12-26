@@ -121,3 +121,4 @@ Recorda: responde SOLO en JSON válido, siguiendo estrictamente el esquema indic
 def get_recipe_doc_system_prompt(language_style: str = "es_uy") -> str:
     return RECIPE_DOC_SYSTEM_ES_UY
 
+

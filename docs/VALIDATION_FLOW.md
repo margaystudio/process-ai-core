@@ -171,3 +171,4 @@ draft → pending_validation → approved
 - Historial y trazabilidad
 - Integración con flujo existente
 
+

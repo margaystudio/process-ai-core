@@ -132,3 +132,4 @@ def get_profile(mode: Mode) -> RecipeProfile:
     """
     return SIMPLE_V1 if mode == "simple" else DETALLADO_V1
 
+

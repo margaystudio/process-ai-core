@@ -62,3 +62,4 @@ async def list_domains():
         domains = session.execute(stmt).scalars().all()
         return {"domains": list(domains)}
 
+

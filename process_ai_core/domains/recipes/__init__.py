@@ -8,3 +8,4 @@ Este módulo contiene toda la lógica específica para generar documentación de
 - Perfiles de documento para recetas
 """
 
+

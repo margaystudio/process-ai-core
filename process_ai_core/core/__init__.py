@@ -9,3 +9,4 @@ Este módulo contiene la lógica reutilizable que funciona para cualquier domini
 - Engine (orquestador genérico)
 """
 
+

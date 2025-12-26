@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import './globals.css'
 import Header from '@/components/layout/Header'
 import { WorkspaceProvider } from '@/contexts/WorkspaceContext'
+import { LoadingProvider } from '@/contexts/LoadingContext'
 
 export const metadata: Metadata = {
   title: 'Process AI Core',
@@ -16,10 +17,12 @@ export default function RootLayout({
   return (
     <html lang="es">
       <body className="min-h-screen bg-gray-50">
-        <WorkspaceProvider>
-          <Header />
-          {children}
-        </WorkspaceProvider>
+        <LoadingProvider>
+          <WorkspaceProvider>
+            <Header />
+            {children}
+          </WorkspaceProvider>
+        </LoadingProvider>
       </body>
     </html>
   )

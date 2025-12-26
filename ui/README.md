@@ -49,3 +49,4 @@ Para mover esta UI a otro proyecto:
 3. Ajustar `NEXT_PUBLIC_API_URL` en `.env.local` para apuntar al backend separado
 4. Ejecutar `npm install` y `npm run dev`
 
+
