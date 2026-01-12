@@ -172,3 +172,4 @@ draft → pending_validation → approved
 - Integración con flujo existente
 
 
+

@@ -229,3 +229,4 @@ npm run start
 2. Verifica que el proyecto de Supabase está activo
 3. Verifica que las URLs de callback están configuradas en Supabase
 
+

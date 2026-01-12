@@ -51,7 +51,7 @@ export default function OnboardingPage() {
         default_audience: defaultAudience,
       }
 
-      const workspace = await createWorkspace(request)
+      const workspace = await createWorkspace(request, userId)
       
       // Si hay un usuario, asociarlo al workspace como owner
       if (userId && workspace.id) {

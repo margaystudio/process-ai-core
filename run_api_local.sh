@@ -26,3 +26,4 @@ echo "🌐 CORS Origins: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:
 
 uvicorn api.main:app --reload --host ${API_HOST:-0.0.0.0} --port ${API_PORT:-8000}
 
+

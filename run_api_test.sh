@@ -25,3 +25,4 @@ echo "🌐 CORS Origins: ${CORS_ORIGINS}"
 
 uvicorn api.main:app --reload --host ${API_HOST:-0.0.0.0} --port ${API_PORT:-8001}
 
+

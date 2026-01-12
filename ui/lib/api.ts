@@ -186,13 +186,51 @@ export function getArtifactUrl(runId: string, filename: string): string {
  * Crea un nuevo workspace (cliente/organización).
  */
 export async function createWorkspace(
-  request: WorkspaceCreateRequest
+  request: WorkspaceCreateRequest,
+  userId?: string | null
 ): Promise<WorkspaceResponse> {
+  const headers: HeadersInit = {
+    'Content-Type': 'application/json',
+  }
+
+  // Si Supabase no está configurado y tenemos userId, enviarlo en Authorization
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  
+  if (!supabaseUrl || !supabaseKey) {
+    // Modo desarrollo sin Supabase: usar userId o generar uno temporal
+    let devUserId = userId
+    if (!devUserId) {
+      // Generar o obtener un userId temporal de localStorage
+      devUserId = localStorage.getItem('dev_user_id')
+      if (!devUserId) {
+        // Generar un UUID v4 temporal
+        devUserId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+          const r = Math.random() * 16 | 0
+          const v = c === 'x' ? r : (r & 0x3 | 0x8)
+          return v.toString(16)
+        })
+        localStorage.setItem('dev_user_id', devUserId)
+      }
+    }
+    headers['Authorization'] = `Bearer ${devUserId}`
+  } else if (supabaseUrl && supabaseKey) {
+    // Modo con Supabase: obtener token de Supabase
+    try {
+      const { createClient } = await import('@/lib/supabase/client')
+      const supabase = createClient()
+      const { data: { session } } = await supabase.auth.getSession()
+      if (session?.access_token) {
+        headers['Authorization'] = `Bearer ${session.access_token}`
+      }
+    } catch (err) {
+      console.warn('Error obteniendo token de Supabase:', err)
+    }
+  }
+
   const response = await fetch(`${API_URL}/api/v1/workspaces`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers,
     body: JSON.stringify(request),
   });
 
@@ -901,6 +939,312 @@ export async function rejectDocument(
       }),
     }
   );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
+    throw new Error(error.detail || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+// ============================================================================
+// SUPERADMIN
+// ============================================================================
+
+export interface CreateB2BWorkspaceRequest {
+  name: string;
+  slug: string;
+  country?: string;
+  business_type?: string;
+  language_style?: string;
+  default_audience?: string;
+  context_text?: string;
+  plan_name?: string;
+  admin_email: string;
+  message?: string;
+}
+
+/**
+ * Crea un workspace B2B (solo superadmin).
+ */
+export async function createB2BWorkspace(
+  request: CreateB2BWorkspaceRequest,
+  token: string
+): Promise<WorkspaceResponse> {
+  const response = await fetch(`${API_URL}/api/v1/superadmin/workspaces`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      name: request.name,
+      slug: request.slug,
+      country: request.country || 'UY',
+      business_type: request.business_type,
+      language_style: request.language_style || 'es_uy_formal',
+      default_audience: request.default_audience || 'operativo',
+      context_text: request.context_text,
+      plan_name: request.plan_name || 'b2b_trial',
+      admin_email: request.admin_email,
+      message: request.message,
+    }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
+    throw new Error(error.detail || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Lista todos los workspaces (solo superadmin).
+ */
+export async function listAllWorkspaces(
+  workspaceType?: string,
+  token?: string
+): Promise<WorkspaceResponse[]> {
+  const url = new URL(`${API_URL}/api/v1/superadmin/workspaces`);
+  if (workspaceType) {
+    url.searchParams.append('workspace_type', workspaceType);
+  }
+
+  const headers: HeadersInit = {};
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  const response = await fetch(url.toString(), {
+    headers,
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
+    throw new Error(error.detail || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+// ============================================================================
+// INVITACIONES
+// ============================================================================
+
+export interface InvitationResponse {
+  id: string;
+  workspace_id: string;
+  invited_by_user_id: string;
+  email: string;
+  role_id: string;
+  role_name: string;
+  status: string;
+  expires_at: string;
+  accepted_at?: string;
+  message?: string;
+  created_at: string;
+}
+
+/**
+ * Lista invitaciones de un workspace.
+ */
+export async function listWorkspaceInvitations(
+  workspaceId: string,
+  status?: string,
+  token?: string
+): Promise<InvitationResponse[]> {
+  const url = new URL(`${API_URL}/api/v1/workspaces/${workspaceId}/invitations`);
+  if (status) {
+    url.searchParams.append('status', status);
+  }
+
+  const headers: HeadersInit = {};
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  const response = await fetch(url.toString(), {
+    headers,
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
+    throw new Error(error.detail || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Crea una invitación para unirse a un workspace.
+ */
+export async function createWorkspaceInvitation(
+  workspaceId: string,
+  request: {
+    email: string;
+    role_id?: string;
+    role_name?: string;
+    message?: string;
+    expires_in_days?: number;
+  },
+  token: string
+): Promise<InvitationResponse> {
+  const response = await fetch(
+    `${API_URL}/api/v1/workspaces/${workspaceId}/invitations`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        email: request.email,
+        role_id: request.role_id,
+        role_name: request.role_name,
+        message: request.message,
+        expires_in_days: request.expires_in_days || 7,
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
+    throw new Error(error.detail || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Acepta una invitación por token (público).
+ */
+export async function acceptInvitationByToken(
+  token: string,
+  userId: string
+): Promise<{ message: string; workspace_id: string }> {
+  const response = await fetch(
+    `${API_URL}/api/v1/invitations/token/${token}/accept`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        user_id: userId,
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
+    throw new Error(error.detail || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+// ============================================================================
+// SUSCRIPCIONES
+// ============================================================================
+
+export interface SubscriptionPlanResponse {
+  id: string;
+  name: string;
+  display_name: string;
+  description: string;
+  plan_type: string;
+  price_monthly: number;
+  price_yearly: number;
+  max_users?: number;
+  max_documents?: number;
+  max_documents_per_month?: number;
+  max_storage_gb?: number;
+  features_json: string;
+  is_active: boolean;
+  sort_order: number;
+}
+
+export interface WorkspaceSubscriptionResponse {
+  id: string;
+  workspace_id: string;
+  plan_id: string;
+  status: string;
+  current_period_start: string;
+  current_period_end: string;
+  current_users_count: number;
+  current_documents_count: number;
+  current_documents_this_month: number;
+  current_storage_gb: number;
+  plan: SubscriptionPlanResponse;
+}
+
+export interface WorkspaceLimitsResponse {
+  workspace_id: string;
+  plan_name: string;
+  plan_display_name: string;
+  limits: {
+    max_users?: number;
+    max_documents?: number;
+    max_documents_per_month?: number;
+    max_storage_gb?: number;
+  };
+  current_usage: {
+    current_users_count: number;
+    current_documents_count: number;
+    current_documents_this_month: number;
+    current_storage_gb: number;
+  };
+  can_create_users: boolean;
+  can_create_documents: boolean;
+  can_create_documents_this_month: boolean;
+}
+
+/**
+ * Lista planes de suscripción disponibles.
+ */
+export async function listSubscriptionPlans(
+  planType?: string
+): Promise<SubscriptionPlanResponse[]> {
+  const url = new URL(`${API_URL}/api/v1/subscription-plans`);
+  if (planType) {
+    url.searchParams.append('plan_type', planType);
+  }
+
+  const response = await fetch(url.toString());
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
+    throw new Error(error.detail || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Obtiene la suscripción de un workspace.
+ */
+export async function getWorkspaceSubscription(
+  workspaceId: string
+): Promise<WorkspaceSubscriptionResponse> {
+  const response = await fetch(`${API_URL}/api/v1/workspaces/${workspaceId}/subscription`);
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
+    throw new Error(error.detail || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Obtiene los límites y uso actual de un workspace.
+ */
+export async function getWorkspaceLimits(
+  workspaceId: string
+): Promise<WorkspaceLimitsResponse> {
+  const response = await fetch(`${API_URL}/api/v1/workspaces/${workspaceId}/limits`);
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));

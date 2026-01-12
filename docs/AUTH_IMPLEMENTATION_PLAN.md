@@ -141,3 +141,4 @@ openssl rand -base64 32
 - Considerar migración de datos si hay usuarios de prueba
 
 
+

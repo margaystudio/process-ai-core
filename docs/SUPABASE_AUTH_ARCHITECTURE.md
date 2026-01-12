@@ -255,3 +255,4 @@ async def protected_route(user: User = Depends(get_current_user)):
 - Los permisos/roles se manejan en DB local, no en Supabase
 
 
+

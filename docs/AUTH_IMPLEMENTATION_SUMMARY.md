@@ -115,3 +115,4 @@ SUPABASE_SERVICE_ROLE_KEY=tu-service-role-key
 5. Agregar UI para logout y perfil de usuario
 
 
+

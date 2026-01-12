@@ -187,3 +187,4 @@ JWT_ALGORITHM=HS256
 4. Eliminar código de desarrollo (localStorage)
 
 
+

@@ -89,10 +89,11 @@ class RecipeRunResponse(BaseModel):
 
 
 class WorkspaceCreateRequest(BaseModel):
-    """Request para crear un workspace (cliente/organización)."""
+    """Request para crear un workspace (cliente/organización o usuario)."""
 
-    name: str = Field(..., description="Nombre de la organización/cliente")
+    name: str = Field(..., description="Nombre de la organización/cliente o usuario")
     slug: str = Field(..., description="Slug único (usado en URLs)")
+    workspace_type: str = Field(default="organization", description="Tipo: organization (B2B) | user (B2C)")
     country: str = Field(default="UY", description="Código de país (ISO2)")
     business_type: Optional[str] = Field(default=None, description="Tipo de negocio")
     language_style: str = Field(default="es_uy_formal", description="Estilo de idioma")

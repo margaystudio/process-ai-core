@@ -271,4 +271,3 @@ def run_recipe_pipeline(
         "evidence_images": result["evidence_images"],
     }
 
-

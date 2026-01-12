@@ -123,3 +123,4 @@ En el Dashboard de Supabase:
 - Revisa los logs del backend
 
 
+

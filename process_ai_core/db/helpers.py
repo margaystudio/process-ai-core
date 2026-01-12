@@ -15,7 +15,11 @@ from typing import Dict, Any
 
 from sqlalchemy.orm import Session
 
-from .models import Workspace, Document, Process, Recipe, User, WorkspaceMembership, Folder, Validation, AuditLog, DocumentVersion, Run
+from .models import (
+    Workspace, Document, Process, Recipe, User, WorkspaceMembership, Folder, 
+    Validation, AuditLog, DocumentVersion, Run, SubscriptionPlan, 
+    WorkspaceSubscription, WorkspaceInvitation, Role
+)
 from datetime import datetime
 
 
@@ -921,4 +925,359 @@ def create_or_update_user_from_supabase(
         user.updated_at = datetime.utcnow()
     
     return user, created
+
+
+# ============================================================================
+# SUSCRIPCIONES Y LÍMITES
+# ============================================================================
+
+def get_subscription_plan(session: Session, plan_id: str) -> SubscriptionPlan | None:
+    """Obtiene un plan de suscripción por ID."""
+    return session.query(SubscriptionPlan).filter_by(id=plan_id).first()
+
+
+def get_subscription_plan_by_name(session: Session, name: str) -> SubscriptionPlan | None:
+    """Obtiene un plan de suscripción por nombre."""
+    return session.query(SubscriptionPlan).filter_by(name=name, is_active=True).first()
+
+
+def list_subscription_plans(
+    session: Session, 
+    plan_type: str | None = None,
+    active_only: bool = True
+) -> list[SubscriptionPlan]:
+    """Lista planes de suscripción, opcionalmente filtrados por tipo."""
+    query = session.query(SubscriptionPlan)
+    if active_only:
+        query = query.filter_by(is_active=True)
+    if plan_type:
+        query = query.filter_by(plan_type=plan_type)
+    return query.order_by(SubscriptionPlan.sort_order).all()
+
+
+def get_active_subscription(session: Session, workspace_id: str) -> WorkspaceSubscription | None:
+    """Obtiene la suscripción activa de un workspace."""
+    return session.query(WorkspaceSubscription).filter_by(
+        workspace_id=workspace_id,
+        status="active"
+    ).first()
+
+
+def get_subscription(session: Session, workspace_id: str) -> WorkspaceSubscription | None:
+    """Obtiene la suscripción de un workspace (puede estar inactiva)."""
+    return session.query(WorkspaceSubscription).filter_by(workspace_id=workspace_id).first()
+
+
+def create_workspace_subscription(
+    session: Session,
+    workspace_id: str,
+    plan_id: str,
+    status: str = "active",
+    current_period_start: datetime | None = None,
+    current_period_end: datetime | None = None,
+) -> WorkspaceSubscription:
+    """
+    Crea una suscripción para un workspace.
+    
+    Args:
+        session: Sesión de base de datos
+        workspace_id: ID del workspace
+        plan_id: ID del plan de suscripción
+        status: Estado inicial ("active", "trial", etc.)
+        current_period_start: Inicio del período (default: ahora)
+        current_period_end: Fin del período (default: +1 mes)
+    
+    Returns:
+        WorkspaceSubscription creada
+    """
+    if current_period_start is None:
+        current_period_start = datetime.utcnow()
+    if current_period_end is None:
+        from datetime import timedelta
+        current_period_end = current_period_start + timedelta(days=30)
+    
+    subscription = WorkspaceSubscription(
+        id=str(uuid.uuid4()),
+        workspace_id=workspace_id,
+        plan_id=plan_id,
+        status=status,
+        current_period_start=current_period_start,
+        current_period_end=current_period_end,
+        current_users_count=0,
+        current_documents_count=0,
+        current_documents_this_month=0,
+        current_storage_gb=0.0,
+    )
+    session.add(subscription)
+    return subscription
+
+
+def check_workspace_limit(
+    session: Session,
+    workspace_id: str,
+    limit_type: str,  # "users" | "documents" | "storage" | "documents_per_month"
+) -> tuple[bool, str | None]:
+    """
+    Verifica si el workspace puede realizar una acción según su plan.
+    
+    Returns:
+        (allowed: bool, error_message: str | None)
+    """
+    subscription = get_active_subscription(session, workspace_id)
+    if not subscription:
+        return False, "Workspace sin suscripción activa"
+    
+    plan = subscription.plan
+    
+    if limit_type == "users":
+        if plan.max_users is not None and subscription.current_users_count >= plan.max_users:
+            return False, f"Límite de usuarios alcanzado ({plan.max_users})"
+    
+    elif limit_type == "documents":
+        if plan.max_documents is not None and subscription.current_documents_count >= plan.max_documents:
+            return False, f"Límite de documentos alcanzado ({plan.max_documents})"
+    
+    elif limit_type == "documents_per_month":
+        if plan.max_documents_per_month is not None and subscription.current_documents_this_month >= plan.max_documents_per_month:
+            return False, f"Límite mensual de documentos alcanzado ({plan.max_documents_per_month})"
+    
+    elif limit_type == "storage":
+        if plan.max_storage_gb is not None and subscription.current_storage_gb >= plan.max_storage_gb:
+            return False, f"Límite de almacenamiento alcanzado ({plan.max_storage_gb} GB)"
+    
+    return True, None
+
+
+def increment_workspace_counter(
+    session: Session,
+    workspace_id: str,
+    counter_type: str,  # "users" | "documents" | "storage"
+    amount: int | float = 1,
+):
+    """Incrementa un contador del workspace."""
+    subscription = get_active_subscription(session, workspace_id)
+    if not subscription:
+        return
+    
+    if counter_type == "users":
+        subscription.current_users_count += int(amount)
+    elif counter_type == "documents":
+        subscription.current_documents_count += int(amount)
+        subscription.current_documents_this_month += int(amount)
+    elif counter_type == "storage":
+        subscription.current_storage_gb += float(amount)
+    
+    subscription.updated_at = datetime.utcnow()
+    session.flush()
+
+
+def decrement_workspace_counter(
+    session: Session,
+    workspace_id: str,
+    counter_type: str,  # "users" | "documents" | "storage"
+    amount: int | float = 1,
+):
+    """Decrementa un contador del workspace."""
+    subscription = get_active_subscription(session, workspace_id)
+    if not subscription:
+        return
+    
+    if counter_type == "users":
+        subscription.current_users_count = max(0, subscription.current_users_count - int(amount))
+    elif counter_type == "documents":
+        subscription.current_documents_count = max(0, subscription.current_documents_count - int(amount))
+    elif counter_type == "storage":
+        subscription.current_storage_gb = max(0.0, subscription.current_storage_gb - float(amount))
+    
+    subscription.updated_at = datetime.utcnow()
+    session.flush()
+
+
+def reset_monthly_counters(session: Session, workspace_id: str):
+    """Resetea los contadores mensuales del workspace."""
+    subscription = get_active_subscription(session, workspace_id)
+    if not subscription:
+        return
+    
+    subscription.current_documents_this_month = 0
+    subscription.updated_at = datetime.utcnow()
+    session.flush()
+
+
+# ============================================================================
+# INVITACIONES
+# ============================================================================
+
+def create_workspace_invitation(
+    session: Session,
+    workspace_id: str,
+    invited_by_user_id: str,
+    email: str,
+    role_id: str,
+    expires_in_days: int = 7,
+    message: str | None = None,
+) -> WorkspaceInvitation:
+    """
+    Crea una invitación para unirse a un workspace.
+    
+    Args:
+        session: Sesión de base de datos
+        workspace_id: ID del workspace
+        invited_by_user_id: ID del usuario que invita
+        email: Email del usuario invitado
+        role_id: ID del rol que tendrá al aceptar
+        expires_in_days: Días hasta que expire (default: 7)
+        message: Mensaje opcional para el invitado
+    
+    Returns:
+        WorkspaceInvitation creada
+    """
+    from datetime import timedelta
+    import secrets
+    
+    token = secrets.token_urlsafe(32)
+    expires_at = datetime.utcnow() + timedelta(days=expires_in_days)
+    
+    invitation = WorkspaceInvitation(
+        id=str(uuid.uuid4()),
+        workspace_id=workspace_id,
+        invited_by_user_id=invited_by_user_id,
+        email=email,
+        role_id=role_id,
+        token=token,
+        status="pending",
+        expires_at=expires_at,
+        message=message,
+    )
+    session.add(invitation)
+    return invitation
+
+
+def get_invitation_by_token(session: Session, token: str) -> WorkspaceInvitation | None:
+    """Obtiene una invitación por su token."""
+    return session.query(WorkspaceInvitation).filter_by(token=token).first()
+
+
+def accept_invitation(
+    session: Session,
+    invitation_id: str,
+    user_id: str,
+) -> WorkspaceInvitation:
+    """
+    Acepta una invitación y crea la membresía del usuario.
+    
+    Args:
+        session: Sesión de base de datos
+        invitation_id: ID de la invitación
+        user_id: ID del usuario que acepta
+    
+    Returns:
+        WorkspaceInvitation actualizada
+    """
+    invitation = session.query(WorkspaceInvitation).filter_by(id=invitation_id).first()
+    if not invitation:
+        raise ValueError("Invitación no encontrada")
+    
+    if invitation.status != "pending":
+        raise ValueError(f"Invitación ya procesada (status: {invitation.status})")
+    
+    if datetime.utcnow() > invitation.expires_at:
+        invitation.status = "expired"
+        session.flush()
+        raise ValueError("Invitación expirada")
+    
+    # Verificar límite de usuarios
+    allowed, error_msg = check_workspace_limit(session, invitation.workspace_id, "users")
+    if not allowed:
+        raise ValueError(error_msg)
+    
+    # Aceptar invitación
+    invitation.status = "accepted"
+    invitation.accepted_at = datetime.utcnow()
+    invitation.accepted_by_user_id = user_id
+    
+    # Crear membresía
+    membership = WorkspaceMembership(
+        id=str(uuid.uuid4()),
+        workspace_id=invitation.workspace_id,
+        user_id=user_id,
+        role_id=invitation.role_id,
+    )
+    session.add(membership)
+    
+    # Incrementar contador de usuarios
+    increment_workspace_counter(session, invitation.workspace_id, "users")
+    
+    session.flush()
+    return invitation
+
+
+def add_user_to_workspace_helper(
+    session: Session,
+    user_id: str,
+    workspace_id: str,
+    role_name: str,
+) -> WorkspaceMembership:
+    """
+    Agrega un usuario a un workspace con un rol específico.
+    
+    Args:
+        session: Sesión de base de datos
+        user_id: ID del usuario
+        workspace_id: ID del workspace
+        role_name: Nombre del rol (ej: "owner", "admin", "creator", "viewer", "approver")
+    
+    Returns:
+        WorkspaceMembership creado o actualizado
+    """
+    
+    # Verificar que el usuario existe
+    user = session.query(User).filter_by(id=user_id).first()
+    if not user:
+        raise ValueError(f"Usuario {user_id} no encontrado")
+    
+    # Verificar que el workspace existe
+    workspace = session.query(Workspace).filter_by(id=workspace_id).first()
+    if not workspace:
+        raise ValueError(f"Workspace {workspace_id} no encontrado")
+    
+    # Buscar el rol por nombre
+    role = session.query(Role).filter_by(name=role_name).first()
+    if not role:
+        raise ValueError(f"Rol '{role_name}' no encontrado")
+    
+    # Verificar que no exista ya el membership
+    existing = session.query(WorkspaceMembership).filter_by(
+        user_id=user_id,
+        workspace_id=workspace_id,
+    ).first()
+    
+    if existing:
+        # Actualizar el role_id si ya existe
+        existing.role_id = role.id
+        existing.role = role_name  # Mantener para compatibilidad
+        return existing
+    else:
+        # Crear nuevo membership
+        membership = WorkspaceMembership(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            role_id=role.id,
+            role=role_name,  # Deprecated, mantener para compatibilidad
+        )
+        session.add(membership)
+        session.flush()
+        return membership
+
+
+def list_workspace_invitations(
+    session: Session,
+    workspace_id: str,
+    status: str | None = None,
+) -> list[WorkspaceInvitation]:
+    """Lista invitaciones de un workspace."""
+    query = session.query(WorkspaceInvitation).filter_by(workspace_id=workspace_id)
+    if status:
+        query = query.filter_by(status=status)
+    return query.order_by(WorkspaceInvitation.created_at.desc()).all()
 

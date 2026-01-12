@@ -39,6 +39,7 @@ export default function DocumentDetailPage() {
   const router = useRouter()
   const documentId = params.id as string
   const { selectedWorkspaceId } = useWorkspace()
+  const { withLoading } = useLoading()
   
   const [document, setDocument] = useState<Document | null>(null)
   const [loading, setLoading] = useState(true)

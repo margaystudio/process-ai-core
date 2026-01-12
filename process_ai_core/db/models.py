@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import String, DateTime, ForeignKey, Text, Integer
+from sqlalchemy import String, DateTime, ForeignKey, Text, Integer, Float, Boolean
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -49,6 +49,8 @@ class Workspace(Base):
     documents: Mapped[list["Document"]] = relationship(back_populates="workspace")
     memberships: Mapped[list["WorkspaceMembership"]] = relationship(back_populates="workspace")
     folders: Mapped[list["Folder"]] = relationship(back_populates="workspace")
+    subscription: Mapped["WorkspaceSubscription | None"] = relationship("WorkspaceSubscription", back_populates="workspace", uselist=False)
+    invitations: Mapped[list["WorkspaceInvitation"]] = relationship("WorkspaceInvitation", foreign_keys="WorkspaceInvitation.workspace_id")
 
 
 class Document(Base):
@@ -483,3 +485,121 @@ class DocumentVersion(Base):
     run: Mapped["Run | None"] = relationship("Run", foreign_keys=[run_id])
     approver: Mapped["User | None"] = relationship("User", foreign_keys=[approved_by])
     validation: Mapped["Validation | None"] = relationship("Validation", foreign_keys=[validation_id])
+
+
+class SubscriptionPlan(Base):
+    """
+    Plan de suscripción disponible en el sistema.
+    
+    Define los límites y características de cada plan (free, starter, professional, enterprise).
+    """
+    __tablename__ = "subscription_plans"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    name: Mapped[str] = mapped_column(String(50), unique=True, index=True)  # "free", "starter", "professional", "enterprise"
+    display_name: Mapped[str] = mapped_column(String(100))  # "Free Plan", "Starter Plan", etc.
+    description: Mapped[str] = mapped_column(Text, default="")
+    
+    # Tipo de plan (B2B o B2C)
+    plan_type: Mapped[str] = mapped_column(String(20))  # "b2b" | "b2c"
+    
+    # Precios
+    price_monthly: Mapped[float] = mapped_column(Float, default=0.0)
+    price_yearly: Mapped[float] = mapped_column(Float, default=0.0)
+    
+    # Límites del plan (None = ilimitado)
+    max_users: Mapped[int | None] = mapped_column(Integer, nullable=True)  # Solo para B2B
+    max_documents: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    max_documents_per_month: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    max_storage_gb: Mapped[float | None] = mapped_column(Float, nullable=True)
+    
+    # Features habilitadas (JSON)
+    features_json: Mapped[str] = mapped_column(Text, default="{}")
+    
+    # Estado
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    
+    # Orden de visualización
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    
+    # Relaciones
+    subscriptions: Mapped[list["WorkspaceSubscription"]] = relationship(back_populates="plan")
+
+
+class WorkspaceSubscription(Base):
+    """
+    Suscripción activa de un workspace.
+    
+    Relaciona un workspace con un plan de suscripción y mantiene contadores actuales.
+    """
+    __tablename__ = "workspace_subscriptions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    workspace_id: Mapped[str] = mapped_column(String(36), ForeignKey("workspaces.id"), unique=True, index=True)
+    plan_id: Mapped[str] = mapped_column(String(36), ForeignKey("subscription_plans.id"), index=True)
+    
+    # Estado de la suscripción
+    status: Mapped[str] = mapped_column(String(20))  # "active" | "trial" | "expired" | "cancelled" | "past_due"
+    
+    # Período actual
+    current_period_start: Mapped[datetime] = mapped_column(DateTime)
+    current_period_end: Mapped[datetime] = mapped_column(DateTime)
+    
+    # Contadores actuales (para validar límites)
+    current_users_count: Mapped[int] = mapped_column(Integer, default=0)
+    current_documents_count: Mapped[int] = mapped_column(Integer, default=0)
+    current_documents_this_month: Mapped[int] = mapped_column(Integer, default=0)
+    current_storage_gb: Mapped[float] = mapped_column(Float, default=0.0)
+    
+    # Metadata de pago
+    payment_provider: Mapped[str | None] = mapped_column(String(50), nullable=True)  # "stripe", "paypal", etc.
+    payment_provider_subscription_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    payment_metadata_json: Mapped[str] = mapped_column(Text, default="{}")
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relaciones
+    workspace: Mapped["Workspace"] = relationship("Workspace", foreign_keys=[workspace_id], back_populates="subscription")
+    plan: Mapped["SubscriptionPlan"] = relationship("SubscriptionPlan", back_populates="subscriptions")
+
+
+class WorkspaceInvitation(Base):
+    """
+    Invitación para unirse a un workspace (B2B).
+    
+    Permite que admins/superadmins inviten usuarios a unirse a un workspace.
+    """
+    __tablename__ = "workspace_invitations"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    workspace_id: Mapped[str] = mapped_column(String(36), ForeignKey("workspaces.id"), index=True)
+    invited_by_user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), index=True)
+    
+    # Datos de la invitación
+    email: Mapped[str] = mapped_column(String(200), index=True)
+    role_id: Mapped[str] = mapped_column(String(36), ForeignKey("roles.id"), index=True)
+    token: Mapped[str] = mapped_column(String(64), unique=True, index=True)  # Token único para aceptar
+    
+    # Estado
+    status: Mapped[str] = mapped_column(String(20))  # "pending" | "accepted" | "expired" | "cancelled"
+    
+    # Expiración
+    expires_at: Mapped[datetime] = mapped_column(DateTime)
+    
+    # Aceptación
+    accepted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    accepted_by_user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id"), nullable=True)
+    
+    # Mensaje opcional
+    message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    
+    # Relaciones
+    workspace: Mapped["Workspace"] = relationship("Workspace", foreign_keys=[workspace_id], overlaps="invitations")
+    invited_by: Mapped["User"] = relationship("User", foreign_keys=[invited_by_user_id])
+    role: Mapped["Role"] = relationship("Role", foreign_keys=[role_id])
+    accepted_by: Mapped["User | None"] = relationship("User", foreign_keys=[accepted_by_user_id])

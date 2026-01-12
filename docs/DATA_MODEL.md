@@ -265,3 +265,4 @@ recipes = session.query(Recipe).all()
 - La relación con `Run` y `Artifact` funciona con cualquier tipo de `Document`
 
 
+
