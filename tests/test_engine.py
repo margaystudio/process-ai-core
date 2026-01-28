@@ -1,5 +1,6 @@
 from process_ai_core.domain_models import Step, ProcessDocument
 from process_ai_core.doc_engine import render_markdown
+from process_ai_core.domains.processes.profiles import get_profile
 
 
 def test_render_markdown_basic():
@@ -36,9 +37,11 @@ def test_render_markdown_basic():
         problemas="Problemas",
         oportunidades="Oportunidades",
         preguntas_abiertas="¿Quién hace X?",
+        material_referencia="Material de referencia",
         videos=[],
     )
 
-    md = render_markdown(doc)
-    assert "# Documento de Proceso – Proceso Test" in md
+    profile = get_profile("operativo")
+    md = render_markdown(doc, profile)
+    assert "# Proceso Test" in md
     assert "Hace algo" in md

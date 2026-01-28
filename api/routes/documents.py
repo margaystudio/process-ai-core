@@ -242,6 +242,7 @@ async def update_document(document_id: str, request: DocumentUpdateRequest):
 
     Raises:
         404: Si el documento no existe
+        400: Si el documento tiene versiones inmutables (IN_REVIEW)
     """
     with get_db_session() as session:
         doc = session.query(Document).filter_by(id=document_id).first()
@@ -249,6 +250,15 @@ async def update_document(document_id: str, request: DocumentUpdateRequest):
             raise HTTPException(
                 status_code=404,
                 detail=f"Documento {document_id} no encontrado"
+            )
+        
+        # Verificar inmutabilidad (bloquea solo si hay IN_REVIEW)
+        from process_ai_core.db.helpers import check_version_immutable
+        is_immutable, reason = check_version_immutable(session, document_id)
+        if is_immutable:
+            raise HTTPException(
+                status_code=400,
+                detail=reason
             )
 
         # Actualizar campos básicos
@@ -759,15 +769,16 @@ async def update_document_content(
     """
     Edita manualmente el contenido de un documento.
     
-    Permite editar directamente el JSON del documento y genera una nueva versión
-    con content_type='manual_edit'. El documento vuelve a pending_validation.
+    Usa get_or_create_draft() para obtener o crear una versión DRAFT.
+    Solo permite editar si no hay versión IN_REVIEW.
+    Dos PUT seguidos editan el mismo DRAFT (mismo version_id).
     
     Args:
         document_id: ID del documento
         content_json: JSON del documento editado (ProcessDocument en formato JSON)
     
     Returns:
-        DocumentVersion creada
+        DocumentVersion creada o actualizada
     """
     with get_db_session() as session:
         doc = session.query(Document).filter_by(id=document_id).first()
@@ -783,7 +794,30 @@ async def update_document_content(
                 detail="Este endpoint solo funciona para documentos de tipo 'process'"
             )
         
-        # Validar que el JSON sea válido y parseable
+        # Verificar inmutabilidad (bloquea solo si hay IN_REVIEW)
+        from process_ai_core.db.helpers import check_version_immutable, get_or_create_draft
+        is_immutable, reason = check_version_immutable(session, document_id)
+        if is_immutable:
+            raise HTTPException(
+                status_code=400,
+                detail=reason
+            )
+        
+        # Obtener o crear DRAFT (si hay IN_REVIEW, esto fallará con ValueError)
+        try:
+            draft_version = get_or_create_draft(
+                session=session,
+                document_id=document_id,
+                source_version_id=None,  # Usará APPROVED vigente si existe
+                user_id=None,  # TODO: obtener del contexto de autenticación
+            )
+        except ValueError as e:
+            raise HTTPException(
+                status_code=400,
+                detail=str(e)
+            )
+        
+        # Validar y parsear JSON
         try:
             from process_ai_core.domains.processes.builder import ProcessBuilder
             builder = ProcessBuilder()
@@ -794,7 +828,7 @@ async def update_document_content(
                 detail=f"JSON inválido: {str(e)}"
             )
         
-        # Renderizar Markdown desde el documento editado
+        # Renderizar Markdown
         from process_ai_core.domains.processes.renderer import ProcessRenderer
         from process_ai_core.domains.processes.profiles import get_profile
         from process_ai_core.db.models import Process
@@ -809,7 +843,6 @@ async def update_document_content(
         profile = get_profile(process.audience or "operativo")
         renderer = ProcessRenderer()
         
-        # Renderizar markdown (sin imágenes por ahora, ya que es edición manual)
         markdown = renderer.render_markdown(
             document=process_doc,
             profile=profile,
@@ -817,32 +850,33 @@ async def update_document_content(
             evidence_images=[],
         )
         
-        # Crear DocumentVersion con edición manual
-        from process_ai_core.db.helpers import create_document_version, update_document_status, create_audit_log
+        # Actualizar versión DRAFT (mismo version_id en PUTs seguidos)
+        draft_version.content_json = content_json
+        draft_version.content_markdown = markdown
+        draft_version.content_type = "manual_edit"
         
-        version = create_document_version(
+        # Crear audit log
+        from process_ai_core.db.helpers import create_audit_log
+        create_audit_log(
             session=session,
             document_id=document_id,
-            run_id=None,  # Edición manual, no hay run
-            content_type="manual_edit",
-            content_json=content_json,
-            content_markdown=markdown,
-        )
-        
-        # Actualizar estado a pending_validation
-        update_document_status(
-            session=session,
-            document_id=document_id,
-            status="pending_validation",
+            user_id=None,  # TODO: obtener del contexto de autenticación
+            action="version.draft_updated",
+            entity_type="version",
+            entity_id=draft_version.id,
+            metadata_json=json.dumps({
+                "version_number": draft_version.version_number,
+            }),
         )
         
         session.commit()
         
         return {
-            "version_id": version.id,
-            "version_number": version.version_number,
-            "content_type": version.content_type,
-            "created_at": version.created_at.isoformat(),
+            "version_id": draft_version.id,
+            "version_number": draft_version.version_number,
+            "version_status": draft_version.version_status,
+            "content_type": draft_version.content_type,
+            "created_at": draft_version.created_at.isoformat(),
         }
 
 

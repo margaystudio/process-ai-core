@@ -11,16 +11,19 @@ from __future__ import annotations
 
 import json
 import uuid
+import logging
 from typing import Dict, Any
 
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
 
 from .models import (
     Workspace, Document, Process, Recipe, User, WorkspaceMembership, Folder, 
     Validation, AuditLog, DocumentVersion, Run, SubscriptionPlan, 
     WorkspaceSubscription, WorkspaceInvitation, Role
 )
-from datetime import datetime
+from datetime import datetime, UTC
 
 
 def create_organization_workspace(
@@ -533,7 +536,7 @@ def approve_validation(
         raise ValueError(f"Validación {validation_id} no encontrada")
     
     validation.status = "approved"
-    validation.completed_at = datetime.utcnow()
+    validation.completed_at = datetime.now(UTC)
     
     # Actualizar estado del documento
     document = session.query(Document).filter_by(id=validation.document_id).first()
@@ -586,7 +589,7 @@ def reject_validation(
     
     validation.status = "rejected"
     validation.observations = observations
-    validation.completed_at = datetime.utcnow()
+    validation.completed_at = datetime.now(UTC)
     
     # Actualizar estado del documento
     document = session.query(Document).filter_by(id=validation.document_id).first()
@@ -652,6 +655,508 @@ def create_audit_log(
     return audit_log
 
 
+def get_or_create_draft(
+    session: Session,
+    document_id: str,
+    source_version_id: str | None = None,
+    user_id: str | None = None,
+) -> DocumentVersion:
+    """
+    Obtiene o crea una versión DRAFT para un documento.
+    
+    Reglas:
+    - Si existe IN_REVIEW para el documento => raise ValueError inmediato
+    - Si existe uno o más DRAFT => devolver el más reciente (order by version_number desc)
+      * Si hay más de uno, loggear warning
+    - Si no existe DRAFT:
+      * Si source_version_id viene => clonar solo si status es APPROVED o REJECTED
+      * Si no viene => buscar explícitamente APPROVED vigente (version_status='APPROVED' e is_current=True) y clonar si existe
+      * Si no hay approved vigente => crear contenido default
+    - Crear nueva versión con version_number = max(version_number)+1
+    - Crear audit logs draft_created / draft_reused
+    
+    Args:
+        session: Sesión de base de datos
+        document_id: ID del documento
+        source_version_id: ID de versión a clonar (opcional)
+        user_id: ID del usuario que crea/obtiene el borrador (opcional)
+    
+    Returns:
+        DocumentVersion DRAFT (existente o creada)
+    
+    Raises:
+        ValueError: Si existe una versión IN_REVIEW o si source_version_id no es clonable
+        IntegrityError: Si el enforce DB falla (no debería pasar si la lógica es correcta)
+    """
+    from process_ai_core.db.models import DocumentVersion, Document
+    from sqlalchemy.exc import IntegrityError
+    
+    # Validar que NO exista IN_REVIEW (raise inmediato)
+    in_review = (
+        session.query(DocumentVersion)
+        .filter_by(document_id=document_id, version_status="IN_REVIEW")
+        .first()
+    )
+    if in_review:
+        raise ValueError(
+            f"No se puede crear DRAFT: el documento {document_id} tiene una versión IN_REVIEW (v{in_review.version_number})"
+        )
+    
+    # Buscar DRAFT existente (ordenar por version_number DESC)
+    existing_drafts = (
+        session.query(DocumentVersion)
+        .filter_by(document_id=document_id, version_status="DRAFT")
+        .order_by(DocumentVersion.version_number.desc())
+        .all()
+    )
+    
+    if existing_drafts:
+        # Si hay más de uno, loggear warning y devolver el más nuevo
+        if len(existing_drafts) > 1:
+            logger.warning(
+                f"Documento {document_id} tiene {len(existing_drafts)} versiones DRAFT. "
+                f"Usando la más reciente (v{existing_drafts[0].version_number}). "
+                f"Esto no debería pasar con el enforce DB activo."
+            )
+        
+        draft = existing_drafts[0]
+        
+        # Audit log: reutilización
+        create_audit_log(
+            session=session,
+            document_id=document_id,
+            user_id=user_id,
+            action="version.draft_reused",
+            entity_type="version",
+            entity_id=draft.id,
+            metadata_json=json.dumps({
+                "version_number": draft.version_number,
+            }),
+        )
+        return draft
+    
+    # Crear nuevo DRAFT
+    # Obtener número de versión siguiente
+    last_version = (
+        session.query(DocumentVersion)
+        .filter_by(document_id=document_id)
+        .order_by(DocumentVersion.version_number.desc())
+        .first()
+    )
+    version_number = (last_version.version_number + 1) if last_version else 1
+    
+    # Determinar contenido inicial
+    content_json = '{"name": "Nuevo documento"}'
+    content_markdown = "# Nuevo documento"
+    content_type = "manual_edit"
+    supersedes_version_id = None
+    
+    if source_version_id:
+        # Clonar versión específica
+        source_version = session.query(DocumentVersion).filter_by(id=source_version_id).first()
+        if not source_version:
+            raise ValueError(f"Versión {source_version_id} no encontrada")
+        
+        if source_version.document_id != document_id:
+            raise ValueError(f"La versión {source_version_id} no pertenece al documento {document_id}")
+        
+        if source_version.version_status not in ("APPROVED", "REJECTED"):
+            raise ValueError(f"No se puede clonar una versión con status {source_version.version_status}")
+        
+        content_json = source_version.content_json
+        content_markdown = source_version.content_markdown
+        content_type = source_version.content_type
+        supersedes_version_id = source_version_id
+    
+    else:
+        # Buscar explícitamente APPROVED vigente (version_status='APPROVED' e is_current=True)
+        approved_vigente = (
+            session.query(DocumentVersion)
+            .filter_by(
+                document_id=document_id,
+                version_status="APPROVED",
+                is_current=True
+            )
+            .first()
+        )
+        
+        if approved_vigente:
+            # Clonar APPROVED vigente
+            content_json = approved_vigente.content_json
+            content_markdown = approved_vigente.content_markdown
+            content_type = approved_vigente.content_type
+            supersedes_version_id = approved_vigente.id
+    
+    # Crear nueva versión DRAFT
+    draft_version = DocumentVersion(
+        id=str(uuid.uuid4()),
+        document_id=document_id,
+        run_id=None,
+        version_number=version_number,
+        version_status="DRAFT",
+        supersedes_version_id=supersedes_version_id,
+        content_type=content_type,
+        content_json=content_json,
+        content_markdown=content_markdown,
+        approved_at=None,
+        approved_by=None,
+        validation_id=None,
+        rejected_at=None,
+        rejected_by=None,
+        is_current=False,
+    )
+    session.add(draft_version)
+    
+    # Intentar flush para que el enforce DB valide
+    try:
+        session.flush()
+    except IntegrityError as e:
+        session.rollback()
+        logger.error(f"Error de enforce DB al crear DRAFT para documento {document_id}: {e}")
+        raise ValueError(
+            f"No se pudo crear DRAFT: ya existe una versión DRAFT para el documento {document_id} "
+            f"(enforce DB activo)"
+        ) from e
+    
+    # Audit log: creación
+    create_audit_log(
+        session=session,
+        document_id=document_id,
+        user_id=user_id,
+        action="version.draft_created",
+        entity_type="version",
+        entity_id=draft_version.id,
+        metadata_json=json.dumps({
+            "version_number": version_number,
+            "source_version_id": supersedes_version_id,
+        }),
+    )
+    
+    return draft_version
+
+
+def submit_version_for_review(
+    session: Session,
+    version_id: str,
+    submitter_id: str | None = None,
+) -> tuple[DocumentVersion, Validation]:
+    """
+    Envía una versión DRAFT a revisión (cambia a IN_REVIEW y crea Validation).
+    
+    Valida que:
+    - La versión esté en DRAFT
+    - NO exista otra versión IN_REVIEW para el mismo documento
+    
+    Args:
+        session: Sesión de base de datos
+        version_id: ID de la versión a enviar
+        submitter_id: ID del usuario que envía (opcional)
+    
+    Returns:
+        Tupla (DocumentVersion actualizada, Validation creada)
+    
+    Raises:
+        ValueError: Si la versión no está en DRAFT o si ya existe IN_REVIEW
+        IntegrityError: Si el enforce DB falla (no debería pasar si la lógica es correcta)
+    """
+    from process_ai_core.db.models import DocumentVersion, Validation, Document
+    from sqlalchemy.exc import IntegrityError
+    
+    version = session.query(DocumentVersion).filter_by(id=version_id).first()
+    if not version:
+        raise ValueError(f"Versión {version_id} no encontrada")
+    
+    # Validar que esté en DRAFT
+    if version.version_status != "DRAFT":
+        raise ValueError(f"Solo se pueden enviar versiones DRAFT a revisión. Estado actual: {version.version_status}")
+    
+    # Validar que NO exista otra versión IN_REVIEW para el mismo documento
+    existing_in_review = (
+        session.query(DocumentVersion)
+        .filter_by(document_id=version.document_id, version_status="IN_REVIEW")
+        .first()
+    )
+    if existing_in_review:
+        raise ValueError(
+            f"No se puede enviar a revisión: el documento {version.document_id} ya tiene una versión IN_REVIEW (v{existing_in_review.version_number})"
+        )
+    
+    # Crear Validation pendiente
+    validation = create_validation(
+        session=session,
+        document_id=version.document_id,
+        run_id=version.run_id,
+        validator_user_id=None,  # Se asignará cuando se apruebe/rechace
+        observations="",
+        checklist_json="{}",
+    )
+    
+    # Flush para obtener el ID de la validación
+    session.flush()
+    
+    # Cambiar estado a IN_REVIEW
+    version.version_status = "IN_REVIEW"
+    
+    # Asociar validation_id
+    version.validation_id = validation.id
+    
+    # Intentar flush para que el enforce DB valide
+    try:
+        session.flush()
+    except IntegrityError as e:
+        session.rollback()
+        logger.error(f"Error de enforce DB al enviar versión {version_id} a revisión: {e}")
+        raise ValueError(
+            f"No se pudo enviar a revisión: ya existe una versión IN_REVIEW para el documento {version.document_id} "
+            f"(enforce DB activo)"
+        ) from e
+    
+    # Actualizar estado del documento
+    document = session.query(Document).filter_by(id=version.document_id).first()
+    if document:
+        document.status = "pending_validation"
+    
+    # Crear audit log
+    create_audit_log(
+        session=session,
+        document_id=version.document_id,
+        run_id=version.run_id,
+        user_id=submitter_id,
+        action="version.submitted",
+        entity_type="version",
+        entity_id=version_id,
+        metadata_json=json.dumps({
+            "version_number": version.version_number,
+            "validation_id": validation.id,
+        }),
+    )
+    
+    return version, validation
+
+
+def approve_version(
+    session: Session,
+    validation_id: str,
+    approver_id: str | None = None,
+) -> DocumentVersion:
+    """
+    Aprueba una versión IN_REVIEW (cambia a APPROVED y marca como current).
+    
+    Busca la versión por validation_id (asociación inequívoca).
+    
+    Args:
+        session: Sesión de base de datos
+        validation_id: ID de la validación asociada
+        approver_id: ID del usuario que aprueba (opcional)
+    
+    Returns:
+        DocumentVersion aprobada
+    
+    Raises:
+        ValueError: Si la validación o versión no existe o no está en IN_REVIEW
+    """
+    from process_ai_core.db.models import DocumentVersion, Validation
+    
+    validation = session.query(Validation).filter_by(id=validation_id).first()
+    if not validation:
+        raise ValueError(f"Validación {validation_id} no encontrada")
+    
+    if validation.status != "pending":
+        raise ValueError(f"La validación ya está {validation.status}")
+    
+    # Buscar versión por validation_id (asociación inequívoca)
+    version = session.query(DocumentVersion).filter_by(validation_id=validation_id).first()
+    
+    if not version:
+        raise ValueError(f"No hay versión asociada a la validación {validation_id}")
+    
+    if version.version_status != "IN_REVIEW":
+        raise ValueError(f"La versión {version.id} no está en IN_REVIEW. Estado actual: {version.version_status}")
+    
+    # Marcar versión anterior APPROVED como OBSOLETE
+    previous_current = (
+        session.query(DocumentVersion)
+        .filter_by(document_id=version.document_id, is_current=True, version_status="APPROVED")
+        .first()
+    )
+    if previous_current:
+        previous_current.is_current = False
+        previous_current.version_status = "OBSOLETE"
+    
+    # Cambiar versión a APPROVED
+    version.version_status = "APPROVED"
+    version.approved_at = datetime.now(UTC)
+    version.approved_by = approver_id
+    version.is_current = True
+    
+    # Actualizar validación
+    validation.status = "approved"
+    validation.completed_at = datetime.now(UTC)
+    validation.validator_user_id = approver_id
+    
+    # Actualizar documento
+    document = session.query(Document).filter_by(id=version.document_id).first()
+    if document:
+        document.approved_version_id = version.id
+        document.status = "approved"
+    
+    # Si hay run asociado, marcarlo como aprobado
+    if validation.run_id:
+        run = session.query(Run).filter_by(id=validation.run_id).first()
+        if run:
+            run.is_approved = True
+            run.validation_id = validation_id
+    
+    # Crear audit log
+    create_audit_log(
+        session=session,
+        document_id=version.document_id,
+        run_id=version.run_id,
+        user_id=approver_id,
+        action="version.approved",
+        entity_type="version",
+        entity_id=version.id,
+        metadata_json=json.dumps({
+            "version_number": version.version_number,
+            "validation_id": validation_id,
+            "previous_version_id": previous_current.id if previous_current else None,
+        }),
+    )
+    
+    return version
+
+
+def reject_version(
+    session: Session,
+    validation_id: str,
+    rejector_id: str | None = None,
+    observations: str = "",
+) -> DocumentVersion:
+    """
+    Rechaza una versión IN_REVIEW (cambia a REJECTED).
+    
+    Busca la versión por validation_id (asociación inequívoca).
+    
+    Args:
+        session: Sesión de base de datos
+        validation_id: ID de la validación asociada
+        rejector_id: ID del usuario que rechaza (opcional)
+        observations: Observaciones del rechazo
+    
+    Returns:
+        DocumentVersion rechazada
+    
+    Raises:
+        ValueError: Si la validación o versión no existe o no está en IN_REVIEW
+    """
+    from process_ai_core.db.models import DocumentVersion, Validation
+    
+    validation = session.query(Validation).filter_by(id=validation_id).first()
+    if not validation:
+        raise ValueError(f"Validación {validation_id} no encontrada")
+    
+    if validation.status != "pending":
+        raise ValueError(f"La validación ya está {validation.status}")
+    
+    # Buscar versión por validation_id (asociación inequívoca)
+    version = session.query(DocumentVersion).filter_by(validation_id=validation_id).first()
+    
+    if not version:
+        raise ValueError(f"No hay versión asociada a la validación {validation_id}")
+    
+    if version.version_status != "IN_REVIEW":
+        raise ValueError(f"La versión {version.id} no está en IN_REVIEW. Estado actual: {version.version_status}")
+    
+    # Cambiar versión a REJECTED
+    version.version_status = "REJECTED"
+    version.rejected_at = datetime.now(UTC)
+    version.rejected_by = rejector_id
+    
+    # Actualizar validación
+    validation.status = "rejected"
+    validation.completed_at = datetime.now(UTC)
+    validation.validator_user_id = rejector_id
+    validation.observations = observations
+    
+    # Actualizar documento
+    document = session.query(Document).filter_by(id=version.document_id).first()
+    if document:
+        document.status = "rejected"
+    
+    # Crear audit log
+    create_audit_log(
+        session=session,
+        document_id=version.document_id,
+        run_id=version.run_id,
+        user_id=rejector_id,
+        action="version.rejected",
+        entity_type="version",
+        entity_id=version.id,
+        changes_json=json.dumps({"observations": observations}),
+        metadata_json=json.dumps({
+            "version_number": version.version_number,
+            "validation_id": validation_id,
+        }),
+    )
+    
+    return version
+
+
+def check_version_immutable(
+    session: Session,
+    document_id: str,
+) -> tuple[bool, str | None]:
+    """
+    Verifica si el documento tiene una versión IN_REVIEW que bloquea edición.
+    
+    NO bloquea por versión APPROVED vigente (se puede crear DRAFT desde ella).
+    Solo bloquea si hay una versión IN_REVIEW.
+    
+    Args:
+        session: Sesión de base de datos
+        document_id: ID del documento
+    
+    Returns:
+        Tupla (is_immutable, reason) donde reason explica por qué es inmutable
+    """
+    from process_ai_core.db.models import DocumentVersion
+    
+    # Solo bloquear si hay versión IN_REVIEW
+    in_review = (
+        session.query(DocumentVersion)
+        .filter_by(document_id=document_id, version_status="IN_REVIEW")
+        .first()
+    )
+    if in_review:
+        return True, f"El documento tiene una versión IN_REVIEW (v{in_review.version_number}) que no puede editarse. Espere a que se apruebe o rechace."
+    
+    return False, None
+
+
+def get_editable_version(
+    session: Session,
+    document_id: str,
+) -> DocumentVersion | None:
+    """
+    Obtiene la versión DRAFT editable de un documento, si existe.
+    
+    Args:
+        session: Sesión de base de datos
+        document_id: ID del documento
+    
+    Returns:
+        DocumentVersion DRAFT o None si no existe
+    """
+    from process_ai_core.db.models import DocumentVersion
+    
+    return (
+        session.query(DocumentVersion)
+        .filter_by(document_id=document_id, version_status="DRAFT")
+        .order_by(DocumentVersion.created_at.desc())
+        .first()
+    )
+
+
 def create_document_version(
     session: Session,
     document_id: str,
@@ -702,7 +1207,7 @@ def create_document_version(
         content_type=content_type,
         content_json=content_json,
         content_markdown=content_markdown,
-        approved_at=datetime.utcnow(),
+        approved_at=datetime.now(UTC),
         approved_by=approved_by,
         validation_id=validation_id,
         is_current=True,
@@ -901,7 +1406,7 @@ def create_or_update_user_from_supabase(
             user.auth_provider = auth_provider
             if metadata:
                 user.metadata_json = json.dumps(metadata)
-            user.updated_at = datetime.utcnow()
+            user.updated_at = datetime.now(UTC)
         else:
             # Crear nuevo usuario
             user = User(
@@ -922,7 +1427,7 @@ def create_or_update_user_from_supabase(
         user.auth_provider = auth_provider
         if metadata:
             user.metadata_json = json.dumps(metadata)
-        user.updated_at = datetime.utcnow()
+        user.updated_at = datetime.now(UTC)
     
     return user, created
 
@@ -991,7 +1496,7 @@ def create_workspace_subscription(
         WorkspaceSubscription creada
     """
     if current_period_start is None:
-        current_period_start = datetime.utcnow()
+        current_period_start = datetime.now(UTC)
     if current_period_end is None:
         from datetime import timedelta
         current_period_end = current_period_start + timedelta(days=30)
@@ -1067,7 +1572,7 @@ def increment_workspace_counter(
     elif counter_type == "storage":
         subscription.current_storage_gb += float(amount)
     
-    subscription.updated_at = datetime.utcnow()
+    subscription.updated_at = datetime.now(UTC)
     session.flush()
 
 
@@ -1089,7 +1594,7 @@ def decrement_workspace_counter(
     elif counter_type == "storage":
         subscription.current_storage_gb = max(0.0, subscription.current_storage_gb - float(amount))
     
-    subscription.updated_at = datetime.utcnow()
+    subscription.updated_at = datetime.now(UTC)
     session.flush()
 
 
@@ -1100,7 +1605,7 @@ def reset_monthly_counters(session: Session, workspace_id: str):
         return
     
     subscription.current_documents_this_month = 0
-    subscription.updated_at = datetime.utcnow()
+    subscription.updated_at = datetime.now(UTC)
     session.flush()
 
 
@@ -1136,7 +1641,7 @@ def create_workspace_invitation(
     import secrets
     
     token = secrets.token_urlsafe(32)
-    expires_at = datetime.utcnow() + timedelta(days=expires_in_days)
+    expires_at = datetime.now(UTC) + timedelta(days=expires_in_days)
     
     invitation = WorkspaceInvitation(
         id=str(uuid.uuid4()),
@@ -1181,7 +1686,7 @@ def accept_invitation(
     if invitation.status != "pending":
         raise ValueError(f"Invitación ya procesada (status: {invitation.status})")
     
-    if datetime.utcnow() > invitation.expires_at:
+    if datetime.now(UTC) > invitation.expires_at:
         invitation.status = "expired"
         session.flush()
         raise ValueError("Invitación expirada")
@@ -1193,7 +1698,7 @@ def accept_invitation(
     
     # Aceptar invitación
     invitation.status = "accepted"
-    invitation.accepted_at = datetime.utcnow()
+    invitation.accepted_at = datetime.now(UTC)
     invitation.accepted_by_user_id = user_id
     
     # Crear membresía

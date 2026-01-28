@@ -16,13 +16,14 @@ router = APIRouter(prefix="/api/v1/artifacts", tags=["artifacts"])
 
 
 @router.get("/{run_id}/{filename}")
-async def get_artifact(run_id: str, filename: str):
+async def get_artifact(run_id: str, filename: str, download: bool = False):
     """
     Sirve un artefacto generado (JSON, Markdown o PDF).
 
     Args:
         run_id: ID de la corrida
         filename: Nombre del archivo (process.json, process.md, process.pdf)
+        download: Si es True, fuerza la descarga del archivo (default: False, se abre inline)
 
     Returns:
         Archivo solicitado o 404 si no existe
@@ -48,15 +49,17 @@ async def get_artifact(run_id: str, filename: str):
     }
     content_type = content_type_map.get(artifact_path.suffix, "application/octet-stream")
 
-    # Para PDFs, servir inline para que se puedan ver en iframes
+    # Para PDFs, servir inline por defecto (para iframes) o forzar descarga
     if artifact_path.suffix == ".pdf":
         with open(artifact_path, "rb") as f:
             content = f.read()
+        
+        disposition = "attachment" if download else "inline"
         return Response(
             content=content,
             media_type=content_type,
             headers={
-                "Content-Disposition": "inline; filename=\"" + filename + "\"",
+                "Content-Disposition": f"{disposition}; filename=\"{filename}\"",
                 "Content-Type": "application/pdf",
                 "X-Content-Type-Options": "nosniff",
                 "Cache-Control": "no-cache, no-store, must-revalidate",

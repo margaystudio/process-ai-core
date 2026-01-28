@@ -41,7 +41,7 @@ async def create_recipe_run(
     Args:
         recipe_name: Nombre de la receta a documentar
         mode: Modo del documento (simple o detallado)
-        audio_files: Archivos de audio (.m4a, .mp3, .wav)
+        audio_files: Archivos de audio (.m4a, .mp3, .wav, .ogg, .opus, .aac - incluye audios de WhatsApp)
         video_files: Archivos de video (.mp4, .mov, .mkv)
         image_files: Archivos de imagen (.png, .jpg, .jpeg, .webp)
         text_files: Archivos de texto (.txt, .md)
@@ -177,9 +177,49 @@ async def get_recipe_run(run_id: str):
     Returns:
         RecipeRunResponse con el estado actual
     """
-    # TODO: Implementar consulta desde DB o storage
-    # Por ahora devolvemos un error 404
-    raise HTTPException(status_code=404, detail=f"Run {run_id} no encontrada")
+    settings = get_settings()
+    run_dir = Path(settings.output_dir) / run_id
+    
+    # Verificar que el run existe
+    if not run_dir.exists():
+        raise HTTPException(status_code=404, detail=f"Run {run_id} no encontrada")
+    
+    # Verificar qué artefactos existen
+    json_path = run_dir / "recipe.json"
+    md_path = run_dir / "recipe.md"
+    pdf_path = run_dir / "recipe.pdf"
+    
+    artifacts = {}
+    
+    if json_path.exists():
+        artifacts["json"] = f"/api/v1/artifacts/{run_id}/recipe.json"
+    
+    if md_path.exists():
+        artifacts["markdown"] = f"/api/v1/artifacts/{run_id}/recipe.md"
+    
+    if pdf_path.exists():
+        artifacts["pdf"] = f"/api/v1/artifacts/{run_id}/recipe.pdf"
+    
+    # Intentar obtener el nombre de la receta del JSON si existe
+    recipe_name = "Receta"
+    if json_path.exists():
+        try:
+            import json
+            with open(json_path, 'r', encoding='utf-8') as f:
+                recipe_data = json.load(f)
+                recipe_name = recipe_data.get('name', recipe_data.get('titulo', 'Receta'))
+        except:
+            pass
+    
+    # Determinar status basado en qué artefactos existen
+    status = "completed" if artifacts else "processing"
+    
+    return RecipeRunResponse(
+        run_id=run_id,
+        recipe_name=recipe_name,
+        status=status,
+        artifacts=artifacts,
+    )
 
 
 @router.post("/{run_id}/generate-pdf")

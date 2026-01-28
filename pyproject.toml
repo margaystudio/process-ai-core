@@ -37,3 +37,8 @@ packages = ["process_ai_core"]
 pythonpath = [
     "process_ai_core"
 ]
+filterwarnings = [
+    # Suprimir warnings de SQLAlchemy sobre datetime.utcnow() deprecado
+    # Estos warnings vienen de la librería externa y se resolverán cuando SQLAlchemy actualice su código
+    "ignore::DeprecationWarning:sqlalchemy.*",
+]

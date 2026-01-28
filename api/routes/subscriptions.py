@@ -8,7 +8,7 @@ Endpoints:
 - GET /api/v1/workspaces/{workspace_id}/limits: Obtener límites y uso actual
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Depends
@@ -158,9 +158,9 @@ async def create_or_update_subscription(
         # Actualizar suscripción existente
         existing.plan_id = request.plan_id
         existing.status = request.status
-        existing.current_period_start = datetime.utcnow()
-        existing.current_period_end = datetime.utcnow() + timedelta(days=request.period_days)
-        existing.updated_at = datetime.utcnow()
+        existing.current_period_start = datetime.now(UTC)
+        existing.current_period_end = datetime.now(UTC) + timedelta(days=request.period_days)
+        existing.updated_at = datetime.now(UTC)
         subscription = existing
     else:
         # Crear nueva suscripción
@@ -169,8 +169,8 @@ async def create_or_update_subscription(
             workspace_id=workspace_id,
             plan_id=request.plan_id,
             status=request.status,
-            current_period_start=datetime.utcnow(),
-            current_period_end=datetime.utcnow() + timedelta(days=request.period_days),
+            current_period_start=datetime.now(UTC),
+            current_period_end=datetime.now(UTC) + timedelta(days=request.period_days),
         )
     
     session.commit()

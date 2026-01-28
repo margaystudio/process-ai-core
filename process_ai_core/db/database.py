@@ -6,7 +6,8 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from dotenv import load_dotenv
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 """
@@ -61,6 +62,20 @@ class Base(DeclarativeBase):
     - Centralizar metadata (Base.metadata) para crear/migrar esquemas.
     """
     pass
+
+
+@event.listens_for(Engine, "connect")
+def set_sqlite_pragma(dbapi_conn, connection_record):
+    """
+    Event listener que activa foreign keys en SQLite automáticamente.
+    
+    Se ejecuta en cada nueva conexión a SQLite, asegurando que
+    ON DELETE CASCADE y ON DELETE SET NULL funcionen correctamente.
+    """
+    if dbapi_conn.__class__.__module__ == "sqlite3":
+        cursor = dbapi_conn.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
 
 
 def get_db_engine(echo: bool = False):

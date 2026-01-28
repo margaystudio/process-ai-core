@@ -8,7 +8,7 @@ usando Workspace/Document genéricos en lugar de Client/Process específicos.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import datetime, UTC
 
 from sqlalchemy import String, DateTime, ForeignKey, Text, Integer, Float, Boolean
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -449,19 +449,36 @@ class AuditLog(Base):
 
 class DocumentVersion(Base):
     """
-    Versión aprobada de un documento.
+    Versión de un documento con estado de validación.
     
-    Solo la última versión aprobada (is_current=TRUE) es la "verdad" visible
+    Estados posibles:
+    - DRAFT: Borrador editable (solo 1 por documento, enforce DB)
+    - IN_REVIEW: Enviada a revisión, pendiente de validación (solo 1 por documento, enforce DB)
+    - APPROVED: Aprobada e inmutable (solo lectura)
+    - REJECTED: Rechazada e inmutable (solo lectura)
+    - OBSOLETE: Versión anterior que fue reemplazada por una nueva aprobada
+    
+    Solo la última versión APPROVED (is_current=TRUE) es la "verdad" visible
     para operarios y para RAG. Permite rastrear el historial de versiones.
+    
+    ENFORCE DB:
+    - Índice único parcial: uq_document_one_draft (1 solo DRAFT por document_id)
+    - Índice único parcial: uq_document_one_in_review (1 solo IN_REVIEW por document_id)
     """
     __tablename__ = "document_versions"
     
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
-    document_id: Mapped[str] = mapped_column(String(36), ForeignKey("documents.id"), nullable=False, index=True)
-    run_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("runs.id"), nullable=True, index=True)
+    document_id: Mapped[str] = mapped_column(String(36), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False, index=True)
+    run_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("runs.id", ondelete="SET NULL"), nullable=True, index=True)
     
     # Número de versión (incremental)
     version_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    
+    # Estado de la versión (default DRAFT para nuevas versiones)
+    version_status: Mapped[str] = mapped_column(String(20), nullable=False, default="DRAFT")  # DRAFT | IN_REVIEW | APPROVED | REJECTED | OBSOLETE
+    
+    # Versión que esta versión reemplaza (trazabilidad)
+    supersedes_version_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("document_versions.id", ondelete="SET NULL"), nullable=True, index=True)
     
     # Tipo de contenido
     content_type: Mapped[str] = mapped_column(String(20), nullable=False)  # generated | manual_edit | ai_patch
@@ -470,10 +487,14 @@ class DocumentVersion(Base):
     content_json: Mapped[str] = mapped_column(Text, nullable=False)  # JSON del ProcessDocument
     content_markdown: Mapped[str] = mapped_column(Text, nullable=False)  # Markdown renderizado
     
-    # Aprobación
-    approved_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
-    approved_by: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id"), nullable=True, index=True)
-    validation_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("validations.id"), nullable=True, index=True)
+    # Aprobación (nullable para DRAFT y REJECTED)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    approved_by: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    validation_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("validations.id", ondelete="SET NULL"), nullable=True, index=True)
+    
+    # Rechazo (nullable para DRAFT y APPROVED)
+    rejected_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    rejected_by: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     
     # Indicador de versión actual
     is_current: Mapped[bool] = mapped_column(default=False, index=True)
@@ -484,7 +505,9 @@ class DocumentVersion(Base):
     document: Mapped["Document"] = relationship("Document", foreign_keys=[document_id], overlaps="versions")
     run: Mapped["Run | None"] = relationship("Run", foreign_keys=[run_id])
     approver: Mapped["User | None"] = relationship("User", foreign_keys=[approved_by])
+    validator: Mapped["User | None"] = relationship("User", foreign_keys=[rejected_by])
     validation: Mapped["Validation | None"] = relationship("Validation", foreign_keys=[validation_id])
+    supersedes: Mapped["DocumentVersion | None"] = relationship("DocumentVersion", foreign_keys=[supersedes_version_id], remote_side="DocumentVersion.id")
 
 
 class SubscriptionPlan(Base):

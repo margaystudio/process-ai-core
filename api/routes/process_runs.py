@@ -48,7 +48,7 @@ async def create_process_run(
         process_name: Nombre del proceso a documentar
         mode: Modo del documento (operativo o gestión)
         detail_level: Nivel de detalle (opcional)
-        audio_files: Archivos de audio (.m4a, .mp3, .wav)
+        audio_files: Archivos de audio (.m4a, .mp3, .wav, .ogg, .opus, .aac - incluye audios de WhatsApp)
         video_files: Archivos de video (.mp4, .mov, .mkv)
         image_files: Archivos de imagen (.png, .jpg, .jpeg, .webp)
         text_files: Archivos de texto (.txt, .md)
