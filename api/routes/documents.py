@@ -19,7 +19,10 @@ logger = logging.getLogger(__name__)
 
 from process_ai_core.db.database import get_db_session
 from process_ai_core.db.models import Document, Process, Recipe, Workspace, Run, Artifact
-from process_ai_core.db.helpers import create_run, create_artifact, delete_document
+from process_ai_core.db.helpers import (
+    create_run, create_artifact, delete_document,
+    submit_version_for_review, get_or_create_draft, approve_version, reject_version
+)
 from process_ai_core.config import get_settings
 from process_ai_core.domain_models import RawAsset
 from process_ai_core.domains.processes.profiles import get_profile
@@ -1291,4 +1294,180 @@ async def get_document_audit_log(document_id: str):
             }
             for log in audit_logs
         ]
+
+
+@router.post("/{document_id}/versions/{version_id}/submit")
+async def submit_version_for_review_endpoint(
+    document_id: str,
+    version_id: str,
+    user_id: str = Body(..., embed=True),
+    workspace_id: str = Body(..., embed=True),
+):
+    """
+    Envía una versión DRAFT a revisión (cambia a IN_REVIEW y crea Validation).
+    
+    Solo usuarios con permisos para editar documentos pueden enviar a revisión.
+    
+    Args:
+        document_id: ID del documento
+        version_id: ID de la versión DRAFT a enviar
+        user_id: ID del usuario que envía
+        workspace_id: ID del workspace
+    
+    Returns:
+        Versión actualizada y validación creada
+    """
+    with get_db_session() as session:
+        # Verificar permisos
+        from process_ai_core.db.permissions import has_permission
+        
+        if not has_permission(session, user_id, workspace_id, "documents.edit"):
+            raise HTTPException(
+                status_code=403,
+                detail="No tiene permisos para enviar documentos a revisión"
+            )
+        
+        # Verificar que el documento existe y pertenece al workspace
+        doc = session.query(Document).filter_by(id=document_id).first()
+        if not doc:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Documento {document_id} no encontrado"
+            )
+        
+        if doc.workspace_id != workspace_id:
+            raise HTTPException(
+                status_code=403,
+                detail="Documento no pertenece a este workspace"
+            )
+        
+        # Verificar que la versión existe y pertenece al documento
+        from process_ai_core.db.models import DocumentVersion
+        version = session.query(DocumentVersion).filter_by(
+            id=version_id,
+            document_id=document_id
+        ).first()
+        
+        if not version:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Versión {version_id} no encontrada para el documento {document_id}"
+            )
+        
+        # Enviar a revisión
+        try:
+            updated_version, validation = submit_version_for_review(
+                session=session,
+                version_id=version_id,
+                submitter_id=user_id,
+            )
+            session.commit()
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        
+        return {
+            "message": "Versión enviada a revisión exitosamente",
+            "version": {
+                "id": updated_version.id,
+                "version_number": updated_version.version_number,
+                "version_status": updated_version.version_status,
+                "validation_id": updated_version.validation_id,
+            },
+            "validation": {
+                "id": validation.id,
+                "status": validation.status,
+                "document_id": validation.document_id,
+                "created_at": validation.created_at.isoformat(),
+            },
+        }
+
+
+@router.post("/{document_id}/versions/{version_id}/clone")
+async def clone_version_to_draft(
+    document_id: str,
+    version_id: str,
+    user_id: str = Body(..., embed=True),
+    workspace_id: str = Body(..., embed=True),
+):
+    """
+    Crea un nuevo DRAFT clonando una versión APPROVED o REJECTED.
+    
+    Solo usuarios con permisos para editar documentos pueden clonar versiones.
+    
+    Args:
+        document_id: ID del documento
+        version_id: ID de la versión a clonar (debe ser APPROVED o REJECTED)
+        user_id: ID del usuario que clona
+        workspace_id: ID del workspace
+    
+    Returns:
+        Nueva versión DRAFT creada
+    """
+    with get_db_session() as session:
+        # Verificar permisos
+        from process_ai_core.db.permissions import has_permission
+        
+        if not has_permission(session, user_id, workspace_id, "documents.edit"):
+            raise HTTPException(
+                status_code=403,
+                detail="No tiene permisos para crear borradores"
+            )
+        
+        # Verificar que el documento existe y pertenece al workspace
+        doc = session.query(Document).filter_by(id=document_id).first()
+        if not doc:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Documento {document_id} no encontrado"
+            )
+        
+        if doc.workspace_id != workspace_id:
+            raise HTTPException(
+                status_code=403,
+                detail="Documento no pertenece a este workspace"
+            )
+        
+        # Verificar que la versión existe y pertenece al documento
+        from process_ai_core.db.models import DocumentVersion
+        source_version = session.query(DocumentVersion).filter_by(
+            id=version_id,
+            document_id=document_id
+        ).first()
+        
+        if not source_version:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Versión {version_id} no encontrada para el documento {document_id}"
+            )
+        
+        # Verificar que la versión es clonable (APPROVED o REJECTED)
+        if source_version.version_status not in ("APPROVED", "REJECTED"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"No se puede clonar una versión con estado {source_version.version_status}. "
+                       f"Solo se pueden clonar versiones APPROVED o REJECTED."
+            )
+        
+        # Crear nuevo DRAFT desde la versión fuente
+        try:
+            draft_version = get_or_create_draft(
+                session=session,
+                document_id=document_id,
+                source_version_id=version_id,
+                user_id=user_id,
+            )
+            session.commit()
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        
+        return {
+            "message": "Borrador creado exitosamente",
+            "version": {
+                "id": draft_version.id,
+                "version_number": draft_version.version_number,
+                "version_status": draft_version.version_status,
+                "supersedes_version_id": draft_version.supersedes_version_id,
+                "created_at": draft_version.created_at.isoformat(),
+            },
+        }
 

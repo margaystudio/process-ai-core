@@ -9,7 +9,7 @@ type AuthMethod = 'password' | 'otp' | 'oauth'
 
 export default function LoginPage() {
   const router = useRouter()
-  const [supabaseConfigured, setSupabaseConfigured] = useState(false)
+  const [supabaseConfigured, setSupabaseConfigured] = useState<boolean | null>(null)
   
   const [authMethod, setAuthMethod] = useState<AuthMethod>('password')
   const [loading, setLoading] = useState(false)
@@ -20,12 +20,34 @@ export default function LoginPage() {
     // Verificar si Supabase está configurado
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL
     const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-    setSupabaseConfigured(!!(url && key))
+    const configured = !!(url && key)
+    setSupabaseConfigured(configured)
     
-    if (!url || !key) {
-      setError('Supabase no está configurado. Por favor, configura NEXT_PUBLIC_SUPABASE_URL y NEXT_PUBLIC_SUPABASE_ANON_KEY en .env.local')
+    // Limpiar error si está configurado
+    if (configured) {
+      setError(null)
     }
-  }, [])
+
+    // Si ya está autenticado, redirigir
+    async function checkAuth() {
+      if (!configured) return
+
+      try {
+        const supabase = createClient()
+        const { data: { session } } = await supabase.auth.getSession()
+        
+        if (session?.user) {
+          // Ya está autenticado, redirigir a la página principal
+          router.push('/')
+        }
+      } catch (err) {
+        // Ignorar errores, dejar que el usuario intente hacer login
+        console.warn('Error verificando sesión:', err)
+      }
+    }
+
+    checkAuth()
+  }, [router])
 
   const getSupabaseClient = () => {
     try {
@@ -197,7 +219,20 @@ export default function LoginPage() {
     }
   }
 
-  if (!supabaseConfigured) {
+  // Mostrar loading mientras se verifica la configuración
+  if (supabaseConfigured === null) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Cargando...</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Mostrar error solo si realmente no está configurado
+  if (supabaseConfigured === false) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
         <div className="max-w-md w-full">

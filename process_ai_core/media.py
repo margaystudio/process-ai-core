@@ -71,6 +71,35 @@ def _ensure_output_assets_dir(output_base: Path | None = None) -> Path:
     return assets_dir
 
 
+def _ffmpeg_convert_audio_to_mp3(input_path: Path, output_path: Path) -> None:
+    """
+    Convierte un archivo de audio a MP3 usando ffmpeg.
+    
+    Útil para convertir formatos no soportados por OpenAI Whisper (como .ogg/.opus)
+    a un formato compatible (.mp3).
+    
+    Args:
+        input_path: Ruta al archivo de audio original.
+        output_path: Ruta de salida del archivo MP3.
+    """
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-i",
+        str(input_path),
+        "-acodec",
+        "libmp3lame",
+        "-ar",
+        "16000",  # Sample rate compatible con Whisper
+        "-ac",
+        "1",  # Mono
+        "-q:a",
+        "2",  # Calidad alta
+        str(output_path),
+    ]
+    subprocess.run(cmd, check=True, capture_output=True, text=True)
+
+
 def _ffmpeg_extract_audio(video_path: Path, out_audio: Path) -> None:
     """
     Extrae el audio de un video usando ffmpeg.

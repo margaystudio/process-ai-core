@@ -37,10 +37,21 @@ class Workspace(Base):
     # Tipo de workspace
     workspace_type: Mapped[str] = mapped_column(String(20))  # "organization" | "user" | "community"
 
-    # Metadata genérica (JSON flexible)
-    # Para organizaciones: business_type, country, language_style, defaults, etc.
-    # Para usuarios: preferences, cuisine, diet, etc.
-    # Para comunidades: visibility, members_count, etc.
+    # Campos comunes para organizaciones (migrados de metadata_json)
+    country: Mapped[str | None] = mapped_column(String(2), nullable=True, index=True)  # ISO2 code
+    business_type: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
+    language_style: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    default_audience: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    default_detail_level: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    context_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    
+    # Descripción del workspace (útil para todos los tipos)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Metadata genérica (JSON flexible) - Solo para campos realmente variables
+    # Para usuarios: preferences (cuisine, diet, allergies, etc.) - estructura variable
+    # Para comunidades: visibility, members_count, etc. - campos futuros
+    # NO usar para campos comunes que deberían ser columnas
     metadata_json: Mapped[str] = mapped_column(Text, default="{}")
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

@@ -270,4 +270,3 @@ def run_recipe_pipeline(
         "images_by_step": result["images_by_step"],
         "evidence_images": result["evidence_images"],
     }
-

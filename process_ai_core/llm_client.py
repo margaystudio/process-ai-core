@@ -73,6 +73,7 @@ def transcribe_audio(path: str, prompt: str | None = None) -> str:
     - Usa el endpoint de `audio.transcriptions`.
     - Ideal para audios sin necesidad de timestamps.
     - Devuelve solo el texto final, sin estructura adicional.
+    - Convierte automáticamente formatos no soportados (ogg/opus) a MP3.
 
     Args:
         path:
@@ -89,6 +90,9 @@ def transcribe_audio(path: str, prompt: str | None = None) -> str:
         str:
             Texto transcripto.
     """
+    import tempfile
+    from process_ai_core.media import _ffmpeg_convert_audio_to_mp3
+    
     settings = get_settings()
     client = get_client()
 
@@ -96,15 +100,44 @@ def transcribe_audio(path: str, prompt: str | None = None) -> str:
     if not audio_path.exists():
         raise FileNotFoundError(f"No se encontró el archivo de audio: {audio_path}")
 
-    with audio_path.open("rb") as audio_file:
-        transcription = client.audio.transcriptions.create(
-            model=settings.openai_model_transcribe,
-            file=audio_file,
-            prompt=prompt or "",
-            response_format="json",
-        )
+    # Formatos soportados directamente por Whisper
+    whisper_supported = {'.mp3', '.m4a', '.wav', '.aac', '.flac', '.webm'}
+    
+    # Si el formato no es soportado, convertir a MP3
+    audio_file_path = audio_path
+    needs_conversion = audio_path.suffix.lower() not in whisper_supported
+    
+    if needs_conversion:
+        # Convertir a MP3 temporal
+        with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as tmp_file:
+            tmp_mp3_path = Path(tmp_file.name)
+        
+        try:
+            _ffmpeg_convert_audio_to_mp3(audio_path, tmp_mp3_path)
+            audio_file_path = tmp_mp3_path
+        except Exception as e:
+            # Si falla la conversión, intentar con el original (puede que funcione)
+            print(f"⚠️  Advertencia: No se pudo convertir {audio_path.suffix} a MP3: {e}")
+            print(f"   Intentando con el archivo original...")
 
-    return transcription.text
+    try:
+        with audio_file_path.open("rb") as audio_file:
+            # Necesitamos pasar el nombre del archivo con extensión correcta
+            # OpenAI Whisper detecta el formato por el nombre del archivo
+            transcription = client.audio.transcriptions.create(
+                model=settings.openai_model_transcribe,
+                file=(audio_file_path.name, audio_file, "audio/mpeg" if needs_conversion else None),
+                prompt=prompt or "",
+                response_format="json",
+            )
+        return transcription.text
+    finally:
+        # Limpiar archivo temporal si se creó
+        if needs_conversion and tmp_mp3_path.exists():
+            try:
+                tmp_mp3_path.unlink()
+            except:
+                pass
 
 
 def transcribe_audio_with_timestamps(
@@ -119,6 +152,7 @@ def transcribe_audio_with_timestamps(
     - El audio proviene de un video.
     - Necesitamos mapear partes del audio a momentos específicos
       (por ejemplo, para capturar screenshots).
+    - Convierte automáticamente formatos no soportados (ogg/opus) a MP3.
 
     Args:
         path:
@@ -145,6 +179,9 @@ def transcribe_audio_with_timestamps(
                 ]
             }
     """
+    import tempfile
+    from process_ai_core.media import _ffmpeg_convert_audio_to_mp3
+    
     settings = get_settings()
     client = get_client()
 
@@ -157,24 +194,53 @@ def transcribe_audio_with_timestamps(
 
     model = getattr(settings, "openai_model_transcribe_timestamps", "whisper-1")
 
-    with audio_path.open("rb") as audio_file:
-        transcription = client.audio.transcriptions.create(
-            model=model,
-            file=audio_file,
-            prompt=prompt or "",
-            response_format="verbose_json",
-            timestamp_granularities=[granularity],
-        )
+    # Formatos soportados directamente por Whisper
+    whisper_supported = {'.mp3', '.m4a', '.wav', '.aac', '.flac', '.webm'}
+    
+    # Si el formato no es soportado, convertir a MP3
+    audio_file_path = audio_path
+    needs_conversion = audio_path.suffix.lower() not in whisper_supported
+    
+    if needs_conversion:
+        # Convertir a MP3 temporal
+        with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as tmp_file:
+            tmp_mp3_path = Path(tmp_file.name)
+        
+        try:
+            _ffmpeg_convert_audio_to_mp3(audio_path, tmp_mp3_path)
+            audio_file_path = tmp_mp3_path
+        except Exception as e:
+            # Si falla la conversión, intentar con el original (puede que funcione)
+            print(f"⚠️  Advertencia: No se pudo convertir {audio_path.suffix} a MP3: {e}")
+            print(f"   Intentando con el archivo original...")
 
-    # Normalizamos salida (objeto o dict)
-    data: Dict[str, Any] = {}
-    if hasattr(transcription, "text"):
-        data["text"] = transcription.text
-    if hasattr(transcription, "segments"):
-        data["segments"] = transcription.segments
+    try:
+        with audio_file_path.open("rb") as audio_file:
+            # Necesitamos pasar el nombre del archivo con extensión correcta
+            transcription = client.audio.transcriptions.create(
+                model=model,
+                file=(audio_file_path.name, audio_file, "audio/mpeg" if needs_conversion else None),
+                prompt=prompt or "",
+                response_format="verbose_json",
+                timestamp_granularities=[granularity],
+            )
 
-    if not data and isinstance(transcription, dict):
-        data = transcription
+        # Normalizamos salida (objeto o dict)
+        data: Dict[str, Any] = {}
+        if hasattr(transcription, "text"):
+            data["text"] = transcription.text
+        if hasattr(transcription, "segments"):
+            data["segments"] = transcription.segments
+
+        if not data and isinstance(transcription, dict):
+            data = transcription
+    finally:
+        # Limpiar archivo temporal si se creó
+        if needs_conversion and tmp_mp3_path.exists():
+            try:
+                tmp_mp3_path.unlink()
+            except:
+                pass
 
     data.setdefault("text", "")
     data.setdefault("segments", [])
@@ -478,9 +544,7 @@ def generate_process_document_json(prompt: str) -> str:
 
     Args:
         prompt:
-            Prompt completo (contexto + transcripciones + evidencia).
-
-    Returns:
+            Prompt completo (contexto + transcripciones + evidencia).    Returns:
         str:
             JSON generado por el modelo (string).
     """

@@ -3,13 +3,15 @@ Endpoints para gestión de validaciones de documentos.
 
 Este módulo maneja:
 - POST /api/v1/documents/{document_id}/validate - Crear validación
-- POST /api/v1/validations/{validation_id}/approve - Aprobar validación
-- POST /api/v1/validations/{validation_id}/reject - Rechazar validación con observaciones
+- POST /api/v1/validations/{validation_id}/approve - Aprobar validación (y versión asociada)
+- POST /api/v1/validations/{validation_id}/reject - Rechazar validación con observaciones (texto libre y/o estructuradas)
 - GET /api/v1/documents/{document_id}/validations - Listar validaciones de un documento
+
+Nota: Los endpoints de versiones (submit, clone) están en api/routes/documents.py
 """
 
 from fastapi import APIRouter, HTTPException, Body
-from typing import Optional
+from typing import Optional, List
 from pydantic import BaseModel
 
 from process_ai_core.db.database import get_db_session
@@ -19,6 +21,8 @@ from process_ai_core.db.helpers import (
     approve_validation,
     reject_validation,
     create_document_version,
+    approve_version,
+    reject_version,
 )
 
 router = APIRouter(prefix="/api/v1", tags=["validations"])
@@ -35,7 +39,8 @@ class ValidationCreateRequest(BaseModel):
 
 
 class ValidationRejectRequest(BaseModel):
-    observations: str
+    observations: str = ""  # Texto libre para compatibilidad
+    structured_observations: Optional[List[dict]] = None  # Lista de observaciones estructuradas
 
 
 class ValidationResponse(BaseModel):
@@ -275,27 +280,57 @@ async def create_document_validation(
 @router.post("/validations/{validation_id}/approve", response_model=ValidationResponse)
 async def approve_document_validation(
     validation_id: str,
+    user_id: str = Body(..., embed=True),
+    workspace_id: str = Body(..., embed=True),
 ):
     """
-    Aprueba una validación.
+    Aprueba una validación (y su versión asociada).
     
     Cuando se aprueba:
+    - La versión IN_REVIEW cambia a APPROVED
+    - Se marca como versión actual (is_current=True)
+    - La versión anterior APPROVED se marca como OBSOLETE
     - El estado del documento pasa a "approved"
-    - Si hay un run asociado, se marca como aprobado
-    - Se crea un DocumentVersion con is_current=True
+    
+    Solo usuarios con permisos para aprobar documentos pueden usar este endpoint.
     
     Args:
         validation_id: ID de la validación
+        user_id: ID del usuario que aprueba
+        workspace_id: ID del workspace
     
     Returns:
         ValidationResponse con la validación aprobada
     """
     with get_db_session() as session:
+        # Verificar permisos
+        from process_ai_core.db.permissions import has_permission
+        
+        if not has_permission(session, user_id, workspace_id, "documents.approve"):
+            raise HTTPException(
+                status_code=403,
+                detail="No tiene permisos para aprobar documentos"
+            )
+        
         validation = session.query(Validation).filter_by(id=validation_id).first()
         if not validation:
             raise HTTPException(
                 status_code=404,
                 detail=f"Validación {validation_id} no encontrada"
+            )
+        
+        # Verificar que el documento pertenece al workspace
+        doc = session.query(Document).filter_by(id=validation.document_id).first()
+        if not doc:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Documento {validation.document_id} no encontrado"
+            )
+        
+        if doc.workspace_id != workspace_id:
+            raise HTTPException(
+                status_code=403,
+                detail="Documento no pertenece a este workspace"
             )
         
         if validation.status != "pending":
@@ -304,42 +339,17 @@ async def approve_document_validation(
                 detail=f"La validación ya está {validation.status}, no se puede aprobar"
             )
         
-        # Aprobar validación
-        validation = approve_validation(
-            session=session,
-            validation_id=validation_id,
-        )
-        
-        # Si hay un run asociado, crear DocumentVersion desde el run
-        if validation.run_id:
-            run = session.query(Run).filter_by(id=validation.run_id).first()
-            if run:
-                # Leer el JSON y Markdown del run
-                from process_ai_core.config import get_settings
-                import json
-                from pathlib import Path
-                
-                settings = get_settings()
-                run_dir = Path(settings.output_dir) / run.id
-                json_path = run_dir / "process.json"
-                md_path = run_dir / "process.md"
-                
-                if json_path.exists() and md_path.exists():
-                    content_json = json_path.read_text(encoding="utf-8")
-                    content_markdown = md_path.read_text(encoding="utf-8")
-                    
-                    # Crear versión aprobada
-                    create_document_version(
-                        session=session,
-                        document_id=validation.document_id,
-                        run_id=validation.run_id,
-                        content_type="generated",
-                        content_json=content_json,
-                        content_markdown=content_markdown,
-                        validation_id=validation_id,
-                    )
-        
-        session.commit()
+        # Aprobar versión usando el nuevo helper
+        try:
+            approved_version = approve_version(
+                session=session,
+                validation_id=validation_id,
+                approver_id=user_id,
+            )
+            session.commit()
+            session.refresh(validation)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
         
         return ValidationResponse(
             id=validation.id,
@@ -358,27 +368,57 @@ async def approve_document_validation(
 async def reject_document_validation(
     validation_id: str,
     request: ValidationRejectRequest = Body(...),
+    user_id: str = Body(..., embed=True),
+    workspace_id: str = Body(..., embed=True),
 ):
     """
-    Rechaza una validación con observaciones.
+    Rechaza una validación (y su versión asociada) con observaciones.
     
     Cuando se rechaza:
+    - La versión IN_REVIEW cambia a REJECTED
     - El estado del documento pasa a "rejected"
-    - Las observaciones se guardan para corrección posterior
+    - Las observaciones (texto libre y/o estructuradas) se guardan para corrección posterior
+    
+    Solo usuarios con permisos para rechazar documentos pueden usar este endpoint.
     
     Args:
         validation_id: ID de la validación
-        request: Observaciones del rechazo
+        request: Observaciones del rechazo (texto libre y/o estructuradas)
+        user_id: ID del usuario que rechaza
+        workspace_id: ID del workspace
     
     Returns:
         ValidationResponse con la validación rechazada
     """
     with get_db_session() as session:
+        # Verificar permisos
+        from process_ai_core.db.permissions import has_permission
+        
+        if not has_permission(session, user_id, workspace_id, "documents.reject"):
+            raise HTTPException(
+                status_code=403,
+                detail="No tiene permisos para rechazar documentos"
+            )
+        
         validation = session.query(Validation).filter_by(id=validation_id).first()
         if not validation:
             raise HTTPException(
                 status_code=404,
                 detail=f"Validación {validation_id} no encontrada"
+            )
+        
+        # Verificar que el documento pertenece al workspace
+        doc = session.query(Document).filter_by(id=validation.document_id).first()
+        if not doc:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Documento {validation.document_id} no encontrado"
+            )
+        
+        if doc.workspace_id != workspace_id:
+            raise HTTPException(
+                status_code=403,
+                detail="Documento no pertenece a este workspace"
             )
         
         if validation.status != "pending":
@@ -387,14 +427,43 @@ async def reject_document_validation(
                 detail=f"La validación ya está {validation.status}, no se puede rechazar"
             )
         
-        # Rechazar validación
-        validation = reject_validation(
-            session=session,
-            validation_id=validation_id,
-            observations=request.observations,
-        )
+        # Validar formato de observaciones estructuradas si se proporcionan
+        structured_obs = None
+        if request.structured_observations:
+            # Validar que cada observación tenga los campos requeridos
+            for obs in request.structured_observations:
+                if not isinstance(obs, dict):
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Cada observación estructurada debe ser un objeto/diccionario"
+                    )
+                required_fields = ["section", "comment", "severity"]
+                missing = [f for f in required_fields if f not in obs]
+                if missing:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Observación estructurada incompleta. Faltan campos: {', '.join(missing)}"
+                    )
+                if obs["severity"] not in ("low", "medium", "high", "critical"):
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Severidad inválida: {obs['severity']}. Debe ser: low, medium, high, critical"
+                    )
+            structured_obs = request.structured_observations
         
-        session.commit()
+        # Rechazar versión usando el nuevo helper
+        try:
+            rejected_version = reject_version(
+                session=session,
+                validation_id=validation_id,
+                rejector_id=user_id,
+                observations=request.observations,
+                structured_observations=structured_obs,
+            )
+            session.commit()
+            session.refresh(validation)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
         
         return ValidationResponse(
             id=validation.id,

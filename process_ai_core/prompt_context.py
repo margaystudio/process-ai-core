@@ -141,8 +141,13 @@ def build_context_block(session, workspace: Workspace, document: Document) -> st
         String terminado en doble salto de línea (`\\n\\n`) para poder concatenarlo
         fácilmente al prompt principal.
     """
-    # Obtener metadata desde JSON del workspace
-    workspace_meta = get_workspace_metadata(workspace)
+    # Obtener valores desde columnas del workspace (no desde JSON)
+    # Usar columnas directamente para mejor performance
+    default_audience = workspace.default_audience or ""
+    default_detail_level = workspace.default_detail_level or ""
+    language_style = workspace.language_style or ""
+    business_type = workspace.business_type or ""
+    workspace_context_text = workspace.context_text or ""
 
     # Obtener valores del documento según su tipo
     audience = ""
@@ -151,27 +156,25 @@ def build_context_block(session, workspace: Workspace, document: Document) -> st
     
     if isinstance(document, Process):
         # Si es Process, usar campos específicos
-        audience = document.audience or workspace_meta.get("default_audience", "")
-        detail_level = document.detail_level or workspace_meta.get("default_detail_level", "")
+        audience = document.audience or default_audience
+        detail_level = document.detail_level or default_detail_level
         document_context_text = document.context_text or ""
     elif isinstance(document, Recipe):
         # Si es Recipe, no tiene audience/detail_level, usar defaults del workspace
-        audience = workspace_meta.get("default_audience", "")
-        detail_level = workspace_meta.get("default_detail_level", "")
+        audience = default_audience
+        detail_level = default_detail_level
         # Recipes no tienen context_text por ahora
         document_context_text = ""
     else:
         # Fallback para Document genérico (no debería pasar, pero por seguridad)
-        audience = workspace_meta.get("default_audience", "")
-        detail_level = workspace_meta.get("default_detail_level", "")
+        audience = default_audience
+        detail_level = default_detail_level
         document_context_text = ""
     
     # Formality ya no es campo del documento, solo del workspace
+    # Obtener desde metadata_json si existe (campo opcional)
+    workspace_meta = get_workspace_metadata(workspace)
     formality = workspace_meta.get("default_formality", "")
-
-    # Atributos propios del documento / workspace
-    language_style = workspace_meta.get("language_style", "")
-    business_type = workspace_meta.get("business_type", "")
     
     # Información de la carpeta (reemplaza process_type)
     folder_context = ""
@@ -199,9 +202,8 @@ def build_context_block(session, workspace: Workspace, document: Document) -> st
     if folder_context:
         lines.append(f"- Ubicación del proceso: {folder_context}. Considera el contexto de esta ubicación al generar el documento.")
 
-    # Contextos libres
-    workspace_context = workspace_meta.get("context_text", "")
-    if workspace_context and workspace_context.strip():
+    # Contextos libres (usar columna directamente)
+    if workspace_context_text and workspace_context_text.strip():
         lines.append("")
         lines.append("Contexto del workspace:")
         lines.append(workspace_context.strip())

@@ -23,66 +23,83 @@ from process_ai_core.db.permissions import (
 
 
 def seed_permissions():
-    """Crea todos los permisos predefinidos."""
+    """Crea todos los permisos predefinidos (idempotente)."""
     with get_db_session() as session:
         # Verificar si ya existen permisos
         existing_permissions = session.query(Permission).count()
         if existing_permissions > 0:
-            print("⚠️  Ya existen permisos en la base de datos. ¿Deseas continuar? (s/n): ", end="")
-            response = input().strip().lower()
-            if response != "s":
-                print("❌ Cancelado.")
-                return
+            print(f"ℹ️  Ya existen {existing_permissions} permisos en la base de datos.")
+            print("   El script actualizará/creará los permisos y roles necesarios (idempotente).")
+            print()
         
-        print("🌱 Creando permisos predefinidos...")
+        print("🌱 Creando/actualizando permisos predefinidos...")
+        
+        # Helper para obtener o crear permiso
+        def get_or_create_permission(name, description, category):
+            existing = session.query(Permission).filter_by(name=name).first()
+            if existing:
+                # Actualizar descripción si cambió
+                if existing.description != description:
+                    existing.description = description
+                if existing.category != category:
+                    existing.category = category
+                return existing
+            return create_permission(session, name, description, category)
+        
+        # Helper para obtener o crear rol
+        def get_or_create_role(name, description, workspace_type, is_system):
+            existing = session.query(Role).filter_by(name=name).first()
+            if existing:
+                # Actualizar si cambió
+                if existing.description != description:
+                    existing.description = description
+                if existing.workspace_type != workspace_type:
+                    existing.workspace_type = workspace_type
+                if existing.is_system != is_system:
+                    existing.is_system = is_system
+                return existing
+            return create_role(session, name, description, workspace_type, is_system)
         
         # ============================================================
         # Permisos de Documentos
         # ============================================================
-        perm_docs_create = create_permission(
-            session=session,
+        perm_docs_create = get_or_create_permission(
             name="documents.create",
             description="Crear nuevos documentos",
             category="documents",
         )
         
-        perm_docs_view = create_permission(
-            session=session,
+        perm_docs_view = get_or_create_permission(
             name="documents.view",
             description="Ver documentos",
             category="documents",
         )
         
-        perm_docs_edit = create_permission(
-            session=session,
+        perm_docs_edit = get_or_create_permission(
             name="documents.edit",
             description="Editar documentos",
             category="documents",
         )
         
-        perm_docs_delete = create_permission(
-            session=session,
+        perm_docs_delete = get_or_create_permission(
             name="documents.delete",
             description="Eliminar documentos",
             category="documents",
         )
         
-        perm_docs_approve = create_permission(
-            session=session,
+        perm_docs_approve = get_or_create_permission(
             name="documents.approve",
             description="Aprobar documentos",
             category="documents",
         )
         
-        perm_docs_reject = create_permission(
-            session=session,
+        perm_docs_reject = get_or_create_permission(
             name="documents.reject",
             description="Rechazar documentos con observaciones",
             category="documents",
         )
         
-        perm_docs_export = create_permission(
-            session=session,
+        perm_docs_export = get_or_create_permission(
             name="documents.export",
             description="Exportar documentos (PDF, etc.)",
             category="documents",
@@ -91,29 +108,25 @@ def seed_permissions():
         # ============================================================
         # Permisos de Workspaces
         # ============================================================
-        perm_ws_view = create_permission(
-            session=session,
+        perm_ws_view = get_or_create_permission(
             name="workspaces.view",
             description="Ver workspace",
             category="workspaces",
         )
         
-        perm_ws_edit = create_permission(
-            session=session,
+        perm_ws_edit = get_or_create_permission(
             name="workspaces.edit",
             description="Editar configuración del workspace",
             category="workspaces",
         )
         
-        perm_ws_manage_users = create_permission(
-            session=session,
+        perm_ws_manage_users = get_or_create_permission(
             name="workspaces.manage_users",
             description="Gestionar usuarios del workspace",
             category="workspaces",
         )
         
-        perm_ws_manage_folders = create_permission(
-            session=session,
+        perm_ws_manage_folders = get_or_create_permission(
             name="workspaces.manage_folders",
             description="Gestionar estructura de carpetas",
             category="workspaces",
@@ -122,15 +135,13 @@ def seed_permissions():
         # ============================================================
         # Permisos de Usuarios
         # ============================================================
-        perm_users_view = create_permission(
-            session=session,
+        perm_users_view = get_or_create_permission(
             name="users.view",
             description="Ver usuarios",
             category="users",
         )
         
-        perm_users_manage = create_permission(
-            session=session,
+        perm_users_manage = get_or_create_permission(
             name="users.manage",
             description="Crear/editar usuarios",
             category="users",
@@ -142,11 +153,10 @@ def seed_permissions():
         # ============================================================
         # Roles para Workspaces de tipo "organization"
         # ============================================================
-        print("🌱 Creando roles predefinidos...")
+        print("🌱 Creando/actualizando roles predefinidos...")
         
         # Owner: todos los permisos
-        role_owner = create_role(
-            session=session,
+        role_owner = get_or_create_role(
             name="owner",
             description="Dueño del workspace. Tiene todos los permisos.",
             workspace_type="organization",
@@ -154,8 +164,7 @@ def seed_permissions():
         )
         
         # Admin: gestión y aprobación
-        role_admin = create_role(
-            session=session,
+        role_admin = get_or_create_role(
             name="admin",
             description="Administrador. Puede gestionar usuarios, aprobar documentos y crear documentos.",
             workspace_type="organization",
@@ -163,8 +172,7 @@ def seed_permissions():
         )
         
         # Approver: aprobar/rechazar documentos
-        role_approver = create_role(
-            session=session,
+        role_approver = get_or_create_role(
             name="approver",
             description="Aprobador. Puede aprobar y rechazar documentos.",
             workspace_type="organization",
@@ -172,8 +180,7 @@ def seed_permissions():
         )
         
         # Creator: crear y editar documentos
-        role_creator = create_role(
-            session=session,
+        role_creator = get_or_create_role(
             name="creator",
             description="Creador. Puede crear y editar documentos.",
             workspace_type="organization",
@@ -181,11 +188,18 @@ def seed_permissions():
         )
         
         # Viewer: solo ver documentos aprobados
-        role_viewer = create_role(
-            session=session,
+        role_viewer = get_or_create_role(
             name="viewer",
             description="Visualizador. Solo puede ver documentos aprobados.",
             workspace_type="organization",
+            is_system=True,
+        )
+        
+        # Superadmin: todos los permisos del sistema (global, no específico de workspace)
+        role_superadmin = get_or_create_role(
+            name="superadmin",
+            description="Super administrador del sistema. Puede crear workspaces B2B y gestionar todo.",
+            workspace_type=None,  # Global, no específico de workspace
             is_system=True,
         )
         
@@ -197,6 +211,15 @@ def seed_permissions():
         # ============================================================
         print("🌱 Asignando permisos a roles...")
         
+        # Helper para asignar permiso si no existe
+        def ensure_permission_assigned(role_id, permission_id):
+            existing = session.query(RolePermission).filter_by(
+                role_id=role_id,
+                permission_id=permission_id
+            ).first()
+            if not existing:
+                assign_permission_to_role(session, role_id, permission_id)
+        
         # Owner: todos los permisos
         for perm in [
             perm_docs_create, perm_docs_view, perm_docs_edit, perm_docs_delete,
@@ -204,7 +227,7 @@ def seed_permissions():
             perm_ws_view, perm_ws_edit, perm_ws_manage_users, perm_ws_manage_folders,
             perm_users_view, perm_users_manage,
         ]:
-            assign_permission_to_role(session, role_owner.id, perm.id)
+            ensure_permission_assigned(role_owner.id, perm.id)
         
         # Admin: gestión y aprobación
         for perm in [
@@ -213,28 +236,38 @@ def seed_permissions():
             perm_ws_view, perm_ws_edit, perm_ws_manage_users, perm_ws_manage_folders,
             perm_users_view, perm_users_manage,
         ]:
-            assign_permission_to_role(session, role_admin.id, perm.id)
+            ensure_permission_assigned(role_admin.id, perm.id)
         
         # Approver: aprobar/rechazar y ver
         for perm in [
             perm_docs_view, perm_docs_approve, perm_docs_reject, perm_docs_export,
             perm_ws_view,
         ]:
-            assign_permission_to_role(session, role_approver.id, perm.id)
+            ensure_permission_assigned(role_approver.id, perm.id)
         
         # Creator: crear, editar y ver
         for perm in [
             perm_docs_create, perm_docs_view, perm_docs_edit, perm_docs_export,
             perm_ws_view, perm_ws_manage_folders,
         ]:
-            assign_permission_to_role(session, role_creator.id, perm.id)
+            ensure_permission_assigned(role_creator.id, perm.id)
         
         # Viewer: solo ver
         for perm in [
             perm_docs_view, perm_docs_export,
             perm_ws_view,
         ]:
-            assign_permission_to_role(session, role_viewer.id, perm.id)
+            ensure_permission_assigned(role_viewer.id, perm.id)
+        
+        # Superadmin: TODOS los permisos (acceso completo al sistema)
+        all_permissions = [
+            perm_docs_create, perm_docs_view, perm_docs_edit, perm_docs_delete,
+            perm_docs_approve, perm_docs_reject, perm_docs_export,
+            perm_ws_view, perm_ws_edit, perm_ws_manage_users, perm_ws_manage_folders,
+            perm_users_view, perm_users_manage,
+        ]
+        for perm in all_permissions:
+            ensure_permission_assigned(role_superadmin.id, perm.id)
         
         session.flush()
         print("✅ Permisos asignados a roles.")
@@ -248,6 +281,13 @@ def seed_permissions():
         print(f"  - Permisos creados: {session.query(Permission).count()}")
         print(f"  - Roles creados: {session.query(Role).count()}")
         print(f"  - Asignaciones: {session.query(RolePermission).count()}")
+        print("\n💡 Roles creados:")
+        print("  - superadmin: Super administrador del sistema (todos los permisos)")
+        print("  - owner: Dueño del workspace (todos los permisos)")
+        print("  - admin: Administrador (gestión y aprobación)")
+        print("  - approver: Aprobador (aprobar/rechazar documentos)")
+        print("  - creator: Creador (crear y editar documentos)")
+        print("  - viewer: Visualizador (solo lectura)")
 
 
 if __name__ == "__main__":

@@ -53,19 +53,16 @@ def create_organization_workspace(
     Returns:
         Workspace creado (con carpeta raíz creada)
     """
-    metadata = {
-        "country": country,
-        "business_type": business_type,
-        "language_style": language_style,
-        "default_audience": default_audience,
-        "context_text": context_text,
-    }
-
     workspace = Workspace(
         slug=slug,
         name=name,
         workspace_type="organization",
-        metadata_json=json.dumps(metadata),
+        country=country or None,
+        business_type=business_type or None,
+        language_style=language_style or None,
+        default_audience=default_audience or None,
+        context_text=context_text or None,
+        metadata_json="{}",  # Solo para campos opcionales
     )
     session.add(workspace)
     session.flush()  # Para obtener el ID del workspace
@@ -881,14 +878,43 @@ def submit_version_for_review(
             f"No se puede enviar a revisión: el documento {version.document_id} ya tiene una versión IN_REVIEW (v{existing_in_review.version_number})"
         )
     
-    # Crear Validation pendiente
+    # Obtener documento para snapshot de metadatos y actualización
+    document = session.query(Document).filter_by(id=version.document_id).first()
+    if not document:
+        raise ValueError(f"Documento {version.document_id} no encontrado")
+    
+    # Crear snapshot de metadatos clave para la validación
+    snapshot_metadata = {
+        "document_id": version.document_id,
+        "document_name": document.name,
+        "document_type": document.document_type,
+        "version_number": version.version_number,
+        "version_id": version.id,
+        "content_type": version.content_type,
+        "submitted_at": datetime.now(UTC).isoformat(),
+        "submitted_by": submitter_id,
+    }
+    
+    # Intentar extraer información del contenido JSON si está disponible
+    try:
+        content_data = json.loads(version.content_json)
+        snapshot_metadata["process_name"] = content_data.get("process_name", "")
+        if "pasos" in content_data:
+            snapshot_metadata["num_steps"] = len(content_data["pasos"])
+        if "videos" in content_data:
+            snapshot_metadata["num_videos"] = len(content_data["videos"])
+    except (json.JSONDecodeError, KeyError):
+        # Si no se puede parsear, continuar sin esa información
+        pass
+    
+    # Crear Validation pendiente con snapshot de metadatos
     validation = create_validation(
         session=session,
         document_id=version.document_id,
         run_id=version.run_id,
         validator_user_id=None,  # Se asignará cuando se apruebe/rechace
         observations="",
-        checklist_json="{}",
+        checklist_json=json.dumps(snapshot_metadata),
     )
     
     # Flush para obtener el ID de la validación
@@ -912,7 +938,6 @@ def submit_version_for_review(
         ) from e
     
     # Actualizar estado del documento
-    document = session.query(Document).filter_by(id=version.document_id).first()
     if document:
         document.status = "pending_validation"
     
@@ -1031,6 +1056,7 @@ def reject_version(
     validation_id: str,
     rejector_id: str | None = None,
     observations: str = "",
+    structured_observations: list[dict] | None = None,
 ) -> DocumentVersion:
     """
     Rechaza una versión IN_REVIEW (cambia a REJECTED).
@@ -1041,7 +1067,12 @@ def reject_version(
         session: Sesión de base de datos
         validation_id: ID de la validación asociada
         rejector_id: ID del usuario que rechaza (opcional)
-        observations: Observaciones del rechazo
+        observations: Observaciones del rechazo (texto libre)
+        structured_observations: Lista de observaciones estructuradas, cada una con:
+            - section: str (sección del documento, ej: "paso_1", "objetivo", "general")
+            - step_number: int | None (número de paso si aplica)
+            - comment: str (comentario del validador)
+            - severity: str ("low" | "medium" | "high" | "critical")
     
     Returns:
         DocumentVersion rechazada
@@ -1072,11 +1103,27 @@ def reject_version(
     version.rejected_at = datetime.now(UTC)
     version.rejected_by = rejector_id
     
+    # Preparar observaciones estructuradas para checklist_json
+    checklist_data = {}
+    try:
+        # Intentar cargar checklist existente (puede tener snapshot de metadatos)
+        existing_checklist = json.loads(validation.checklist_json) if validation.checklist_json else {}
+        checklist_data.update(existing_checklist)
+    except (json.JSONDecodeError, TypeError):
+        pass
+    
+    # Agregar observaciones estructuradas si se proporcionan
+    if structured_observations:
+        checklist_data["observations"] = structured_observations
+        checklist_data["rejected_at"] = datetime.now(UTC).isoformat()
+        checklist_data["rejected_by"] = rejector_id
+    
     # Actualizar validación
     validation.status = "rejected"
     validation.completed_at = datetime.now(UTC)
     validation.validator_user_id = rejector_id
-    validation.observations = observations
+    validation.observations = observations  # Texto libre para compatibilidad
+    validation.checklist_json = json.dumps(checklist_data)
     
     # Actualizar documento
     document = session.query(Document).filter_by(id=version.document_id).first()

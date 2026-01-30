@@ -31,6 +31,28 @@ def main():
             db.commit()
             db.refresh(workspace)
 
+        # Obtener carpeta raíz del workspace (se crea automáticamente)
+        from process_ai_core.db.models import Folder
+        root_folder = (
+            db.query(Folder)
+            .filter(Folder.workspace_id == workspace.id, Folder.parent_id.is_(None))
+            .first()
+        )
+        
+        if not root_folder:
+            # Si no existe, crear carpeta raíz
+            from process_ai_core.db.helpers import create_folder
+            root_folder = create_folder(
+                session=db,
+                workspace_id=workspace.id,
+                name=workspace.name,
+                path=workspace.name,
+                parent_id=None,
+                sort_order=0,
+            )
+            db.commit()
+            db.refresh(root_folder)
+
         # 2) Process (uno dentro del workspace)
         proc_name = "Atender cliente en pista"
         process = (
@@ -42,6 +64,7 @@ def main():
         if not process:
             process = Process(
                 workspace_id=workspace.id,
+                folder_id=root_folder.id,  # Asignar carpeta raíz
                 document_type="process",
                 name=proc_name,
                 status="draft",
