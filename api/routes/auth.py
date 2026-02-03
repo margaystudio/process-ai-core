@@ -231,59 +231,71 @@ async def get_current_user(authorization: Optional[str] = Header(None)):
     # La validación real del token se hace en el frontend con Supabase
     
     try:
-        # Decodificar JWT para obtener el user_id (sub)
-        # El service role key no puede usar get_user() directamente con un token JWT
-        try:
-            # Decodificar JWT sin verificar la firma (solo para obtener el sub)
-            # La validación real se hace en el frontend con Supabase
-            decoded = jwt.decode(token, options={"verify_signature": False})
-            supabase_user_id = decoded.get("sub")
+        # Decodificar JWT para obtener el user_id (sub) y email
+        # La validación real se hace en el frontend con Supabase
+        logger.info("Decodificando token JWT...")
+        decoded = jwt.decode(token, options={"verify_signature": False})
+        supabase_user_id = decoded.get("sub")
+        supabase_email = decoded.get("email")
+        
+        logger.info(f"Token decodificado, supabase_user_id: {supabase_user_id}, email: {supabase_email}")
+        
+        if not supabase_user_id:
+            logger.warning("Token no contiene 'sub' (user ID)")
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid token: no user ID found"
+            )
+        
+        # Buscar usuario local por external_id primero
+        logger.info(f"Buscando usuario en BD local con external_id: {supabase_user_id}")
+        with get_db_session() as session:
+            logger.info("Sesión de BD obtenida, buscando usuario...")
+            local_user = get_user_by_external_id(session, supabase_user_id)
+            logger.info(f"Usuario encontrado por external_id: {local_user is not None}")
             
-            logger.debug(f"Token decodificado, supabase_user_id: {supabase_user_id}")
+            # Si no se encuentra por external_id, buscar por email (para usuarios creados localmente antes de vincular con Supabase)
+            if not local_user and supabase_email:
+                logger.info(f"Usuario no encontrado por external_id, buscando por email: {supabase_email}")
+                from process_ai_core.db.helpers import get_user_by_email
+                local_user = get_user_by_email(session, supabase_email)
+                logger.info(f"Usuario encontrado por email: {local_user is not None}")
+                if local_user:
+                    logger.info(f"Usuario encontrado: {local_user.email} (ID: {local_user.id})")
+                
+                # Si se encuentra por email, vincular automáticamente el external_id
+                if local_user:
+                    logger.info(f"Vinculando usuario {local_user.id} ({local_user.email}) con Supabase user_id {supabase_user_id} (email: {supabase_email})")
+                    local_user.external_id = supabase_user_id
+                    local_user.auth_provider = "supabase"
+                    session.commit()
+                    logger.info("Usuario vinculado exitosamente")
+                else:
+                    logger.warning(f"No se encontró usuario con email {supabase_email} en la BD local. Usuarios disponibles: {[u.email for u in session.query(User).all()]}")
             
-            if not supabase_user_id:
-                logger.warning("Token no contiene 'sub' (user ID)")
+            if not local_user:
+                logger.warning(f"Usuario con external_id {supabase_user_id} o email {supabase_email} no encontrado en BD local")
                 raise HTTPException(
-                    status_code=401,
-                    detail="Invalid token: no user ID found"
+                    status_code=404,
+                    detail="User not found in local database"
                 )
             
-            # Buscar usuario local por external_id
-            with get_db_session() as session:
-                local_user = get_user_by_external_id(session, supabase_user_id)
-                
-                logger.debug(f"Usuario encontrado en BD local: {local_user is not None}")
-                
-                if not local_user:
-                    logger.warning(f"Usuario con external_id {supabase_user_id} no encontrado en BD local")
-                    raise HTTPException(
-                        status_code=404,
-                        detail="User not found in local database"
-                    )
-                
-                return {
-                    "user": {
-                        "id": local_user.id,
-                        "email": local_user.email,
-                        "name": local_user.name,
-                        "external_id": local_user.external_id,
-                        "auth_provider": local_user.auth_provider,
-                    }
+            logger.info(f"Retornando datos del usuario: {local_user.id}")
+            return {
+                "user": {
+                    "id": local_user.id,
+                    "email": local_user.email,
+                    "name": local_user.name,
+                    "external_id": local_user.external_id,
+                    "auth_provider": local_user.auth_provider,
                 }
-        except jwt.DecodeError as e:
-            logger.error(f"Error decodificando JWT: {e}")
-            raise HTTPException(
-                status_code=401,
-                detail=f"Invalid token format: {str(e)}"
-            )
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.exception(f"Error inesperado decodificando JWT: {e}")
-            raise HTTPException(
-                status_code=401,
-                detail=f"Error procesando token: {str(e)}"
-            )
+            }
+    except jwt.DecodeError as e:
+        logger.error(f"Error decodificando JWT: {e}")
+        raise HTTPException(
+            status_code=401,
+            detail=f"Invalid token format: {str(e)}"
+        )
     except HTTPException:
         raise
     except Exception as e:

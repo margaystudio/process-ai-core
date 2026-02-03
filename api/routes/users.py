@@ -8,11 +8,13 @@ Este endpoint maneja:
 - POST /api/v1/users/{user_id}/workspaces/{workspace_id}/membership: Agregar usuario a workspace con rol
 """
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
 from process_ai_core.db.database import get_db_session
 from process_ai_core.db.models import User, Workspace, WorkspaceMembership
+from ..dependencies import get_db
 
 router = APIRouter(prefix="/api/v1/users", tags=["users"])
 
@@ -216,7 +218,7 @@ async def add_user_to_workspace(
 
 
 @router.get("/{user_id}/workspaces")
-async def get_user_workspaces(user_id: str):
+async def get_user_workspaces(user_id: str, session: Session = Depends(get_db)):
     """
     Obtiene todos los workspaces a los que pertenece un usuario.
     
@@ -226,38 +228,65 @@ async def get_user_workspaces(user_id: str):
     Returns:
         Lista de workspaces con información de membresía
     """
-    with get_db_session() as session:
-        from process_ai_core.db.models import Workspace, Role
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    logger.info(f"Obteniendo workspaces para usuario: {user_id}")
+    
+    # Usar la sesión proporcionada por la dependencia en lugar de crear una nueva
+    # Esto asegura que veamos los cambios recientes
+    from process_ai_core.db.models import Workspace, Role, User
+    
+    # Verificar que el usuario existe
+    user = session.query(User).filter_by(id=user_id).first()
+    if not user:
+        logger.warning(f"Usuario {user_id} no encontrado")
+        return []
+    
+    logger.info(f"Usuario encontrado: {user.email}")
+    
+    # Obtener todas las membresías del usuario
+    memberships = session.query(WorkspaceMembership).filter_by(user_id=user_id).all()
+    logger.info(f"Membresías encontradas: {len(memberships)}")
+    
+    if len(memberships) == 0:
+        logger.warning(f"⚠️  Usuario {user_id} no tiene membresías. Verificando en BD directamente...")
+        # Hacer una query directa para verificar
+        direct_memberships = session.execute(
+            f"SELECT * FROM workspace_memberships WHERE user_id = '{user_id}'"
+        ).fetchall()
+        logger.info(f"Query directa devolvió {len(direct_memberships)} membresías")
+    
+    workspaces = []
+    for membership in memberships:
+        workspace = session.query(Workspace).filter_by(id=membership.workspace_id).first()
+        if not workspace:
+            logger.warning(f"Workspace {membership.workspace_id} no encontrado para membresía {membership.id}")
+            continue
         
-        # Obtener todas las membresías del usuario
-        memberships = session.query(WorkspaceMembership).filter_by(user_id=user_id).all()
+        # Obtener el nombre del rol
+        role_name = None
+        if membership.role_id:
+            role = session.query(Role).filter_by(id=membership.role_id).first()
+            if role:
+                role_name = role.name
+        else:
+            # Compatibilidad: usar role string si role_id no existe
+            role_name = membership.role
         
-        workspaces = []
-        for membership in memberships:
-            workspace = session.query(Workspace).filter_by(id=membership.workspace_id).first()
-            if not workspace:
-                continue
-            
-            # Obtener el nombre del rol
-            role_name = None
-            if membership.role_id:
-                role = session.query(Role).filter_by(id=membership.role_id).first()
-                if role:
-                    role_name = role.name
-            else:
-                # Compatibilidad: usar role string si role_id no existe
-                role_name = membership.role
-            
-            workspaces.append({
-                "id": workspace.id,
-                "name": workspace.name,
-                "slug": workspace.slug,
-                "workspace_type": workspace.workspace_type,
-                "role": role_name,
-                "created_at": workspace.created_at.isoformat(),
-            })
-        
-        return workspaces
+        workspace_data = {
+            "id": workspace.id,
+            "name": workspace.name,
+            "slug": workspace.slug,
+            "workspace_type": workspace.workspace_type,
+            "role": role_name,
+            "created_at": workspace.created_at.isoformat(),
+        }
+        workspaces.append(workspace_data)
+        logger.info(f"Workspace agregado: {workspace.name} ({workspace.workspace_type}) - Rol: {role_name}")
+    
+    logger.info(f"Total workspaces devueltos: {len(workspaces)}")
+    return workspaces
 
 
 @router.get("/{user_id}/role/{workspace_id}")

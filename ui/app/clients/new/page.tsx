@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { createWorkspace, getCatalogOptions, CatalogOption } from '@/lib/api'
+import { createWorkspace, getCatalogOptions, createCatalogOption, CatalogOption } from '@/lib/api'
 
 export default function NewClientPage() {
   const router = useRouter()
@@ -24,6 +24,35 @@ export default function NewClientPage() {
   const [languageStyleOptions, setLanguageStyleOptions] = useState<CatalogOption[]>([])
   const [audienceOptions, setAudienceOptions] = useState<CatalogOption[]>([])
   const [loadingCatalog, setLoadingCatalog] = useState(true)
+
+  // Estado para agregar nuevo tipo de negocio
+  const [showAddBusinessType, setShowAddBusinessType] = useState(false)
+  const [newBusinessTypeLabel, setNewBusinessTypeLabel] = useState('')
+  const [creatingBusinessType, setCreatingBusinessType] = useState(false)
+
+  // Función para agregar nuevo tipo de negocio
+  const handleAddBusinessType = async () => {
+    if (!newBusinessTypeLabel.trim()) return
+    setCreatingBusinessType(true)
+    setError(null)
+    try {
+      const newOption = await createCatalogOption({
+        domain: 'business_type',
+        label: newBusinessTypeLabel.trim(),
+      })
+      // Agregar la nueva opción a la lista
+      setBusinessTypeOptions([...businessTypeOptions, newOption])
+      // Seleccionar la nueva opción
+      setBusinessType(newOption.value)
+      // Ocultar el formulario de agregar
+      setShowAddBusinessType(false)
+      setNewBusinessTypeLabel('')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error al crear tipo de negocio')
+    } finally {
+      setCreatingBusinessType(false)
+    }
+  }
 
   // Cargar opciones del catálogo
   useEffect(() => {
@@ -92,10 +121,8 @@ export default function NewClientPage() {
 
       setResult(response)
       
-      // Redirigir después de 2 segundos
-      setTimeout(() => {
-        router.push('/clients')
-      }, 2000)
+      // Redirigir inmediatamente
+      router.push('/clients')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error desconocido')
     } finally {
@@ -137,7 +164,7 @@ export default function NewClientPage() {
                 value={slug}
                 onChange={(e) => setSlug(e.target.value)}
                 required
-                pattern="[a-z0-9-]+"
+                pattern="[a-z0-9\-]+"
                 className="w-full px-4 py-2 border border-gray-300 rounded-md bg-gray-50 text-gray-600 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:bg-white font-mono text-sm"
                 placeholder="empresa-xyz"
               />
@@ -174,11 +201,59 @@ export default function NewClientPage() {
                 <div className="w-full px-4 py-2 border border-gray-300 rounded-md bg-gray-100 animate-pulse">
                   Cargando opciones...
                 </div>
-              ) : businessTypeOptions.length > 0 ? (
+              ) : showAddBusinessType ? (
+                <div className="space-y-2">
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={newBusinessTypeLabel}
+                      onChange={(e) => setNewBusinessTypeLabel(e.target.value)}
+                      className="flex-1 px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="Ej: Tecnología, Software, Consultoría"
+                      disabled={creatingBusinessType}
+                      autoFocus
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && newBusinessTypeLabel.trim() && !creatingBusinessType) {
+                          e.preventDefault()
+                          handleAddBusinessType()
+                        } else if (e.key === 'Escape') {
+                          setShowAddBusinessType(false)
+                          setNewBusinessTypeLabel('')
+                        }
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAddBusinessType}
+                      disabled={creatingBusinessType || !newBusinessTypeLabel.trim()}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {creatingBusinessType ? 'Creando...' : 'Agregar'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowAddBusinessType(false)
+                        setNewBusinessTypeLabel('')
+                      }}
+                      disabled={creatingBusinessType}
+                      className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                </div>
+              ) : (
                 <select
                   id="business_type"
                   value={businessType}
-                  onChange={(e) => setBusinessType(e.target.value)}
+                  onChange={(e) => {
+                    if (e.target.value === '__add_new__') {
+                      setShowAddBusinessType(true)
+                    } else {
+                      setBusinessType(e.target.value)
+                    }
+                  }}
                   className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 >
                   <option value="">Seleccionar...</option>
@@ -187,16 +262,10 @@ export default function NewClientPage() {
                       {opt.label}
                     </option>
                   ))}
+                  <option value="__add_new__" className="text-blue-600 font-medium">
+                    + Agregar nuevo tipo de negocio...
+                  </option>
                 </select>
-              ) : (
-                <input
-                  type="text"
-                  id="business_type"
-                  value={businessType}
-                  onChange={(e) => setBusinessType(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="Ej: Retail, Manufactura, Servicios"
-                />
               )}
             </div>
 

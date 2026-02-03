@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from process_ai_core.db.database import get_db_session
+from ..dependencies import get_db
 from process_ai_core.db.helpers import (
     create_organization_workspace, 
     get_workspace_by_slug,
@@ -30,7 +31,7 @@ router = APIRouter(prefix="/api/v1/workspaces", tags=["workspaces"])
 async def create_workspace(
     request: WorkspaceCreateRequest,
     user_id: str = Depends(get_current_user_id),
-    session: Session = Depends(get_db_session),
+    session: Session = Depends(get_db),
 ):
     """
     Crea un nuevo workspace.

@@ -15,6 +15,7 @@ import { updateSession } from '@/lib/supabase/middleware'
  * - /login
  * - /auth/*
  * - /api/*
+ * - /invitations/accept/* (permite aceptar invitaciones sin autenticación)
  */
 export async function middleware(request: NextRequest) {
   return await updateSession(request)

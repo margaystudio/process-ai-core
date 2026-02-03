@@ -122,7 +122,7 @@ export default function ViewPage() {
                 Estructura de Carpetas
               </h2>
               <FolderTree
-                workspaceId={selectedWorkspaceId}
+                workspaceId={selectedWorkspaceId || ''}
                 selectedFolderId={selectedFolderId || undefined}
                 onSelectFolder={(id) => setSelectedFolderId(id)}
                 showSelectable={true}

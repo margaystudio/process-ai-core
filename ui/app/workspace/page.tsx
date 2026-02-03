@@ -60,7 +60,7 @@ export default function WorkspacePage() {
       return (
         <div className="p-8">
           <div className="max-w-7xl mx-auto">
-            <div className="animate-pulse text-gray-500">Cargando workspaces...</div>
+            <div className="animate-pulse text-gray-500">Cargando espacios de trabajo...</div>
           </div>
         </div>
       )
@@ -73,16 +73,16 @@ export default function WorkspacePage() {
           <div className="max-w-7xl mx-auto">
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
               <h2 className="text-xl font-semibold text-blue-900 mb-2">
-                No tienes workspaces
+                No tienes espacios de trabajo
               </h2>
               <p className="text-blue-800 mb-4">
-                Para comenzar, necesitas crear o unirte a un workspace.
+                Para comenzar, necesitas crear o unirte a un espacio de trabajo.
               </p>
               <Link
                 href="/onboarding"
                 className="inline-block px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 font-medium"
               >
-                Crear Workspace
+                Crear Espacio de Trabajo
               </Link>
             </div>
           </div>
@@ -93,11 +93,11 @@ export default function WorkspacePage() {
     return (
       <div className="p-8">
         <div className="max-w-7xl mx-auto">
-          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6">
-            <p className="text-yellow-800">
-              Por favor, selecciona un workspace en el header para ver sus documentos.
-            </p>
-          </div>
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6">
+              <p className="text-yellow-800">
+                Por favor, selecciona un espacio de trabajo en el header para ver sus documentos.
+              </p>
+            </div>
         </div>
       </div>
     )
@@ -111,7 +111,7 @@ export default function WorkspacePage() {
           <div className="flex items-center justify-between mb-4">
             <div>
               <h1 className="text-3xl font-bold text-gray-900">
-                {selectedWorkspace?.name || 'Workspace'}
+                {selectedWorkspace?.name || 'Espacio de trabajo'}
               </h1>
               <p className="text-gray-600 mt-1">
                 Gestión de documentos y estructura de carpetas
@@ -180,7 +180,7 @@ export default function WorkspacePage() {
                       ? 'No se encontraron documentos que coincidan con la búsqueda'
                       : selectedFolderId
                       ? 'No hay documentos en esta carpeta'
-                      : 'No hay documentos en este workspace'}
+                      : 'No hay documentos en este espacio de trabajo'}
                   </p>
                   {!searchQuery && (
                     <Link

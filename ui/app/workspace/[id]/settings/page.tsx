@@ -41,6 +41,7 @@ export default function WorkspaceSettingsPage() {
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviteRole, setInviteRole] = useState('creator')
   const [inviteMessage, setInviteMessage] = useState('')
+  const [lastInvitationUrl, setLastInvitationUrl] = useState<string | null>(null)
 
   useEffect(() => {
     if (workspaceId) {
@@ -111,7 +112,7 @@ export default function WorkspaceSettingsPage() {
         // Por ahora, usamos un endpoint que acepta role_name
         // TODO: Implementar endpoint que acepte role_name o crear helper para obtener role_id
 
-        await createWorkspaceInvitation(
+        const invitation = await createWorkspaceInvitation(
           workspaceId,
           {
             email: inviteEmail.trim(),
@@ -120,6 +121,11 @@ export default function WorkspaceSettingsPage() {
           },
           token
         )
+
+        // Guardar el link de invitación
+        if (invitation.invitation_url) {
+          setLastInvitationUrl(invitation.invitation_url)
+        }
 
         // Reset form
         setInviteEmail('')
@@ -138,7 +144,7 @@ export default function WorkspaceSettingsPage() {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
-          <p className="text-gray-600">Workspace no seleccionado</p>
+          <p className="text-gray-600">Espacio de trabajo no seleccionado</p>
         </div>
       </div>
     )
@@ -148,9 +154,9 @@ export default function WorkspaceSettingsPage() {
     <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto">
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">Configuración del Workspace</h1>
+          <h1 className="text-3xl font-bold text-gray-900">Configuración del Espacio de Trabajo</h1>
           <p className="mt-2 text-sm text-gray-600">
-            Gestiona la configuración, usuarios, suscripción y límites del workspace
+            Gestiona la configuración, usuarios, suscripción y límites del espacio de trabajo
           </p>
         </div>
 
@@ -190,7 +196,7 @@ export default function WorkspaceSettingsPage() {
             {activeTab === 'general' && (
               <div>
                 <h2 className="text-xl font-semibold mb-4">Configuración General</h2>
-                <p className="text-gray-600">Configuración general del workspace (próximamente)</p>
+                <p className="text-gray-600">Configuración general del espacio de trabajo (próximamente)</p>
               </div>
             )}
 
@@ -263,6 +269,40 @@ export default function WorkspaceSettingsPage() {
                   </div>
                 )}
 
+                {lastInvitationUrl && (
+                  <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                    <p className="text-sm font-medium text-blue-900 mb-2">
+                      ✅ Invitación creada exitosamente
+                    </p>
+                    <p className="text-xs text-blue-700 mb-3">
+                      Copiá este link y enviáselo al usuario invitado (el sistema de emails aún no está configurado):
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        readOnly
+                        value={lastInvitationUrl}
+                        className="flex-1 px-3 py-2 bg-white border border-blue-300 rounded-md text-sm font-mono"
+                      />
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(lastInvitationUrl)
+                          alert('Link copiado al portapapeles')
+                        }}
+                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-md"
+                      >
+                        Copiar
+                      </button>
+                      <button
+                        onClick={() => setLastInvitationUrl(null)}
+                        className="px-3 py-2 text-blue-600 hover:text-blue-800 text-sm"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 <div className="space-y-4">
                   <h3 className="text-lg font-medium">Invitaciones Pendientes</h3>
                   {invitations.filter((inv) => inv.status === 'pending').length === 0 ? (
@@ -272,15 +312,34 @@ export default function WorkspaceSettingsPage() {
                       {invitations
                         .filter((inv) => inv.status === 'pending')
                         .map((invitation) => (
-                          <div key={invitation.id} className="py-4">
-                            <div className="flex items-center justify-between">
-                              <div>
+                          <div key={invitation.id} className="py-4 border-b border-gray-200 last:border-b-0">
+                            <div className="flex items-start justify-between gap-4">
+                              <div className="flex-1">
                                 <p className="font-medium">{invitation.email}</p>
                                 <p className="text-sm text-gray-500">
                                   Rol: {invitation.role_name} • Expira: {new Date(invitation.expires_at).toLocaleDateString()}
                                 </p>
+                                {invitation.invitation_url && (
+                                  <div className="mt-3 flex items-center gap-2">
+                                    <input
+                                      type="text"
+                                      readOnly
+                                      value={invitation.invitation_url}
+                                      className="flex-1 px-3 py-1.5 bg-gray-50 border border-gray-300 rounded-md text-xs font-mono"
+                                    />
+                                    <button
+                                      onClick={() => {
+                                        navigator.clipboard.writeText(invitation.invitation_url!)
+                                        alert('Link copiado al portapapeles')
+                                      }}
+                                      className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-md whitespace-nowrap"
+                                    >
+                                      Copiar Link
+                                    </button>
+                                  </div>
+                                )}
                               </div>
-                              <span className="px-3 py-1 text-xs font-medium rounded-full bg-yellow-100 text-yellow-800">
+                              <span className="px-3 py-1 text-xs font-medium rounded-full bg-yellow-100 text-yellow-800 whitespace-nowrap">
                                 Pendiente
                               </span>
                             </div>
@@ -412,7 +471,7 @@ export default function WorkspaceSettingsPage() {
                             <div
                               className="bg-blue-600 h-2 rounded-full"
                               style={{
-                                width: `${(limits.current_usage.current_users_count / limits.limits.max_users) * 100}%`,
+                                width: `${limits.limits.max_users ? Math.min((limits.current_usage.current_users_count / limits.limits.max_users) * 100, 100) : 0}%`,
                               }}
                             />
                           </div>
@@ -437,7 +496,7 @@ export default function WorkspaceSettingsPage() {
                             <div
                               className="bg-blue-600 h-2 rounded-full"
                               style={{
-                                width: `${(limits.current_usage.current_documents_count / limits.limits.max_documents) * 100}%`,
+                                width: `${limits.limits.max_documents ? Math.min((limits.current_usage.current_documents_count / limits.limits.max_documents) * 100, 100) : 0}%`,
                               }}
                             />
                           </div>
@@ -462,7 +521,7 @@ export default function WorkspaceSettingsPage() {
                             <div
                               className="bg-blue-600 h-2 rounded-full"
                               style={{
-                                width: `${(limits.current_usage.current_documents_this_month / limits.limits.max_documents_per_month) * 100}%`,
+                                width: `${limits.limits.max_documents_per_month ? Math.min((limits.current_usage.current_documents_this_month / limits.limits.max_documents_per_month) * 100, 100) : 0}%`,
                               }}
                             />
                           </div>
@@ -487,7 +546,7 @@ export default function WorkspaceSettingsPage() {
                             <div
                               className="bg-blue-600 h-2 rounded-full"
                               style={{
-                                width: `${(limits.current_usage.current_storage_gb / limits.limits.max_storage_gb) * 100}%`,
+                                width: `${limits.limits.max_storage_gb ? Math.min((limits.current_usage.current_storage_gb / limits.limits.max_storage_gb) * 100, 100) : 0}%`,
                               }}
                             />
                           </div>

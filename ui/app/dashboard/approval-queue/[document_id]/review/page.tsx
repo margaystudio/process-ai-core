@@ -226,7 +226,6 @@ export default function DocumentReviewPage() {
                     src={`${pdfUrl}#toolbar=0`}
                     className="w-full h-[600px]"
                     title="Preview del documento"
-                    type="application/pdf"
                   />
                 </div>
               ) : (

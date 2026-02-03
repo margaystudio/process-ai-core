@@ -1508,10 +1508,10 @@ def list_subscription_plans(
 
 
 def get_active_subscription(session: Session, workspace_id: str) -> WorkspaceSubscription | None:
-    """Obtiene la suscripción activa de un workspace."""
-    return session.query(WorkspaceSubscription).filter_by(
-        workspace_id=workspace_id,
-        status="active"
+    """Obtiene la suscripción activa o en período de prueba de un workspace."""
+    return session.query(WorkspaceSubscription).filter(
+        WorkspaceSubscription.workspace_id == workspace_id,
+        WorkspaceSubscription.status.in_(["active", "trial"])
     ).first()
 
 
@@ -1575,6 +1575,7 @@ def check_workspace_limit(
     Returns:
         (allowed: bool, error_message: str | None)
     """
+    # Usar get_active_subscription que considera tanto "active" como "trial"
     subscription = get_active_subscription(session, workspace_id)
     if not subscription:
         return False, "Workspace sin suscripción activa"
@@ -1714,6 +1715,7 @@ def accept_invitation(
     session: Session,
     invitation_id: str,
     user_id: str,
+    user: User | None = None,  # Permitir pasar el objeto user directamente
 ) -> WorkspaceInvitation:
     """
     Acepta una invitación y crea la membresía del usuario.
@@ -1722,9 +1724,14 @@ def accept_invitation(
         session: Sesión de base de datos
         invitation_id: ID de la invitación
         user_id: ID del usuario que acepta
+        user: Objeto User opcional (si se proporciona, se usa directamente en lugar de hacer query)
     
     Returns:
         WorkspaceInvitation actualizada
+    
+    Raises:
+        ValueError: Si la invitación no existe, ya fue procesada, expiró, 
+                   el email no coincide, o se excede el límite de usuarios
     """
     invitation = session.query(WorkspaceInvitation).filter_by(id=invitation_id).first()
     if not invitation:
@@ -1733,10 +1740,43 @@ def accept_invitation(
     if invitation.status != "pending":
         raise ValueError(f"Invitación ya procesada (status: {invitation.status})")
     
-    if datetime.now(UTC) > invitation.expires_at:
+    # Comparar datetimes: convertir ambos a naive para comparar
+    # SQLite almacena datetimes como naive, así que convertimos datetime.now(UTC) a naive
+    now_naive = datetime.now(UTC).replace(tzinfo=None)
+    if now_naive > invitation.expires_at:
         invitation.status = "expired"
         session.flush()
         raise ValueError("Invitación expirada")
+    
+    # VALIDACIÓN CRÍTICA: Verificar que el email del usuario coincida con el email de la invitación
+    # Si se proporciona el objeto user, usarlo directamente; si no, buscarlo
+    logger.info(f"accept_invitation: user_id={user_id}, user proporcionado={user is not None}")
+    if user is None:
+        logger.info(f"Buscando usuario por user_id: {user_id}")
+        user = session.query(User).filter_by(id=user_id).first()
+        if not user:
+            logger.error(f"Usuario {user_id} no encontrado en query")
+            raise ValueError("Usuario no encontrado")
+        logger.info(f"Usuario encontrado en query: {user.id} (email: {user.email})")
+    else:
+        # Verificar que el user_id coincide
+        logger.info(f"Usando usuario proporcionado: {user.id} (email: {user.email})")
+        logger.info(f"Usuario en sesión: {user in session}")
+        if user.id != user_id:
+            logger.error(f"ID mismatch: user.id={user.id}, user_id={user_id}")
+            raise ValueError(f"El ID del usuario proporcionado ({user.id}) no coincide con el user_id ({user_id})")
+        # Asegurarse de que el usuario esté en la sesión
+        if user not in session:
+            logger.warning(f"Usuario no está en la sesión, agregándolo...")
+            session.add(user)
+            session.flush()
+            logger.info(f"Usuario agregado a sesión: {user in session}")
+    
+    if user.email.lower() != invitation.email.lower():
+        raise ValueError(
+            f"El email del usuario ({user.email}) no coincide con el email de la invitación ({invitation.email}). "
+            "Solo el usuario invitado puede aceptar esta invitación."
+        )
     
     # Verificar límite de usuarios
     allowed, error_msg = check_workspace_limit(session, invitation.workspace_id, "users")
@@ -1745,8 +1785,13 @@ def accept_invitation(
     
     # Aceptar invitación
     invitation.status = "accepted"
-    invitation.accepted_at = datetime.now(UTC)
+    invitation.accepted_at = now_naive  # Usar el mismo datetime naive
     invitation.accepted_by_user_id = user_id
+    
+    # Obtener el nombre del rol para establecer el campo role (compatibilidad)
+    role = session.query(Role).filter_by(id=invitation.role_id).first()
+    if not role:
+        raise ValueError(f"Rol con ID {invitation.role_id} no encontrado")
     
     # Crear membresía
     membership = WorkspaceMembership(
@@ -1754,13 +1799,26 @@ def accept_invitation(
         workspace_id=invitation.workspace_id,
         user_id=user_id,
         role_id=invitation.role_id,
+        role=role.name,  # Establecer el nombre del rol para compatibilidad
     )
     session.add(membership)
+    logger.info(f"Membresía creada: user_id={user_id}, workspace_id={invitation.workspace_id}, role={role.name}")
     
     # Incrementar contador de usuarios
     increment_workspace_counter(session, invitation.workspace_id, "users")
     
     session.flush()
+    logger.info(f"Membresía guardada (flush): membership.id={membership.id}, user_id={membership.user_id}, workspace_id={membership.workspace_id}")
+    
+    # Verificar que la membresía está en la sesión
+    verify_membership = session.query(WorkspaceMembership).filter_by(
+        user_id=user_id,
+        workspace_id=invitation.workspace_id
+    ).first()
+    logger.info(f"Verificación membresía después de flush: {verify_membership is not None}")
+    if verify_membership:
+        logger.info(f"Membresía verificada: id={verify_membership.id}, role={verify_membership.role}")
+    
     return invitation
 
 
@@ -1832,4 +1890,29 @@ def list_workspace_invitations(
     if status:
         query = query.filter_by(status=status)
     return query.order_by(WorkspaceInvitation.created_at.desc()).all()
+
+
+def get_pending_invitations_by_email(
+    session: Session,
+    email: str,
+) -> list[WorkspaceInvitation]:
+    """
+    Obtiene todas las invitaciones pendientes para un email.
+    
+    Args:
+        session: Sesión de base de datos
+        email: Email del usuario invitado
+    
+    Returns:
+        Lista de invitaciones pendientes
+    """
+    from datetime import datetime, UTC
+    
+    now_naive = datetime.now(UTC).replace(tzinfo=None)
+    
+    return session.query(WorkspaceInvitation).filter(
+        WorkspaceInvitation.email == email,
+        WorkspaceInvitation.status == "pending",
+        WorkspaceInvitation.expires_at > now_naive,
+    ).order_by(WorkspaceInvitation.created_at.desc()).all()
 

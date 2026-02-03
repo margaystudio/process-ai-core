@@ -19,10 +19,10 @@ export default function Header() {
   // Rutas públicas donde no se muestra el usuario ni la navegación completa
   const isPublicRoute = pathname?.startsWith('/login') || pathname?.startsWith('/auth')
 
+  // Verificar si el usuario es superadmin (tiene un workspace de tipo "system")
+  const isSuperadmin = workspaces.some(ws => ws.workspace_type === 'system')
+
   const isActive = (path: string) => {
-    if (path === '/') {
-      return pathname === '/'
-    }
     return pathname?.startsWith(path)
   }
 
@@ -76,7 +76,7 @@ export default function Header() {
         <div className="flex items-center justify-between h-16">
           {/* Logo y título */}
           <div className="flex items-center">
-            <Link href="/" className="flex items-center space-x-3">
+            <Link href="/workspace" className="flex items-center space-x-3">
               <div className="flex-shrink-0 flex items-center">
                 <img
                   src="/margay-logo.png"
@@ -124,16 +124,6 @@ export default function Header() {
           {!isPublicRoute && (
             <nav className="hidden md:flex items-center space-x-1">
               <Link
-                href="/"
-                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                  isActive('/') && pathname === '/'
-                    ? 'bg-blue-100 text-blue-700'
-                    : 'text-gray-700 hover:bg-gray-100'
-                }`}
-              >
-                Inicio
-              </Link>
-              <Link
                 href="/workspace"
                 className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
                   isActive('/workspace')
@@ -143,38 +133,30 @@ export default function Header() {
               >
                 Documentos
               </Link>
-              <Link
-                href="/processes/new"
-                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                  isActive('/processes')
-                    ? 'bg-blue-100 text-blue-700'
-                    : 'text-gray-700 hover:bg-gray-100'
-                }`}
-              >
-                Nuevo Proceso
-              </Link>
-              <Link
-                href="/clients/new"
-                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                  isActive('/clients')
-                    ? 'bg-blue-100 text-blue-700'
-                    : 'text-gray-700 hover:bg-gray-100'
-                }`}
-              >
-                Nuevo Cliente
-              </Link>
+              {isSuperadmin && (
+                <Link
+                  href="/clients"
+                  className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                    isActive('/clients')
+                      ? 'bg-blue-100 text-blue-700'
+                      : 'text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  Clientes
+                </Link>
+              )}
             </nav>
           )}
 
           {/* Selector de workspace, menú de usuario y menú móvil */}
           <div className="flex items-center space-x-4">
             {!isPublicRoute && workspaces.length > 0 && selectedWorkspaceId && (
-              <div className="hidden lg:block">
+              <div className="hidden lg:flex items-center space-x-2">
                 <select
                   value={selectedWorkspaceId}
                   onChange={(e) => setSelectedWorkspaceId(e.target.value || null)}
                   className="px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
-                  title="Seleccionar workspace"
+                  title="Seleccionar espacio de trabajo"
                 >
                   {workspaces.map((ws) => (
                     <option key={ws.id} value={ws.id}>
@@ -182,6 +164,24 @@ export default function Header() {
                     </option>
                   ))}
                 </select>
+                <Link
+                  href={`/workspace/${selectedWorkspaceId}/settings`}
+                  className="p-1.5 text-gray-600 hover:text-blue-600 hover:bg-gray-100 rounded-md transition-colors"
+                  title="Configuración del espacio de trabajo"
+                >
+                  <svg
+                    className="h-5 w-5"
+                    fill="none"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                    <path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                </Link>
               </div>
             )}
 
@@ -232,6 +232,15 @@ export default function Header() {
                           {user.email}
                         </p>
                       </div>
+                      {selectedWorkspaceId && (
+                        <Link
+                          href={`/workspace/${selectedWorkspaceId}/settings`}
+                          onClick={() => setUserMenuOpen(false)}
+                          className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors"
+                        >
+                          Configuración del espacio de trabajo
+                        </Link>
+                      )}
                       <button
                         onClick={handleSignOut}
                         className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors"
@@ -276,17 +285,6 @@ export default function Header() {
           <div className="md:hidden border-t border-gray-200 py-4">
             <nav className="flex flex-col space-y-1">
               <Link
-                href="/"
-                onClick={() => setMobileMenuOpen(false)}
-                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                  isActive('/') && pathname === '/'
-                    ? 'bg-blue-100 text-blue-700'
-                    : 'text-gray-700 hover:bg-gray-100'
-                }`}
-              >
-                Inicio
-              </Link>
-              <Link
                 href="/workspace"
                 onClick={() => setMobileMenuOpen(false)}
                 className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
@@ -297,44 +295,56 @@ export default function Header() {
               >
                 Documentos
               </Link>
-              <Link
-                href="/processes/new"
-                onClick={() => setMobileMenuOpen(false)}
-                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                  isActive('/processes')
-                    ? 'bg-blue-100 text-blue-700'
-                    : 'text-gray-700 hover:bg-gray-100'
-                }`}
-              >
-                Nuevo Proceso
-              </Link>
-              <Link
-                href="/clients/new"
-                onClick={() => setMobileMenuOpen(false)}
-                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                  isActive('/clients')
-                    ? 'bg-blue-100 text-blue-700'
-                    : 'text-gray-700 hover:bg-gray-100'
-                }`}
-              >
-                Nuevo Cliente
-              </Link>
+              {isSuperadmin && (
+                <Link
+                  href="/clients"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                    isActive('/clients')
+                      ? 'bg-blue-100 text-blue-700'
+                      : 'text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  Clientes
+                </Link>
+              )}
               {workspaces.length > 0 && selectedWorkspaceId && (
-                <div className="px-4 py-2">
-                  <label className="block text-xs font-medium text-gray-500 mb-1">
-                    Workspace
-                  </label>
-                  <select
-                    value={selectedWorkspaceId}
-                    onChange={(e) => setSelectedWorkspaceId(e.target.value || null)}
-                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
+                <div className="px-4 py-2 space-y-2">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">
+                      Espacio de trabajo
+                    </label>
+                    <select
+                      value={selectedWorkspaceId}
+                      onChange={(e) => setSelectedWorkspaceId(e.target.value || null)}
+                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
+                    >
+                      {workspaces.map((ws) => (
+                        <option key={ws.id} value={ws.id}>
+                          {ws.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <Link
+                    href={`/workspace/${selectedWorkspaceId}/settings`}
+                    onClick={() => setMobileMenuOpen(false)}
+                    className="flex items-center space-x-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-md transition-colors"
                   >
-                    {workspaces.map((ws) => (
-                      <option key={ws.id} value={ws.id}>
-                        {ws.name}
-                      </option>
-                    ))}
-                  </select>
+                    <svg
+                      className="h-4 w-4"
+                      fill="none"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                      <path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                    <span>Configuración</span>
+                  </Link>
                 </div>
               )}
               {user && (

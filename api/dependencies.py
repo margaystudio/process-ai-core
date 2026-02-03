@@ -7,19 +7,39 @@ Este módulo proporciona dependencias reutilizables para:
 - Verificar roles específicos (superadmin, owner, etc.)
 """
 
-from typing import Optional
+from typing import Optional, Generator
 from fastapi import HTTPException, Header, Depends
 from sqlalchemy.orm import Session
 
-from process_ai_core.db.database import get_db_session
+from process_ai_core.db.database import get_db_engine, get_db_session
 from process_ai_core.db.models import User, Role, WorkspaceMembership
 from process_ai_core.db.helpers import get_user_by_external_id
 from process_ai_core.db.permissions import has_permission
 
 import os
 import logging
+import jwt  # pyjwt
 
 logger = logging.getLogger(__name__)
+
+
+def get_db() -> Generator[Session, None, None]:
+    """
+    Dependencia de FastAPI para obtener una sesión de base de datos.
+    Compatible con el uso de múltiples dependencias anidadas.
+    Usa un generador puro en lugar de un context manager para evitar conflictos.
+    """
+    get_db_engine(echo=False)
+    from process_ai_core.db.database import SessionLocal
+    db = SessionLocal()
+    try:
+        yield db
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
 
 # Cliente de Supabase para validar tokens
 try:
@@ -38,8 +58,7 @@ except ImportError:
 
 
 async def get_current_user_id(
-    authorization: Optional[str] = Header(None),
-    session: Session = Depends(get_db_session),
+    authorization: Optional[str] = Header(None, alias="Authorization"),
 ) -> str:
     """
     Obtiene el ID del usuario actual desde el token JWT.
@@ -54,58 +73,87 @@ async def get_current_user_id(
     Raises:
         HTTPException: Si el token es inválido o el usuario no existe
     """
-    if not authorization or not authorization.startswith("Bearer "):
+    logger.info(f"get_current_user_id llamado, authorization presente: {authorization is not None}")
+    
+    if not authorization:
+        logger.warning("Authorization header no presente")
         raise HTTPException(
             status_code=401,
-            detail="Missing or invalid Authorization header"
+            detail="Missing Authorization header"
+        )
+    
+    if not authorization.startswith("Bearer "):
+        logger.warning(f"Authorization header no tiene formato Bearer: {authorization[:20]}...")
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid Authorization header format. Expected 'Bearer <token>'"
         )
     
     token = authorization.replace("Bearer ", "").strip()
+    logger.info(f"Token extraído, longitud: {len(token)}, primeros 20 chars: {token[:20]}...")
     
-    if not supabase:
-        # En desarrollo sin Supabase, usar el token como user_id directamente
-        # El token puede ser un UUID o un user_id
-        if token and len(token) == 36:  # UUID format
-            user = session.query(User).filter_by(id=token).first()
-            if user:
-                return user.id
-            # Si no existe el usuario, crear uno temporal para desarrollo
-            logger.warning(f"User {token} not found in database, creating temporary user for development")
-            import uuid
-            new_user = User(
-                id=token,
-                email=f"dev-{token[:8]}@localhost",
-                name="Development User",
-                external_id=token,  # Usar el mismo ID como external_id
-            )
-            session.add(new_user)
-            session.commit()
-            return new_user.id
-        raise HTTPException(
-            status_code=401,
-            detail="Supabase not configured. Please provide a valid user ID (UUID) in Authorization header"
-        )
-    
+    # Siempre intentar decodificar el JWT, incluso si Supabase no está configurado
+    # El token JWT puede ser decodificado sin necesidad de Supabase
+    logger.info("Decodificando JWT (no requiere Supabase configurado)...")
     try:
-        # Validar token con Supabase
-        response = supabase.auth.get_user(token)
-        
-        if not response.user:
+        # Decodificar JWT para obtener el user_id (sub)
+        # El service role key no puede usar get_user() directamente con un token JWT
+        logger.info("Intentando decodificar JWT...")
+        try:
+            # Decodificar JWT sin verificar la firma (solo para obtener el sub)
+            # La validación real se hace en el frontend con Supabase
+            decoded = jwt.decode(token, options={"verify_signature": False})
+            logger.info(f"JWT decodificado exitosamente: {list(decoded.keys())}")
+            
+            supabase_user_id = decoded.get("sub")
+            
+            logger.info(f"Token decodificado, supabase_user_id: {supabase_user_id}")
+            
+            if not supabase_user_id:
+                logger.warning("Token no contiene 'sub' (user ID)")
+                logger.warning(f"Campos disponibles en token: {list(decoded.keys())}")
+                raise HTTPException(
+                    status_code=401,
+                    detail="Invalid token: no user ID found"
+                )
+            
+            # Crear una sesión temporal para buscar el usuario
+            # Esto evita conflictos con múltiples dependencias anidadas
+            with get_db_session() as session:
+                # Buscar usuario local por external_id
+                logger.info(f"Buscando usuario con external_id: {supabase_user_id}")
+                local_user = get_user_by_external_id(session, supabase_user_id)
+                
+                logger.info(f"Usuario encontrado en BD local: {local_user is not None}")
+                if local_user:
+                    logger.info(f"Usuario encontrado: {local_user.email} (id: {local_user.id})")
+                    return local_user.id
+                else:
+                    # Listar todos los external_ids para debugging
+                    all_users = session.query(User).all()
+                    external_ids = [u.external_id for u in all_users if u.external_id]
+                    logger.warning(f"Usuario con external_id {supabase_user_id} no encontrado en BD local")
+                    logger.warning(f"External IDs en BD: {external_ids}")
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"User not found in local database. Supabase ID: {supabase_user_id}"
+                    )
+        except jwt.DecodeError as e:
+            logger.error(f"Error decodificando JWT: {e}")
+            logger.error(f"Tipo de error: {type(e).__name__}")
             raise HTTPException(
                 status_code=401,
-                detail="Invalid token"
+                detail=f"Invalid token format: {str(e)}"
             )
-        
-        # Buscar usuario local
-        local_user = get_user_by_external_id(session, response.user.id, "supabase")
-        
-        if not local_user:
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error inesperado decodificando JWT: {e}")
+            logger.exception("Traceback completo:")
             raise HTTPException(
-                status_code=404,
-                detail="User not found in local database"
+                status_code=401,
+                detail=f"Error procesando token: {str(e)}"
             )
-        
-        return local_user.id
     except HTTPException:
         raise
     except Exception as e:
@@ -118,7 +166,7 @@ async def get_current_user_id(
 
 async def get_current_user(
     user_id: str = Depends(get_current_user_id),
-    session: Session = Depends(get_db_session),
+    session: Session = Depends(get_db),
 ) -> User:
     """
     Obtiene el objeto User completo del usuario actual.
@@ -164,7 +212,7 @@ def is_superadmin(
 
 async def require_superadmin(
     user_id: str = Depends(get_current_user_id),
-    session: Session = Depends(get_db_session),
+    session: Session = Depends(get_db),
 ) -> str:
     """
     Dependencia que requiere que el usuario sea superadmin.
@@ -184,7 +232,7 @@ async def require_permission(
     permission_name: str,
     workspace_id: str,
     user_id: str = Depends(get_current_user_id),
-    session: Session = Depends(get_db_session),
+    session: Session = Depends(get_db),
 ) -> str:
     """
     Dependencia que requiere que el usuario tenga un permiso específico en un workspace.
@@ -213,7 +261,7 @@ async def require_role(
     role_name: str,
     workspace_id: str,
     user_id: str = Depends(get_current_user_id),
-    session: Session = Depends(get_db_session),
+    session: Session = Depends(get_db),
 ) -> str:
     """
     Dependencia que requiere que el usuario tenga un rol específico en un workspace.

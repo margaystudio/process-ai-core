@@ -118,20 +118,21 @@ export default function DocumentDetailPage() {
         // Load catalog options and process-specific fields
         if (doc.document_type === 'process') {
           const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
-          const [audienceOpts, detailOpts, processDoc] = await Promise.all([
+          const [audienceOpts, detailOpts, processDocResponse] = await Promise.all([
             getCatalogOptions('audience').catch(() => []),
             getCatalogOptions('detail_level').catch(() => []),
             fetch(`${apiUrl}/api/v1/documents/${documentId}/process`)
-              .then(r => r.ok ? r.json() : {})
-              .catch(() => ({})),
+              .then(r => r.ok ? r.json() : null)
+              .catch(() => null),
           ])
           setAudienceOptions(audienceOpts)
           setDetailLevelOptions(detailOpts)
           
           // Set process-specific fields (incluso si están vacíos)
-          setAudience(processDoc.audience || '')
-          setDetailLevel(processDoc.detail_level || '')
-          setContextText(processDoc.context_text || '')
+          const processDoc = (processDocResponse as { audience?: string; detail_level?: string; context_text?: string }) || {}
+          setAudience(processDoc?.audience || '')
+          setDetailLevel(processDoc?.detail_level || '')
+          setContextText(processDoc?.context_text || '')
         }
         
         // Load runs

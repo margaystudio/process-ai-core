@@ -321,6 +321,66 @@ export async function getCatalogOptions(domain: string): Promise<CatalogOption[]
   return response.json();
 }
 
+export interface CreateCatalogOptionRequest {
+  domain: string;
+  value?: string;
+  label: string;
+  prompt_text?: string;
+  sort_order?: number;
+}
+
+/**
+ * Crea una nueva opción de catálogo.
+ */
+export async function createCatalogOption(
+  request: CreateCatalogOptionRequest
+): Promise<CatalogOption> {
+  const headers: HeadersInit = {
+    'Content-Type': 'application/json',
+  }
+
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+
+  if (supabaseUrl && supabaseKey) {
+    try {
+      const { createClient } = await import('@/lib/supabase/client')
+      const supabase = createClient()
+      const { data: { session } } = await supabase.auth.getSession()
+      if (session?.access_token) {
+        headers['Authorization'] = `Bearer ${session.access_token}`
+      } else {
+        throw new Error('No hay sesión activa. Por favor, inicia sesión.')
+      }
+    } catch (err) {
+      if (err instanceof Error && err.message.includes('sesión')) {
+        throw err
+      }
+      console.warn('Error obteniendo token de Supabase:', err)
+      throw new Error('Error de autenticación. Por favor, inicia sesión nuevamente.')
+    }
+  } else {
+    // Modo desarrollo sin Supabase: no se puede crear opciones de catálogo sin autenticación
+    throw new Error('Supabase no está configurado. No se pueden crear opciones de catálogo.')
+  }
+
+  const response = await fetch(`${API_URL}/api/v1/catalog`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(request),
+  })
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }))
+    if (response.status === 401) {
+      throw new Error('No autorizado. Por favor, inicia sesión nuevamente.')
+    }
+    throw new Error(error.detail || `HTTP ${response.status}`)
+  }
+
+  return response.json()
+}
+
 /**
  * Lista todas las carpetas de un workspace.
  */
@@ -505,6 +565,7 @@ export interface Validation {
   checklist_json: string;
   created_at: string;
   updated_at: string;
+  completed_at: string | null;
 }
 
 export interface ValidationCreateRequest {
@@ -1045,6 +1106,8 @@ export interface InvitationResponse {
   accepted_at?: string;
   message?: string;
   created_at: string;
+  invitation_url?: string; // URL para aceptar la invitación
+  token?: string; // Token de la invitación (para uso directo)
 }
 
 /**
@@ -1118,21 +1181,86 @@ export async function createWorkspaceInvitation(
 }
 
 /**
+ * Obtiene información de una invitación por token (público, sin autenticación).
+ */
+export async function getInvitationByToken(
+  token: string
+): Promise<InvitationResponse> {
+  const response = await fetch(
+    `${API_URL}/api/v1/invitations/token/${token}`,
+    {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    }
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
+    throw new Error(error.detail || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Obtiene invitaciones pendientes por email (público, sin autenticación).
+ */
+export async function getPendingInvitationsByEmail(
+  email: string
+): Promise<InvitationResponse[]> {
+  const response = await fetch(
+    `${API_URL}/api/v1/invitations/pending/${encodeURIComponent(email)}`,
+    {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    }
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
+    throw new Error(error.detail || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+/**
  * Acepta una invitación por token (público).
  */
+export interface AcceptInvitationResponse {
+  message: string
+  status: 'accepted' | 'already_accepted' | 'already_member'
+  user_id: string
+  workspace_id: string
+  membership_id: string
+  role: string | null
+}
+
 export async function acceptInvitationByToken(
   token: string,
-  userId: string
-): Promise<{ message: string; workspace_id: string }> {
+  userId?: string | null,
+  authToken?: string | null
+): Promise<AcceptInvitationResponse> {
+  const headers: HeadersInit = {
+    'Content-Type': 'application/json',
+  }
+  
+  // Incluir token de autenticación si está disponible
+  if (authToken) {
+    headers['Authorization'] = `Bearer ${authToken}`
+  }
+
   const response = await fetch(
     `${API_URL}/api/v1/invitations/token/${token}/accept`,
     {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers,
       body: JSON.stringify({
-        user_id: userId,
+        user_id: userId || null,  // Enviar null si no hay userId (el backend lo creará)
       }),
     }
   );

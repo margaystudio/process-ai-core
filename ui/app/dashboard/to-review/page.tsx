@@ -86,7 +86,7 @@ export default function ToReviewPage() {
         <div className="max-w-7xl mx-auto">
           <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6">
             <p className="text-yellow-800">
-              Por favor, selecciona un workspace en el header para ver sus documentos.
+              Por favor, selecciona un espacio de trabajo en el header para ver sus documentos.
             </p>
           </div>
         </div>
@@ -101,7 +101,7 @@ export default function ToReviewPage() {
         <div className="mb-6">
           <h1 className="text-3xl font-bold text-gray-900">Documentos a Revisar</h1>
           <p className="text-gray-600 mt-1">
-            {selectedWorkspace?.name || 'Workspace'} - Documentos rechazados que requieren corrección
+            {selectedWorkspace?.name || 'Espacio de trabajo'} - Documentos rechazados que requieren corrección
           </p>
         </div>
 

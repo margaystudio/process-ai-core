@@ -13,7 +13,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, EmailStr
 
-from process_ai_core.db.database import get_db_session
+from ..dependencies import get_db
 from process_ai_core.db.helpers import (
     create_organization_workspace,
     get_workspace_by_slug,
@@ -60,7 +60,7 @@ class InviteAdminRequest(BaseModel):
 async def create_b2b_workspace(
     request: CreateB2BWorkspaceRequest,
     superadmin_id: str = Depends(require_superadmin),
-    session: Session = Depends(get_db_session),
+    session: Session = Depends(get_db),
 ):
     """
     Crea un nuevo workspace B2B (organización) y asigna plan de suscripción.
@@ -145,7 +145,7 @@ async def invite_admin_to_workspace(
     workspace_id: str,
     request: InviteAdminRequest,
     superadmin_id: str = Depends(require_superadmin),
-    session: Session = Depends(get_db_session),
+    session: Session = Depends(get_db),
 ):
     """
     Invita a un admin a unirse a un workspace B2B.
@@ -198,7 +198,7 @@ async def invite_admin_to_workspace(
 async def list_all_workspaces(
     workspace_type: Optional[str] = None,  # "organization" | "user"
     superadmin_id: str = Depends(require_superadmin),
-    session: Session = Depends(get_db_session),
+    session: Session = Depends(get_db),
 ):
     """
     Lista todos los workspaces del sistema.

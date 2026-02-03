@@ -90,7 +90,8 @@ export default function LoginPage() {
       if (data.user) {
         // Sincronizar usuario con backend
         await syncUserToBackend(data.user)
-        router.push('/workspace')
+        // Redirigir a / para que el flujo completo verifique workspaces e invitaciones
+        router.push('/')
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al iniciar sesión')
@@ -154,7 +155,8 @@ export default function LoginPage() {
       if (data.user) {
         // Sincronizar usuario con backend
         await syncUserToBackend(data.user)
-        router.push('/workspace')
+        // Redirigir a / para que el flujo completo verifique workspaces e invitaciones
+        router.push('/')
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Código inválido')
@@ -212,10 +214,20 @@ export default function LoginPage() {
       // Guardar el userId local para uso en el frontend
       if (syncResponse.user_id) {
         localStorage.setItem('local_user_id', syncResponse.user_id)
+        // Disparar evento personalizado para que useUserId y WorkspaceContext lo detecten
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('localStorageChange', {
+            detail: { key: 'local_user_id', value: syncResponse.user_id }
+          }))
+          // Dar un pequeño delay para que el WorkspaceContext tenga tiempo de refrescar
+          await new Promise(resolve => setTimeout(resolve, 100))
+        }
+        console.log('[Login] User ID guardado en localStorage y evento disparado:', syncResponse.user_id)
       }
     } catch (err) {
       console.error('Error sincronizando usuario:', err)
       // No lanzar error, el usuario ya está autenticado en Supabase
+      // El backend puede crear el usuario automáticamente cuando se necesite
     }
   }
 

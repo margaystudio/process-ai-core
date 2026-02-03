@@ -46,7 +46,13 @@ export async function GET(request: Request) {
           },
         })
         
-        // El userId local se guardará en localStorage desde el cliente cuando se cargue la página
+        // Guardar userId en la URL para que el cliente lo pueda leer y guardar en localStorage
+        // Esto es necesario porque el callback es server-side y no puede acceder a localStorage directamente
+        if (syncResponse.user_id) {
+          const nextUrl = new URL(next, requestUrl.origin)
+          nextUrl.searchParams.set('user_id', syncResponse.user_id)
+          return NextResponse.redirect(nextUrl)
+        }
       } catch (err) {
         console.error('Error sincronizando usuario:', err)
         // No redirigir a error, el usuario ya está autenticado

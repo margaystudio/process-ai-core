@@ -78,8 +78,30 @@ export function useUserId(): string | null {
           }
         })
 
+        // Escuchar cambios en localStorage (para detectar cuando se guarda user_id después de aceptar invitación)
+        // Nota: storage events solo se disparan desde otras ventanas, así que usamos un evento personalizado
+        const handleStorageChange = (e: StorageEvent) => {
+          if (e.key === 'local_user_id' && e.newValue) {
+            console.log('[useUserId] Detectado cambio en local_user_id (storage event):', e.newValue)
+            setUserId(e.newValue)
+          }
+        }
+        window.addEventListener('storage', handleStorageChange)
+
+        // Escuchar evento personalizado que se dispara cuando se guarda user_id en la misma ventana
+        const handleCustomStorageChange = (e: Event) => {
+          const customEvent = e as CustomEvent
+          if (customEvent.detail?.key === 'local_user_id' && customEvent.detail?.value) {
+            console.log('[useUserId] Detectado cambio en local_user_id (custom event):', customEvent.detail.value)
+            setUserId(customEvent.detail.value)
+          }
+        }
+        window.addEventListener('localStorageChange', handleCustomStorageChange as EventListener)
+
         return () => {
           subscription.unsubscribe()
+          window.removeEventListener('storage', handleStorageChange)
+          window.removeEventListener('localStorageChange', handleCustomStorageChange as EventListener)
         }
       } catch (err) {
         // Si hay error creando el cliente, usar localStorage como fallback

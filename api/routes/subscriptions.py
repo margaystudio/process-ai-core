@@ -15,7 +15,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
-from process_ai_core.db.database import get_db_session
+from ..dependencies import get_db
 from process_ai_core.db.helpers import (
     list_subscription_plans,
     get_subscription_plan,
@@ -94,7 +94,7 @@ class CreateSubscriptionRequest(BaseModel):
 @router.get("/subscription-plans", response_model=list[SubscriptionPlanResponse])
 async def list_plans(
     plan_type: Optional[str] = None,  # "b2b" | "b2c"
-    session: Session = Depends(get_db_session),
+    session: Session = Depends(get_db),
 ):
     """
     Lista planes de suscripción disponibles.
@@ -109,7 +109,7 @@ async def list_plans(
 @router.get("/workspaces/{workspace_id}/subscription", response_model=WorkspaceSubscriptionResponse)
 async def get_workspace_subscription(
     workspace_id: str,
-    session: Session = Depends(get_db_session),
+    session: Session = Depends(get_db),
 ):
     """
     Obtiene la suscripción actual de un workspace.
@@ -137,7 +137,7 @@ async def get_workspace_subscription(
 async def create_or_update_subscription(
     workspace_id: str,
     request: CreateSubscriptionRequest,
-    session: Session = Depends(get_db_session),
+    session: Session = Depends(get_db),
 ):
     """
     Crea o actualiza la suscripción de un workspace.
@@ -193,13 +193,49 @@ async def create_or_update_subscription(
 @router.get("/workspaces/{workspace_id}/limits", response_model=WorkspaceLimitsResponse)
 async def get_workspace_limits(
     workspace_id: str,
-    session: Session = Depends(get_db_session),
+    session: Session = Depends(get_db),
 ):
     """
     Obtiene los límites y uso actual de un workspace.
+    
+    Para workspaces de tipo "system" (superadmins), devuelve límites ilimitados.
     """
-    subscription = get_active_subscription(session, workspace_id)
+    # Verificar si es un workspace de tipo "system"
+    workspace = session.query(Workspace).filter_by(id=workspace_id).first()
+    if not workspace:
+        raise HTTPException(status_code=404, detail="Workspace no encontrado")
+    
+    # Workspaces de tipo "system" no requieren suscripción y tienen límites ilimitados
+    if workspace.workspace_type == "system":
+        return WorkspaceLimitsResponse(
+            workspace_id=workspace_id,
+            plan_name="system",
+            plan_display_name="Sistema (Ilimitado)",
+            limits={
+                "max_users": None,  # Ilimitado
+                "max_documents": None,  # Ilimitado
+                "max_documents_per_month": None,  # Ilimitado
+                "max_storage_gb": None,  # Ilimitado
+            },
+            current_usage={
+                "current_users_count": 0,
+                "current_documents_count": 0,
+                "current_documents_this_month": 0,
+                "current_storage_gb": 0.0,
+            },
+            can_create_users=True,
+            can_create_documents=True,
+            can_create_documents_this_month=True,
+        )
+    
+    # Para otros tipos de workspace, buscar suscripción
+    from process_ai_core.db.helpers import get_subscription
+    subscription = get_subscription(session, workspace_id)
     if not subscription:
+        raise HTTPException(status_code=404, detail="Workspace sin suscripción activa")
+    
+    # Solo permitir suscripciones activas o en trial
+    if subscription.status not in ("active", "trial"):
         raise HTTPException(status_code=404, detail="Workspace sin suscripción activa")
     
     plan = subscription.plan

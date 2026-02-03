@@ -468,7 +468,7 @@ export default function FolderTree({
   if (!workspaceId) {
     return (
       <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
-        <p className="text-sm text-gray-500">Seleccioná un workspace para ver las carpetas</p>
+        <p className="text-sm text-gray-500">Seleccioná un espacio de trabajo para ver las carpetas</p>
       </div>
     )
   }
@@ -511,7 +511,7 @@ export default function FolderTree({
       {folders.length === 0 ? (
         <div className="p-4 bg-gray-50 rounded-md">
           <p className="text-sm text-gray-500 text-center">
-            Cargando estructura de carpetas...
+            No hay carpetas en este espacio de trabajo
           </p>
         </div>
       ) : (

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { createB2BWorkspace, listAllWorkspaces, inviteAdminToWorkspace, WorkspaceResponse } from '@/lib/api'
+import { createB2BWorkspace, listAllWorkspaces, WorkspaceResponse } from '@/lib/api'
 import { useLoading } from '@/contexts/LoadingContext'
 import { useUserId } from '@/hooks/useUserId'
 import { createClient } from '@/lib/supabase/client'
@@ -113,7 +113,7 @@ export default function SuperadminPage() {
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900">Panel de Superadmin</h1>
           <p className="mt-2 text-sm text-gray-600">
-            Gestiona workspaces B2B, asigna planes de suscripción e invita administradores
+            Gestiona espacios de trabajo B2B, asigna planes de suscripción e invita administradores
           </p>
         </div>
 
@@ -128,13 +128,13 @@ export default function SuperadminPage() {
             onClick={() => setShowCreateForm(!showCreateForm)}
             className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-md"
           >
-            {showCreateForm ? 'Cancelar' : '+ Crear Workspace B2B'}
+            {showCreateForm ? 'Cancelar' : '+ Crear Espacio de Trabajo B2B'}
           </button>
         </div>
 
         {showCreateForm && (
           <div className="bg-white shadow rounded-lg p-6 mb-8">
-            <h2 className="text-xl font-semibold mb-4">Crear Workspace B2B</h2>
+            <h2 className="text-xl font-semibold mb-4">Crear Espacio de Trabajo B2B</h2>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
@@ -238,7 +238,7 @@ export default function SuperadminPage() {
                   disabled={loading}
                   className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-md disabled:opacity-50"
                 >
-                  Crear Workspace e Invitar Admin
+                  Crear Espacio de Trabajo e Invitar Admin
                 </button>
               </div>
             </form>
@@ -247,12 +247,12 @@ export default function SuperadminPage() {
 
         <div className="bg-white shadow rounded-lg overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-200">
-            <h2 className="text-lg font-semibold">Workspaces B2B</h2>
+            <h2 className="text-lg font-semibold">Espacios de Trabajo B2B</h2>
           </div>
           {loading ? (
             <div className="p-6 text-center text-gray-500">Cargando...</div>
           ) : workspaces.length === 0 ? (
-            <div className="p-6 text-center text-gray-500">No hay workspaces B2B</div>
+            <div className="p-6 text-center text-gray-500">No hay espacios de trabajo B2B</div>
           ) : (
             <div className="divide-y divide-gray-200">
               {workspaces.map((workspace) => (

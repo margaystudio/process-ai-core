@@ -81,7 +81,7 @@ export default function OnboardingPage() {
             Bienvenido a Process AI
           </h1>
           <p className="text-gray-600 mb-8">
-            Para comenzar, necesitas crear o unirte a un workspace (organización/cliente).
+            Para comenzar, necesitas crear o unirte a un espacio de trabajo (organización/cliente).
           </p>
 
           {error && (
@@ -93,7 +93,7 @@ export default function OnboardingPage() {
           <form onSubmit={handleSubmit} className="space-y-6">
             <div>
               <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-2">
-                Nombre del Workspace *
+                Nombre del Espacio de Trabajo *
               </label>
               <input
                 id="name"
@@ -202,7 +202,7 @@ export default function OnboardingPage() {
                 disabled={loading || !name.trim() || !slug.trim()}
                 className="w-full px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
               >
-                {loading ? 'Creando...' : 'Crear Workspace'}
+                {loading ? 'Creando...' : 'Crear Espacio de Trabajo'}
               </button>
             </div>
           </form>

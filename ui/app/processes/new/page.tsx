@@ -64,7 +64,7 @@ export default function NewProcessPage() {
         
         // Campos requeridos
         if (!selectedWorkspaceId) {
-          throw new Error('Debes seleccionar un workspace en el header')
+          throw new Error('Debes seleccionar un espacio de trabajo en el header')
         }
         if (!folderId) {
           throw new Error('Debes seleccionar una carpeta')
@@ -102,11 +102,11 @@ export default function NewProcessPage() {
             {!selectedWorkspaceId ? (
               <div className="bg-white rounded-lg border border-gray-200 p-6">
                 <p className="text-sm text-gray-600 mb-4">
-                  Por favor, selecciona un workspace en el header para continuar.
+                  Por favor, selecciona un espacio de trabajo en el header para continuar.
                 </p>
                 {selectedWorkspace && (
                   <div className="mt-4 p-3 bg-blue-50 rounded-md">
-                    <p className="text-sm font-medium text-blue-900">Workspace actual:</p>
+                    <p className="text-sm font-medium text-blue-900">Espacio de trabajo actual:</p>
                     <p className="text-sm text-blue-700">{selectedWorkspace.name}</p>
                   </div>
                 )}
@@ -141,12 +141,12 @@ export default function NewProcessPage() {
               {!selectedWorkspaceId ? (
                 <div className="p-6 bg-yellow-50 border border-yellow-200 rounded-md">
                   <p className="text-sm text-yellow-800">
-                    Por favor, selecciona un workspace en el header para crear un proceso.
+                    Por favor, selecciona un espacio de trabajo en el header para crear un proceso.
                   </p>
                 </div>
               ) : (
                 <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-md">
-                  <p className="text-sm font-medium text-blue-900">Workspace:</p>
+                  <p className="text-sm font-medium text-blue-900">Espacio de trabajo:</p>
                   <p className="text-sm text-blue-700">{selectedWorkspace?.name}</p>
                 </div>
               )}
