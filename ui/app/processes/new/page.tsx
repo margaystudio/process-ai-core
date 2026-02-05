@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import { createProcessRun, getArtifactUrl } from '@/lib/api'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
 import { useLoading } from '@/contexts/LoadingContext'
@@ -14,6 +15,7 @@ import { usePdfViewer } from '@/hooks/usePdfViewer'
 import { FileItemData } from '@/components/processes/FileItem'
 
 export default function NewProcessPage() {
+  const router = useRouter()
   const { selectedWorkspaceId, selectedWorkspace } = useWorkspace()
   const { withLoading } = useLoading()
   const [processName, setProcessName] = useState('')
@@ -85,6 +87,14 @@ export default function NewProcessPage() {
         
         const response = await createProcessRun(formData)
         setResult(response)
+        
+        // Si se creó un documento, redirigir a su página de detalles
+        if (response.document_id) {
+          // Pequeño delay para que el usuario vea el mensaje de éxito
+          setTimeout(() => {
+            router.push(`/documents/${response.document_id}`)
+          }, 1500)
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Error desconocido')
       } finally {

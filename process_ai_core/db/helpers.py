@@ -1149,6 +1149,28 @@ def reject_version(
     return version
 
 
+def get_in_review_version(
+    session: Session,
+    document_id: str,
+) -> DocumentVersion | None:
+    """
+    Obtiene la versión IN_REVIEW de un documento, si existe.
+    
+    Args:
+        session: Sesión de base de datos
+        document_id: ID del documento
+    
+    Returns:
+        DocumentVersion en estado IN_REVIEW, o None si no existe
+    """
+    version = (
+        session.query(DocumentVersion)
+        .filter_by(document_id=document_id, version_status="IN_REVIEW")
+        .first()
+    )
+    return version
+
+
 def check_version_immutable(
     session: Session,
     document_id: str,
@@ -1353,24 +1375,63 @@ def delete_document(
         raise ValueError(f"Documento {document_id} no encontrado")
     
     # Eliminar en orden (respetando foreign keys)
-    # 1. Artifacts (dependen de Runs)
+    # 1. Obtener todos los runs primero
     runs = session.query(Run).filter_by(document_id=document_id).all()
-    for run in runs:
-        session.query(Artifact).filter_by(run_id=run.id).delete()
+    run_ids = [run.id for run in runs]
     
-    # 2. Runs
-    session.query(Run).filter_by(document_id=document_id).delete()
+    if run_ids:
+        # 2. Eliminar Artifacts (dependen de Runs) - CRÍTICO: debe hacerse antes de eliminar runs
+        artifacts_count = session.query(Artifact).filter(Artifact.run_id.in_(run_ids)).count()
+        if artifacts_count > 0:
+            session.query(Artifact).filter(Artifact.run_id.in_(run_ids)).delete(synchronize_session=False)
+            session.flush()  # Asegurar que se ejecute antes de continuar
+        
+        # 3. Actualizar AuditLogs para que run_id sea NULL (antes de eliminar runs)
+        audit_logs_count = session.query(AuditLog).filter(AuditLog.run_id.in_(run_ids)).count()
+        if audit_logs_count > 0:
+            session.query(AuditLog).filter(AuditLog.run_id.in_(run_ids)).update(
+                {AuditLog.run_id: None},
+                synchronize_session=False
+            )
+            session.flush()
+        
+        # 4. Actualizar Validations para que run_id sea NULL (antes de eliminar runs)
+        validations_count = session.query(Validation).filter(Validation.run_id.in_(run_ids)).count()
+        if validations_count > 0:
+            session.query(Validation).filter(Validation.run_id.in_(run_ids)).update(
+                {Validation.run_id: None},
+                synchronize_session=False
+            )
+            session.flush()  # Asegurar que se ejecute antes de continuar
+        
+        # 5. Actualizar DocumentVersions para que run_id sea NULL (aunque tiene ondelete="SET NULL", 
+        # es mejor hacerlo explícitamente para evitar problemas)
+        from process_ai_core.db.models import DocumentVersion
+        versions_count = session.query(DocumentVersion).filter(DocumentVersion.run_id.in_(run_ids)).count()
+        if versions_count > 0:
+            session.query(DocumentVersion).filter(DocumentVersion.run_id.in_(run_ids)).update(
+                {DocumentVersion.run_id: None},
+                synchronize_session=False
+            )
+            session.flush()
+        
+        # 6. Eliminar Runs (ahora que no hay referencias)
+        session.query(Run).filter(Run.id.in_(run_ids)).delete(synchronize_session=False)
+        session.flush()
     
-    # 3. Validations
-    session.query(Validation).filter_by(document_id=document_id).delete()
+    # 6. Eliminar Validations (ahora que ya no referencian runs)
+    session.query(Validation).filter_by(document_id=document_id).delete(synchronize_session=False)
+    session.flush()
     
-    # 4. Document Versions
-    session.query(DocumentVersion).filter_by(document_id=document_id).delete()
+    # 7. Document Versions
+    session.query(DocumentVersion).filter_by(document_id=document_id).delete(synchronize_session=False)
+    session.flush()
     
-    # 5. Audit Logs
-    session.query(AuditLog).filter_by(document_id=document_id).delete()
+    # 8. Audit Logs
+    session.query(AuditLog).filter_by(document_id=document_id).delete(synchronize_session=False)
+    session.flush()
     
-    # 6. Documento específico (Process/Recipe)
+    # 9. Documento específico (Process/Recipe)
     if document.document_type == "process":
         session.query(Process).filter_by(id=document_id).delete()
     elif document.document_type == "recipe":

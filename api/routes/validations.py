@@ -25,6 +25,7 @@ from process_ai_core.db.helpers import (
     create_document_version,
     approve_version,
     reject_version,
+    get_in_review_version,
 )
 import logging
 import json
@@ -297,6 +298,217 @@ async def create_document_validation(
             created_at=validation.created_at.isoformat(),
             completed_at=validation.completed_at.isoformat() if validation.completed_at else None,
         )
+
+
+class ValidationApproveRequest(BaseModel):
+    observations: Optional[str] = ""
+
+
+class ValidationRejectDirectRequest(BaseModel):
+    observations: str  # REQUIRED para rechazo
+
+
+class ValidationDecisionResponse(BaseModel):
+    version_id: str
+    version_status: str
+    validation_id: str
+    document_status: str
+
+
+@router.post("/documents/{document_id}/validate/approve", response_model=ValidationDecisionResponse)
+async def approve_document_validation_direct(
+    document_id: str,
+    request: ValidationApproveRequest = Body(...),
+    user_id: str = Depends(get_current_user_id),
+    session: Session = Depends(get_db),
+):
+    """
+    Aprueba directamente una versión IN_REVIEW del documento (one-shot validation).
+    
+    Este endpoint:
+    1. Busca la versión IN_REVIEW del documento
+    2. Si no existe, devuelve 400
+    3. Usa el validation_id asociado a la versión (creado en submit)
+    4. Ejecuta approve_version que cambia la versión a APPROVED
+    
+    Solo usuarios con permisos para aprobar documentos pueden usar este endpoint.
+    
+    Args:
+        document_id: ID del documento
+        request: Observaciones opcionales
+        user_id: ID del usuario (extraído del JWT)
+    
+    Returns:
+        ValidationDecisionResponse con version_id, version_status, validation_id, document_status
+    """
+    from process_ai_core.db.permissions import has_permission
+    from process_ai_core.db.models import Document, DocumentVersion, Validation
+    
+    # Obtener documento para verificar workspace
+    doc = session.query(Document).filter_by(id=document_id).first()
+    if not doc:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Documento {document_id} no encontrado"
+        )
+    
+    workspace_id = doc.workspace_id
+    
+    # Verificar permisos
+    if not has_permission(session, user_id, workspace_id, "documents.approve"):
+        raise HTTPException(
+            status_code=403,
+            detail="No tiene permisos para aprobar documentos"
+        )
+    
+    # Buscar versión IN_REVIEW
+    version = get_in_review_version(session, document_id)
+    if not version:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No hay versión IN_REVIEW para el documento {document_id}. El documento debe estar en estado 'pending_validation' con una versión enviada a revisión."
+        )
+    
+    # Verificar que la versión tenga validation_id asociado (debería existir desde submit)
+    if not version.validation_id:
+        # Si no tiene validation_id, crear una validación pendiente y asociarla
+        logger.warning(f"Versión {version.id} no tiene validation_id asociado, creando validación")
+        validation = create_validation(
+            session=session,
+            document_id=document_id,
+            run_id=version.run_id,
+            observations=request.observations or "",
+            checklist_json="{}",
+        )
+        session.flush()
+        version.validation_id = validation.id
+        session.flush()
+    else:
+        # Actualizar observaciones si se proporcionan
+        validation = session.query(Validation).filter_by(id=version.validation_id).first()
+        if validation and request.observations:
+            validation.observations = request.observations
+    
+    # Aprobar versión usando el helper existente
+    try:
+        approved_version = approve_version(
+            session=session,
+            validation_id=version.validation_id,
+            approver_id=user_id,
+        )
+        session.commit()
+        session.refresh(doc)
+        
+        return ValidationDecisionResponse(
+            version_id=approved_version.id,
+            version_status=approved_version.version_status,
+            validation_id=version.validation_id,
+            document_status=doc.status,
+        )
+    except ValueError as e:
+        session.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/documents/{document_id}/validate/reject", response_model=ValidationDecisionResponse)
+async def reject_document_validation_direct(
+    document_id: str,
+    request: ValidationRejectDirectRequest = Body(...),
+    user_id: str = Depends(get_current_user_id),
+    session: Session = Depends(get_db),
+):
+    """
+    Rechaza directamente una versión IN_REVIEW del documento (one-shot validation).
+    
+    Este endpoint:
+    1. Busca la versión IN_REVIEW del documento
+    2. Si no existe, devuelve 400
+    3. Usa el validation_id asociado a la versión (creado en submit)
+    4. Ejecuta reject_version que cambia la versión a REJECTED
+    
+    Las observaciones son OBLIGATORIAS para rechazar.
+    
+    Solo usuarios con permisos para rechazar documentos pueden usar este endpoint.
+    
+    Args:
+        document_id: ID del documento
+        request: Observaciones (REQUIRED)
+        user_id: ID del usuario (extraído del JWT)
+    
+    Returns:
+        ValidationDecisionResponse con version_id, version_status, validation_id, document_status
+    """
+    from process_ai_core.db.permissions import has_permission
+    from process_ai_core.db.models import Document, DocumentVersion, Validation
+    
+    # Validar que observations no esté vacío
+    if not request.observations or not request.observations.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Las observaciones son obligatorias para rechazar un documento"
+        )
+    
+    # Obtener documento para verificar workspace
+    doc = session.query(Document).filter_by(id=document_id).first()
+    if not doc:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Documento {document_id} no encontrado"
+        )
+    
+    workspace_id = doc.workspace_id
+    
+    # Verificar permisos
+    if not has_permission(session, user_id, workspace_id, "documents.reject"):
+        raise HTTPException(
+            status_code=403,
+            detail="No tiene permisos para rechazar documentos"
+        )
+    
+    # Buscar versión IN_REVIEW
+    version = get_in_review_version(session, document_id)
+    if not version:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No hay versión IN_REVIEW para el documento {document_id}. El documento debe estar en estado 'pending_validation' con una versión enviada a revisión."
+        )
+    
+    # Verificar que la versión tenga validation_id asociado (debería existir desde submit)
+    if not version.validation_id:
+        # Si no tiene validation_id, crear una validación pendiente y asociarla
+        logger.warning(f"Versión {version.id} no tiene validation_id asociado, creando validación")
+        validation = create_validation(
+            session=session,
+            document_id=document_id,
+            run_id=version.run_id,
+            observations=request.observations,
+            checklist_json="{}",
+        )
+        session.flush()
+        version.validation_id = validation.id
+        session.flush()
+    
+    # Rechazar versión usando el helper existente
+    try:
+        rejected_version = reject_version(
+            session=session,
+            validation_id=version.validation_id,
+            rejector_id=user_id,
+            observations=request.observations,
+            structured_observations=None,
+        )
+        session.commit()
+        session.refresh(doc)
+        
+        return ValidationDecisionResponse(
+            version_id=rejected_version.id,
+            version_status=rejected_version.version_status,
+            validation_id=version.validation_id,
+            document_status=doc.status,
+        )
+    except ValueError as e:
+        session.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.post("/validations/{validation_id}/approve", response_model=ValidationResponse)

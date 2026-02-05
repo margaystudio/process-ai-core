@@ -717,9 +717,11 @@ async def create_document_run(
             if pdf_generated:
                 artifacts["pdf"] = f"/api/v1/artifacts/{run_id}/process.pdf"
             
-            # Persistir Artifacts en la base de datos
+            # Persistir Artifacts en la base de datos y crear versión IN_REVIEW automáticamente
             with get_db_session() as db_session:
-                from process_ai_core.db.helpers import update_document_status
+                from process_ai_core.db.helpers import update_document_status, get_or_create_draft, submit_version_for_review
+                from process_ai_core.db.models import DocumentVersion
+                import uuid
                 
                 create_artifact(
                     session=db_session,
@@ -741,13 +743,89 @@ async def create_document_run(
                         file_path=f"output/{run_id}/process.pdf",
                     )
                 
-                # Actualizar estado del documento a pending_validation
-                update_document_status(
-                    session=db_session,
-                    document_id=document_id,
-                    status="pending_validation",
-                )
-                db_session.commit()
+                # Crear versión DRAFT desde el run generado y enviarla automáticamente a revisión
+                try:
+                    # Leer el contenido generado
+                    json_content = json_path.read_text(encoding="utf-8")
+                    markdown_content = md_path.read_text(encoding="utf-8")
+                    
+                    # Obtener número de versión siguiente
+                    last_version = (
+                        db_session.query(DocumentVersion)
+                        .filter_by(document_id=document_id)
+                        .order_by(DocumentVersion.version_number.desc())
+                        .first()
+                    )
+                    version_number = (last_version.version_number + 1) if last_version else 1
+                    
+                    # Verificar que no haya una versión IN_REVIEW existente
+                    existing_in_review = (
+                        db_session.query(DocumentVersion)
+                        .filter_by(document_id=document_id, version_status="IN_REVIEW")
+                        .first()
+                    )
+                    
+                    if existing_in_review:
+                        # Si ya hay IN_REVIEW, crear solo DRAFT (no enviar a revisión)
+                        logger.info(f"Ya existe versión IN_REVIEW para documento {document_id}. Creando solo DRAFT.")
+                        draft_version = DocumentVersion(
+                            id=str(uuid.uuid4()),
+                            document_id=document_id,
+                            run_id=run_id,
+                            version_number=version_number,
+                            version_status="DRAFT",
+                            content_type="generated",
+                            content_json=json_content,
+                            content_markdown=markdown_content,
+                            is_current=False,
+                        )
+                        db_session.add(draft_version)
+                        db_session.flush()
+                    else:
+                        # Crear versión DRAFT directamente desde el run
+                        draft_version = DocumentVersion(
+                            id=str(uuid.uuid4()),
+                            document_id=document_id,
+                            run_id=run_id,
+                            version_number=version_number,
+                            version_status="DRAFT",
+                            content_type="generated",
+                            content_json=json_content,
+                            content_markdown=markdown_content,
+                            is_current=False,
+                        )
+                        db_session.add(draft_version)
+                        db_session.flush()
+                        
+                        # Enviar automáticamente a revisión (cambia a IN_REVIEW y crea Validation)
+                        try:
+                            updated_version, validation = submit_version_for_review(
+                                session=db_session,
+                                version_id=draft_version.id,
+                                submitter_id=None,  # TODO: obtener del contexto de autenticación
+                            )
+                            logger.info(f"Versión {draft_version.id} enviada automáticamente a revisión (IN_REVIEW)")
+                        except ValueError as e:
+                            # Si falla (ej: ya existe IN_REVIEW), dejar como DRAFT
+                            logger.warning(f"No se pudo enviar versión a revisión automáticamente: {e}")
+                    
+                    # Actualizar estado del documento a pending_validation
+                    update_document_status(
+                        session=db_session,
+                        document_id=document_id,
+                        status="pending_validation",
+                    )
+                    
+                    db_session.commit()
+                except Exception as e:
+                    # Si falla la creación de versión, al menos actualizar el estado
+                    logger.error(f"Error al crear versión desde run: {e}", exc_info=True)
+                    update_document_status(
+                        session=db_session,
+                        document_id=document_id,
+                        status="pending_validation",
+                    )
+                    db_session.commit()
             
             from ..models.requests import ProcessRunResponse
             return ProcessRunResponse(
@@ -1045,28 +1123,83 @@ Responde SOLO con el JSON corregido, sin texto adicional.
         
         from process_ai_core.domains.processes.renderer import ProcessRenderer
         from process_ai_core.domains.processes.profiles import get_profile
+        from process_ai_core.db.helpers import create_run, create_artifact, update_document_status
+        from process_ai_core.config import get_settings
+        from process_ai_core.export import export_pdf
+        import uuid
+        import shutil
+        
+        # Generar run_id antes de crear en BD
+        new_run_id = str(uuid.uuid4())
+        settings = get_settings()
+        new_run_dir = Path(settings.output_dir) / new_run_id
+        new_run_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Obtener imágenes del run original si existe
+        images_by_step = {}
+        evidence_images = []
+        
+        if run_id:
+            original_run_dir = Path(settings.output_dir) / run_id
+            original_assets_dir = original_run_dir / "assets"
+            
+            if original_assets_dir.exists():
+                logger.info(f"Copiando imágenes del run original {run_id}...")
+                # Copiar directorio de assets completo al nuevo run
+                new_assets_dir = new_run_dir / "assets"
+                if original_assets_dir.exists():
+                    shutil.copytree(original_assets_dir, new_assets_dir, dirs_exist_ok=True)
+                    logger.info(f"Imágenes copiadas a {new_assets_dir}")
+                
+                # Intentar leer el resultado del run original para obtener metadatos de imágenes
+                # Si no está disponible, al menos las imágenes físicas están copiadas
+                try:
+                    # Buscar imágenes en el directorio copiado
+                    evidence_dir = new_assets_dir / "evidence"
+                    if evidence_dir.exists():
+                        for img_file in evidence_dir.glob("*"):
+                            if img_file.is_file() and img_file.suffix.lower() in ['.png', '.jpg', '.jpeg', '.webp']:
+                                rel_path = f"assets/evidence/{img_file.name}"
+                                evidence_images.append({
+                                    "path": rel_path,
+                                    "title": img_file.stem
+                                })
+                    
+                    # Buscar imágenes por paso (estructura: assets/step_N/...)
+                    for step_dir in new_assets_dir.glob("step_*"):
+                        if step_dir.is_dir():
+                            try:
+                                step_num = int(step_dir.name.split("_")[1])
+                                step_images = []
+                                for img_file in step_dir.glob("*"):
+                                    if img_file.is_file() and img_file.suffix.lower() in ['.png', '.jpg', '.jpeg', '.webp']:
+                                        rel_path = f"assets/{step_dir.name}/{img_file.name}"
+                                        step_images.append({
+                                            "path": rel_path,
+                                            "title": img_file.stem
+                                        })
+                                if step_images:
+                                    images_by_step[step_num] = step_images
+                            except (ValueError, IndexError):
+                                continue
+                except Exception as e:
+                    logger.warning(f"No se pudieron leer metadatos de imágenes del run original: {e}")
+                    # Las imágenes están copiadas, pero no tenemos metadatos
+                    # El renderer puede funcionar sin metadatos si las imágenes están en las rutas correctas
         
         profile = get_profile(process_audience)
         renderer = ProcessRenderer()
         
-        logger.info("Renderizando markdown...")
+        logger.info(f"Renderizando markdown con {len(images_by_step)} pasos con imágenes y {len(evidence_images)} imágenes de evidencia...")
         markdown = renderer.render_markdown(
             document=process_doc,
             profile=profile,
-            images_by_step={},
-            evidence_images=[],
+            images_by_step=images_by_step,
+            evidence_images=evidence_images,
+            output_base=new_run_dir,
         )
         
-        # Crear nuevo Run para el patch (nueva sesión)
-        from process_ai_core.db.helpers import create_run, create_artifact, update_document_status
-        from process_ai_core.config import get_settings
-        from process_ai_core.export import export_pdf
-        
         logger.info("Creando nuevo run...")
-        
-        # Generar run_id antes de crear en BD
-        import uuid
-        new_run_id = str(uuid.uuid4())
         
         # Guardar artifacts en disco primero
         settings = get_settings()
@@ -1122,12 +1255,95 @@ Responde SOLO con el JSON corregido, sin texto adicional.
                     file_path=f"output/{new_run_id}/process.pdf",
                 )
             
-            # Actualizar estado a pending_validation
-            update_document_status(
-                session=session,
-                document_id=document_id,
-                status="pending_validation",
-            )
+            # Crear versión DRAFT desde el run generado y enviarla automáticamente a revisión
+            try:
+                import json
+                import uuid
+                
+                # Leer el contenido generado
+                json_path = output_dir / "process.json"
+                md_path = output_dir / "process.md"
+                
+                json_content = json_path.read_text(encoding="utf-8")
+                markdown_content = md_path.read_text(encoding="utf-8")
+                
+                # Obtener número de versión siguiente
+                last_version = (
+                    session.query(DocumentVersion)
+                    .filter_by(document_id=document_id)
+                    .order_by(DocumentVersion.version_number.desc())
+                    .first()
+                )
+                version_number = (last_version.version_number + 1) if last_version else 1
+                
+                # Verificar que no haya una versión IN_REVIEW existente
+                existing_in_review = (
+                    session.query(DocumentVersion)
+                    .filter_by(document_id=document_id, version_status="IN_REVIEW")
+                    .first()
+                )
+                
+                if existing_in_review:
+                    # Si ya hay IN_REVIEW, crear solo DRAFT (no enviar a revisión)
+                    logger.info(f"Ya existe versión IN_REVIEW para documento {document_id}. Creando solo DRAFT.")
+                    draft_version = DocumentVersion(
+                        id=str(uuid.uuid4()),
+                        document_id=document_id,
+                        run_id=new_run_id,
+                        version_number=version_number,
+                        version_status="DRAFT",
+                        content_type="generated",
+                        content_json=json_content,
+                        content_markdown=markdown_content,
+                        is_current=False,
+                    )
+                    session.add(draft_version)
+                    session.flush()
+                else:
+                    # Crear versión DRAFT directamente desde el run
+                    draft_version = DocumentVersion(
+                        id=str(uuid.uuid4()),
+                        document_id=document_id,
+                        run_id=new_run_id,
+                        version_number=version_number,
+                        version_status="DRAFT",
+                        content_type="generated",
+                        content_json=json_content,
+                        content_markdown=markdown_content,
+                        is_current=False,
+                    )
+                    session.add(draft_version)
+                    session.flush()
+                    
+                    # Enviar automáticamente a revisión (cambia a IN_REVIEW y crea Validation)
+                    try:
+                        updated_version, validation = submit_version_for_review(
+                            session=session,
+                            version_id=draft_version.id,
+                            submitter_id=None,  # TODO: obtener del contexto de autenticación
+                        )
+                        logger.info(f"Versión {draft_version.id} enviada automáticamente a revisión (IN_REVIEW)")
+                    except ValueError as e:
+                        # Si falla (ej: ya existe IN_REVIEW), dejar como DRAFT
+                        logger.warning(f"No se pudo enviar versión a revisión automáticamente: {e}")
+                
+                # Actualizar estado del documento a pending_validation
+                update_document_status(
+                    session=session,
+                    document_id=document_id,
+                    status="pending_validation",
+                )
+                
+                session.commit()
+            except Exception as e:
+                # Si falla la creación de versión, al menos actualizar el estado
+                logger.error(f"Error al crear versión desde run en patch: {e}", exc_info=True)
+                update_document_status(
+                    session=session,
+                    document_id=document_id,
+                    status="pending_validation",
+                )
+                session.commit()
             
             logger.info(f"Run {new_run_id} creado exitosamente")
             # Commit se hace automáticamente al salir del with
@@ -1193,10 +1409,13 @@ async def get_document_versions(document_id: str):
             {
                 "id": v.id,
                 "version_number": v.version_number,
+                "version_status": v.version_status,
                 "content_type": v.content_type,
                 "run_id": v.run_id,
-                "approved_at": v.approved_at.isoformat(),
+                "approved_at": v.approved_at.isoformat() if v.approved_at else None,
                 "approved_by": v.approved_by,
+                "rejected_at": v.rejected_at.isoformat() if v.rejected_at else None,
+                "rejected_by": v.rejected_by,
                 "is_current": v.is_current,
                 "created_at": v.created_at.isoformat(),
             }

@@ -27,6 +27,7 @@ export interface RunResponse {
     markdown?: string;
     pdf?: string;
   };
+  document_id?: string;
   error?: string;
 }
 
@@ -669,6 +670,76 @@ export async function listValidations(documentId: string): Promise<Validation[]>
   return response.json();
 }
 
+/**
+ * Respuesta de decisión de validación (one-shot).
+ */
+export interface ValidationDecisionResponse {
+  version_id: string;
+  version_status: string;
+  validation_id: string;
+  document_status: string;
+}
+
+/**
+ * Aprueba directamente una versión IN_REVIEW del documento (one-shot validation).
+ * No requiere crear validación primero.
+ */
+export async function approveDocumentValidation(
+  documentId: string,
+  observations?: string
+): Promise<ValidationDecisionResponse> {
+  // Obtener token de autenticación
+  const { getAuthHeaders } = await import('@/lib/api-auth')
+  const headers = await getAuthHeaders({
+    'Content-Type': 'application/json',
+  })
+
+  const response = await fetch(`${API_URL}/api/v1/documents/${documentId}/validate/approve`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ observations: observations || '' }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
+    throw new Error(error.detail || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Rechaza directamente una versión IN_REVIEW del documento (one-shot validation).
+ * Las observaciones son obligatorias.
+ */
+export async function rejectDocumentValidation(
+  documentId: string,
+  observations: string
+): Promise<ValidationDecisionResponse> {
+  if (!observations || !observations.trim()) {
+    throw new Error('Las observaciones son obligatorias para rechazar un documento');
+  }
+
+  // Obtener token de autenticación
+  const { getAuthHeaders } = await import('@/lib/api-auth')
+  const headers = await getAuthHeaders({
+    'Content-Type': 'application/json',
+  })
+
+  const response = await fetch(`${API_URL}/api/v1/documents/${documentId}/validate/reject`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ observations }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
+    throw new Error(error.detail || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
 // ============================================================
 // Document Versions API
 // ============================================================
@@ -676,10 +747,13 @@ export async function listValidations(documentId: string): Promise<Validation[]>
 export interface DocumentVersion {
   id: string;
   version_number: number;
+  version_status: string; // DRAFT | IN_REVIEW | APPROVED | REJECTED | OBSOLETE
   content_type: string;
   run_id: string | null;
-  approved_at: string;
+  approved_at: string | null;
   approved_by: string | null;
+  rejected_at: string | null;
+  rejected_by: string | null;
   is_current: boolean;
   created_at: string;
 }

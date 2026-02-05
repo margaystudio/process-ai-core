@@ -282,12 +282,98 @@ async def create_process_run(
                         file_path=f"output/{run_id}/process.pdf",
                     )
                 
-                # Actualizar estado del documento a pending_validation
-                update_document_status(
-                    session=db_session,
-                    document_id=document_id,
-                    status="pending_validation",
-                )
+                # Crear versión DRAFT desde el run generado y enviarla automáticamente a revisión
+                try:
+                    from process_ai_core.db.models import DocumentVersion
+                    import json
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    
+                    # Leer el contenido generado
+                    json_path = output_dir / "process.json"
+                    md_path = output_dir / "process.md"
+                    
+                    json_content = json_path.read_text(encoding="utf-8")
+                    markdown_content = md_path.read_text(encoding="utf-8")
+                    
+                    # Obtener número de versión siguiente
+                    last_version = (
+                        db_session.query(DocumentVersion)
+                        .filter_by(document_id=document_id)
+                        .order_by(DocumentVersion.version_number.desc())
+                        .first()
+                    )
+                    version_number = (last_version.version_number + 1) if last_version else 1
+                    
+                    # Verificar que no haya una versión IN_REVIEW existente
+                    existing_in_review = (
+                        db_session.query(DocumentVersion)
+                        .filter_by(document_id=document_id, version_status="IN_REVIEW")
+                        .first()
+                    )
+                    
+                    if existing_in_review:
+                        # Si ya hay IN_REVIEW, crear solo DRAFT (no enviar a revisión)
+                        logger.info(f"Ya existe versión IN_REVIEW para documento {document_id}. Creando solo DRAFT.")
+                        draft_version = DocumentVersion(
+                            id=str(uuid.uuid4()),
+                            document_id=document_id,
+                            run_id=run_id,
+                            version_number=version_number,
+                            version_status="DRAFT",
+                            content_type="generated",
+                            content_json=json_content,
+                            content_markdown=markdown_content,
+                            is_current=False,
+                        )
+                        db_session.add(draft_version)
+                        db_session.flush()
+                    else:
+                        # Crear versión DRAFT directamente desde el run
+                        draft_version = DocumentVersion(
+                            id=str(uuid.uuid4()),
+                            document_id=document_id,
+                            run_id=run_id,
+                            version_number=version_number,
+                            version_status="DRAFT",
+                            content_type="generated",
+                            content_json=json_content,
+                            content_markdown=markdown_content,
+                            is_current=False,
+                        )
+                        db_session.add(draft_version)
+                        db_session.flush()
+                        
+                        # Enviar automáticamente a revisión (cambia a IN_REVIEW y crea Validation)
+                        try:
+                            from process_ai_core.db.helpers import submit_version_for_review
+                            updated_version, validation = submit_version_for_review(
+                                session=db_session,
+                                version_id=draft_version.id,
+                                submitter_id=None,  # TODO: obtener del contexto de autenticación
+                            )
+                            logger.info(f"Versión {draft_version.id} enviada automáticamente a revisión (IN_REVIEW)")
+                        except ValueError as e:
+                            # Si falla (ej: ya existe IN_REVIEW), dejar como DRAFT
+                            logger.warning(f"No se pudo enviar versión a revisión automáticamente: {e}")
+                    
+                    # Actualizar estado del documento a pending_validation
+                    update_document_status(
+                        session=db_session,
+                        document_id=document_id,
+                        status="pending_validation",
+                    )
+                    
+                    db_session.commit()
+                except Exception as e:
+                    # Si falla la creación de versión, al menos actualizar el estado
+                    logger.error(f"Error al crear versión desde run: {e}", exc_info=True)
+                    update_document_status(
+                        session=db_session,
+                        document_id=document_id,
+                        status="pending_validation",
+                    )
+                    db_session.commit()
                 
                 # Commit se hace automáticamente al salir del with si no hay errores
                 # Si hay error, se hace rollback automáticamente
@@ -297,6 +383,7 @@ async def create_process_run(
                 process_name=process_name,
                 status="completed",
                 artifacts=artifacts,
+                document_id=document_id,
             )
 
         except Exception as e:

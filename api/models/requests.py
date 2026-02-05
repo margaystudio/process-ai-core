@@ -62,6 +62,10 @@ class ProcessRunResponse(BaseModel):
         default_factory=dict,
         description="URLs/paths a artefactos generados (json, markdown, pdf)",
     )
+    document_id: Optional[str] = Field(
+        default=None,
+        description="ID del documento creado (si aplica)",
+    )
     error: Optional[str] = Field(
         default=None,
         description="Mensaje de error si status='error'",
