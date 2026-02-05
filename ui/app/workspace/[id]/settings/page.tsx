@@ -16,6 +16,7 @@ import {
 import { useLoading } from '@/contexts/LoadingContext'
 import { useUserId } from '@/hooks/useUserId'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
+import { useCanEditWorkspace, useCanManageUsers } from '@/hooks/useHasPermission'
 import { createClient } from '@/lib/supabase/client'
 
 export default function WorkspaceSettingsPage() {
@@ -25,6 +26,8 @@ export default function WorkspaceSettingsPage() {
   const userId = useUserId()
   const { selectedWorkspaceId } = useWorkspace()
   const workspaceId = (params?.id as string) || selectedWorkspaceId
+  const { hasPermission: canEditWorkspace, loading: loadingEditPerm } = useCanEditWorkspace()
+  const { hasPermission: canManageUsers, loading: loadingManagePerm } = useCanManageUsers()
 
   const [activeTab, setActiveTab] = useState<'general' | 'users' | 'subscription' | 'limits'>('general')
   const [loading, setLoading] = useState(false)
@@ -150,6 +153,33 @@ export default function WorkspaceSettingsPage() {
     )
   }
 
+  // Verificar permisos: solo owner/admin pueden acceder a settings
+  if (!loadingEditPerm && !canEditWorkspace) {
+    return (
+      <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
+        <div className="max-w-7xl mx-auto">
+          <div className="bg-red-50 border border-red-200 rounded-lg p-6">
+            <h2 className="text-xl font-semibold text-red-900 mb-2">
+              Acceso no autorizado
+            </h2>
+            <p className="text-red-800 mb-4">
+              No tienes permisos para acceder a la configuración del espacio de trabajo.
+            </p>
+            <p className="text-sm text-red-700 mb-4">
+              Solo los administradores y dueños del workspace pueden acceder a esta página.
+            </p>
+            <button
+              onClick={() => router.push('/workspace')}
+              className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 font-medium"
+            >
+              Volver al workspace
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto">
@@ -205,12 +235,14 @@ export default function WorkspaceSettingsPage() {
               <div>
                 <div className="flex justify-between items-center mb-4">
                   <h2 className="text-xl font-semibold">Usuarios e Invitaciones</h2>
-                  <button
-                    onClick={() => setShowInviteForm(!showInviteForm)}
-                    className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-md"
-                  >
-                    {showInviteForm ? 'Cancelar' : '+ Invitar Usuario'}
-                  </button>
+                  {canManageUsers && (
+                    <button
+                      onClick={() => setShowInviteForm(!showInviteForm)}
+                      className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-md"
+                    >
+                      {showInviteForm ? 'Cancelar' : '+ Invitar Usuario'}
+                    </button>
+                  )}
                 </div>
 
                 {showInviteForm && (

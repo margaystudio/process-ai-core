@@ -33,6 +33,7 @@ import FileList from '@/components/processes/FileList'
 import { usePdfViewer } from '@/hooks/usePdfViewer'
 import { FileItemData } from '@/components/processes/FileItem'
 import { formatDateTime } from '@/utils/dateFormat'
+import { useCanApproveDocuments, useCanRejectDocuments } from '@/hooks/useHasPermission'
 
 export default function DocumentDetailPage() {
   const params = useParams()
@@ -40,6 +41,8 @@ export default function DocumentDetailPage() {
   const documentId = params.id as string
   const { selectedWorkspaceId } = useWorkspace()
   const { withLoading } = useLoading()
+  const { hasPermission: canApprove, loading: loadingApprove } = useCanApproveDocuments()
+  const { hasPermission: canReject, loading: loadingReject } = useCanRejectDocuments()
   
   const [document, setDocument] = useState<Document | null>(null)
   const [loading, setLoading] = useState(true)
@@ -715,7 +718,7 @@ export default function DocumentDetailPage() {
                 <div className="mt-8 pt-8 border-t">
                   <div className="flex items-center justify-between mb-4">
                     <h2 className="text-xl font-semibold text-gray-900">Validación</h2>
-                    {document.status === 'pending_validation' && validations.filter(v => v.status === 'pending').length === 0 && (
+                    {document.status === 'pending_validation' && validations.filter(v => v.status === 'pending').length === 0 && (canApprove || canReject) && (
                       <button
                         onClick={() => setShowValidationForm(true)}
                         className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm font-medium"
@@ -790,22 +793,26 @@ export default function DocumentDetailPage() {
                             </div>
                           </div>
                           
-                          {validation.status === 'pending' && (
+                          {validation.status === 'pending' && (canApprove || canReject) && (
                             <div className="flex gap-3 mt-4">
-                              <button
-                                onClick={() => handleApproveValidation(validation.id)}
-                                disabled={isValidating}
-                                className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
-                              >
-                                ✓ Aprobar
-                              </button>
-                              <button
-                                onClick={() => setRejectingValidationId(validation.id)}
-                                disabled={isValidating}
-                                className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
-                              >
-                                ✗ Rechazar
-                              </button>
+                              {canApprove && (
+                                <button
+                                  onClick={() => handleApproveValidation(validation.id)}
+                                  disabled={isValidating}
+                                  className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+                                >
+                                  ✓ Aprobar
+                                </button>
+                              )}
+                              {canReject && (
+                                <button
+                                  onClick={() => setRejectingValidationId(validation.id)}
+                                  disabled={isValidating}
+                                  className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+                                >
+                                  ✗ Rechazar
+                                </button>
+                              )}
                             </div>
                           )}
                           

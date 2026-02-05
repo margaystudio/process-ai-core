@@ -15,7 +15,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
-from ..dependencies import get_db
+from ..dependencies import get_db, get_current_user_id
 from process_ai_core.db.helpers import (
     list_subscription_plans,
     get_subscription_plan,
@@ -137,11 +137,22 @@ async def get_workspace_subscription(
 async def create_or_update_subscription(
     workspace_id: str,
     request: CreateSubscriptionRequest,
+    user_id: str = Depends(get_current_user_id),
     session: Session = Depends(get_db),
 ):
     """
     Crea o actualiza la suscripción de un workspace.
+    
+    Requiere permiso: workspaces.edit (solo owner/admin pueden cambiar el plan).
     """
+    from process_ai_core.db.permissions import has_permission
+    
+    # Verificar permiso
+    if not has_permission(session, user_id, workspace_id, "workspaces.edit"):
+        raise HTTPException(
+            status_code=403,
+            detail="No tienes permisos para modificar la suscripción de este workspace"
+        )
     # Verificar que el workspace existe
     workspace = session.query(Workspace).filter_by(id=workspace_id).first()
     if not workspace:

@@ -80,11 +80,21 @@ async def create_invitation(
     """
     Crea una invitación para unirse a un workspace.
     
+    Requiere permiso: workspaces.manage_users
+    
     Args:
         workspace_id: ID del workspace
         request: Datos de la invitación
-        invited_by_user_id: ID del usuario que invita (temporal, luego del JWT)
+        invited_by_user_id: ID del usuario que invita
     """
+    from process_ai_core.db.permissions import has_permission
+    
+    # Verificar permiso
+    if not has_permission(session, invited_by_user_id, workspace_id, "workspaces.manage_users"):
+        raise HTTPException(
+            status_code=403,
+            detail="No tienes permisos para gestionar usuarios en este workspace"
+        )
     # Verificar que el workspace existe
     workspace = session.query(Workspace).filter_by(id=workspace_id).first()
     if not workspace:
@@ -139,11 +149,23 @@ async def create_invitation(
 async def list_invitations(
     workspace_id: str,
     status: Optional[str] = None,  # "pending" | "accepted" | "expired" | "cancelled"
+    user_id: str = Depends(get_current_user_id),
     session: Session = Depends(get_db),
 ):
     """
     Lista invitaciones de un workspace.
+    
+    Requiere permiso: workspaces.manage_users
     """
+    from process_ai_core.db.permissions import has_permission
+    
+    # Verificar permiso
+    if not has_permission(session, user_id, workspace_id, "workspaces.manage_users"):
+        raise HTTPException(
+            status_code=403,
+            detail="No tienes permisos para gestionar usuarios en este workspace"
+        )
+    
     invitations = list_workspace_invitations(session, workspace_id, status=status)
     
     # Generar URL base para invitaciones
@@ -515,14 +537,25 @@ async def accept_invitation_by_token(
 @router.delete("/invitations/{invitation_id}")
 async def cancel_invitation(
     invitation_id: str,
+    user_id: str = Depends(get_current_user_id),
     session: Session = Depends(get_db),
 ):
     """
     Cancela una invitación pendiente.
+    
+    Requiere permiso: workspaces.manage_users en el workspace de la invitación.
     """
     invitation = session.query(WorkspaceInvitation).filter_by(id=invitation_id).first()
     if not invitation:
         raise HTTPException(status_code=404, detail="Invitación no encontrada")
+    
+    # Verificar permiso
+    from process_ai_core.db.permissions import has_permission
+    if not has_permission(session, user_id, invitation.workspace_id, "workspaces.manage_users"):
+        raise HTTPException(
+            status_code=403,
+            detail="No tienes permisos para cancelar invitaciones en este workspace"
+        )
     
     if invitation.status != "pending":
         raise HTTPException(status_code=400, detail=f"Invitación ya procesada (status: {invitation.status})")

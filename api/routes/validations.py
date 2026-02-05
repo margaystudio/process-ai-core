@@ -10,12 +10,14 @@ Este módulo maneja:
 Nota: Los endpoints de versiones (submit, clone) están en api/routes/documents.py
 """
 
-from fastapi import APIRouter, HTTPException, Body
+from fastapi import APIRouter, HTTPException, Body, Depends
 from typing import Optional, List
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
 
 from process_ai_core.db.database import get_db_session
 from process_ai_core.db.models import Document, Validation, Run
+from ..dependencies import get_db, get_current_user_id
 from process_ai_core.db.helpers import (
     create_validation,
     approve_validation,
@@ -24,6 +26,11 @@ from process_ai_core.db.helpers import (
     approve_version,
     reject_version,
 )
+import logging
+import json
+from datetime import datetime, UTC
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1", tags=["validations"])
 
@@ -249,6 +256,13 @@ async def create_document_validation(
                     detail=f"Run {request.run_id} no encontrado para el documento {document_id}"
                 )
         
+        # Buscar versión IN_REVIEW existente para asociar la validación
+        from process_ai_core.db.models import DocumentVersion
+        version_in_review = session.query(DocumentVersion).filter_by(
+            document_id=document_id,
+            version_status="IN_REVIEW"
+        ).first()
+        
         # Crear validación
         validation = create_validation(
             session=session,
@@ -257,6 +271,14 @@ async def create_document_validation(
             observations=request.observations,
             checklist_json=request.checklist_json,
         )
+        session.flush()  # Flush para obtener el ID de la validación
+        
+        # Si hay una versión IN_REVIEW, asociarla a la validación
+        if version_in_review:
+            version_in_review.validation_id = validation.id
+            logger.info(f"Validación {validation.id} asociada a versión IN_REVIEW {version_in_review.id}")
+        else:
+            logger.warning(f"No hay versión IN_REVIEW para el documento {document_id}. La validación {validation.id} no está asociada a ninguna versión.")
         
         # Actualizar estado del documento a pending_validation si no lo está
         if doc.status != "pending_validation":
@@ -368,8 +390,8 @@ async def approve_document_validation(
 async def reject_document_validation(
     validation_id: str,
     request: ValidationRejectRequest = Body(...),
-    user_id: str = Body(..., embed=True),
-    workspace_id: str = Body(..., embed=True),
+    user_id: str = Depends(get_current_user_id),
+    session: Session = Depends(get_db),
 ):
     """
     Rechaza una validación (y su versión asociada) con observaciones.
@@ -390,68 +412,85 @@ async def reject_document_validation(
     Returns:
         ValidationResponse con la validación rechazada
     """
-    with get_db_session() as session:
-        # Verificar permisos
-        from process_ai_core.db.permissions import has_permission
-        
-        if not has_permission(session, user_id, workspace_id, "documents.reject"):
-            raise HTTPException(
-                status_code=403,
-                detail="No tiene permisos para rechazar documentos"
-            )
-        
-        validation = session.query(Validation).filter_by(id=validation_id).first()
-        if not validation:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Validación {validation_id} no encontrada"
-            )
-        
-        # Verificar que el documento pertenece al workspace
-        doc = session.query(Document).filter_by(id=validation.document_id).first()
-        if not doc:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Documento {validation.document_id} no encontrado"
-            )
-        
-        if doc.workspace_id != workspace_id:
-            raise HTTPException(
-                status_code=403,
-                detail="Documento no pertenece a este workspace"
-            )
-        
-        if validation.status != "pending":
-            raise HTTPException(
-                status_code=400,
-                detail=f"La validación ya está {validation.status}, no se puede rechazar"
-            )
-        
-        # Validar formato de observaciones estructuradas si se proporcionan
-        structured_obs = None
-        if request.structured_observations:
-            # Validar que cada observación tenga los campos requeridos
-            for obs in request.structured_observations:
-                if not isinstance(obs, dict):
-                    raise HTTPException(
-                        status_code=400,
-                        detail="Cada observación estructurada debe ser un objeto/diccionario"
-                    )
-                required_fields = ["section", "comment", "severity"]
-                missing = [f for f in required_fields if f not in obs]
-                if missing:
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"Observación estructurada incompleta. Faltan campos: {', '.join(missing)}"
-                    )
-                if obs["severity"] not in ("low", "medium", "high", "critical"):
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"Severidad inválida: {obs['severity']}. Debe ser: low, medium, high, critical"
-                    )
-            structured_obs = request.structured_observations
-        
-        # Rechazar versión usando el nuevo helper
+    # Verificar permisos
+    from process_ai_core.db.permissions import has_permission
+    
+    # Obtener la validación para encontrar el documento y workspace
+    validation = session.query(Validation).filter_by(id=validation_id).first()
+    if not validation:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Validación {validation_id} no encontrada"
+        )
+    
+    # Obtener el documento para verificar workspace
+    doc = session.query(Document).filter_by(id=validation.document_id).first()
+    if not doc:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Documento {validation.document_id} no encontrado"
+        )
+    
+    workspace_id = doc.workspace_id
+    
+    # Verificar permisos
+    if not has_permission(session, user_id, workspace_id, "documents.reject"):
+        raise HTTPException(
+            status_code=403,
+            detail="No tiene permisos para rechazar documentos"
+        )
+    
+    if validation.status != "pending":
+        raise HTTPException(
+            status_code=400,
+            detail=f"La validación ya está {validation.status}, no se puede rechazar"
+        )
+    
+    # Intentar encontrar o asociar una versión IN_REVIEW
+    from process_ai_core.db.models import DocumentVersion
+    version = session.query(DocumentVersion).filter_by(validation_id=validation_id).first()
+    
+    if not version:
+        # Buscar versión IN_REVIEW para este documento
+        version_in_review = session.query(DocumentVersion).filter_by(
+            document_id=validation.document_id,
+            version_status="IN_REVIEW"
+        ).first()
+        if version_in_review:
+            # Asociar la versión a la validación
+            version_in_review.validation_id = validation_id
+            session.flush()
+            version = version_in_review
+            logger.info(f"Validación {validation_id} asociada a versión IN_REVIEW {version.id} durante el rechazo")
+    
+    # Validar formato de observaciones estructuradas si se proporcionan
+    structured_obs = None
+    if request.structured_observations:
+        # Validar que cada observación tenga los campos requeridos
+        for obs in request.structured_observations:
+            if not isinstance(obs, dict):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Cada observación estructurada debe ser un objeto/diccionario"
+                )
+            required_fields = ["section", "comment", "severity"]
+            missing = [f for f in required_fields if f not in obs]
+            if missing:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Observación estructurada incompleta. Faltan campos: {', '.join(missing)}"
+                )
+            if obs["severity"] not in ("low", "medium", "high", "critical"):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Severidad inválida: {obs['severity']}. Debe ser: low, medium, high, critical"
+                )
+        structured_obs = request.structured_observations
+    
+    # Si hay versión asociada, usar reject_version (que maneja el rechazo de la versión)
+    # Si no hay versión, solo rechazar la validación directamente usando reject_validation
+    if version:
+        # Hay versión, usar el helper reject_version que maneja todo
         try:
             rejected_version = reject_version(
                 session=session,
@@ -460,12 +499,43 @@ async def reject_document_validation(
                 observations=request.observations,
                 structured_observations=structured_obs,
             )
-            session.commit()
+            session.flush()
             session.refresh(validation)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
-        
-        return ValidationResponse(
+    else:
+        # No hay versión, solo rechazar la validación (flujo legacy o validación sin versión)
+        logger.warning(f"Rechazando validación {validation_id} sin versión asociada (flujo legacy)")
+        try:
+            # Si hay observaciones estructuradas, guardarlas en checklist_json
+            checklist_data = {}
+            if validation.checklist_json:
+                try:
+                    checklist_data = json.loads(validation.checklist_json)
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            
+            if structured_obs:
+                checklist_data["observations"] = structured_obs
+                checklist_data["rejected_at"] = datetime.now(UTC).isoformat()
+                checklist_data["rejected_by"] = user_id
+            
+            # Actualizar checklist_json si hay observaciones estructuradas
+            if structured_obs:
+                validation.checklist_json = json.dumps(checklist_data)
+            
+            rejected_validation = reject_validation(
+                session=session,
+                validation_id=validation_id,
+                observations=request.observations,
+                user_id=user_id,
+            )
+            session.flush()
+            session.refresh(validation)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+    
+    return ValidationResponse(
             id=validation.id,
             document_id=validation.document_id,
             run_id=validation.run_id,

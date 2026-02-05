@@ -635,11 +635,15 @@ export async function rejectValidation(
   validationId: string,
   request: ValidationRejectRequest
 ): Promise<Validation> {
+  // Obtener token de autenticación
+  const { getAuthHeaders } = await import('@/lib/api-auth')
+  const headers = await getAuthHeaders({
+    'Content-Type': 'application/json',
+  })
+
   const response = await fetch(`${API_URL}/api/v1/validations/${validationId}/reject`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers,
     body: JSON.stringify(request),
   });
 
@@ -846,6 +850,26 @@ export async function getUserRole(
 ): Promise<{ role: string | null }> {
   const response = await fetch(
     `${API_URL}/api/v1/users/${userId}/role/${workspaceId}`
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
+    throw new Error(error.detail || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Verifica si un usuario tiene un permiso específico en un workspace.
+ */
+export async function checkPermission(
+  userId: string,
+  workspaceId: string,
+  permissionName: string
+): Promise<{ has_permission: boolean }> {
+  const response = await fetch(
+    `${API_URL}/api/v1/users/${userId}/permission/${workspaceId}/${encodeURIComponent(permissionName)}`
   );
 
   if (!response.ok) {

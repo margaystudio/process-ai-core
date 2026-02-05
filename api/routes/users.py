@@ -14,7 +14,8 @@ from sqlalchemy.orm import Session
 
 from process_ai_core.db.database import get_db_session
 from process_ai_core.db.models import User, Workspace, WorkspaceMembership
-from ..dependencies import get_db
+from process_ai_core.db.permissions import has_permission
+from ..dependencies import get_db, get_current_user_id
 
 router = APIRouter(prefix="/api/v1/users", tags=["users"])
 
@@ -325,4 +326,26 @@ async def get_user_role_in_workspace(
             role_name = membership.role
         
         return {"role": role_name}
+
+
+@router.get("/{user_id}/permission/{workspace_id}/{permission_name}")
+async def check_user_permission(
+    user_id: str,
+    workspace_id: str,
+    permission_name: str,
+    session: Session = Depends(get_db),
+):
+    """
+    Verifica si un usuario tiene un permiso específico en un workspace.
+    
+    Args:
+        user_id: ID del usuario
+        workspace_id: ID del workspace
+        permission_name: Nombre del permiso (ej: "workspaces.edit", "documents.approve")
+    
+    Returns:
+        { has_permission: bool }
+    """
+    has_perm = has_permission(session, user_id, workspace_id, permission_name)
+    return {"has_permission": has_perm}
 

@@ -23,6 +23,8 @@ def has_permission(
     """
     Verifica si un usuario tiene un permiso específico en un workspace.
     
+    Los superadmins tienen todos los permisos automáticamente.
+    
     Args:
         session: Sesión de base de datos
         user_id: ID del usuario
@@ -32,7 +34,18 @@ def has_permission(
     Returns:
         True si el usuario tiene el permiso, False en caso contrario
     """
-    # Obtener membership
+    # Verificar si el usuario es superadmin (tiene rol superadmin en algún workspace)
+    superadmin_role = session.query(Role).filter_by(name="superadmin", is_system=True).first()
+    if superadmin_role:
+        superadmin_membership = session.query(WorkspaceMembership).filter_by(
+            user_id=user_id,
+            role_id=superadmin_role.id,
+        ).first()
+        if superadmin_membership:
+            # Superadmin tiene todos los permisos
+            return True
+    
+    # Obtener membership en el workspace específico
     membership = session.query(WorkspaceMembership).filter_by(
         user_id=user_id,
         workspace_id=workspace_id,
