@@ -4,17 +4,19 @@ import { useMemo } from 'react'
 import { Document } from '@/lib/api'
 
 /**
- * Hook para filtrar documentos por búsqueda y carpeta.
+ * Hook para filtrar documentos por búsqueda, carpeta y estado.
  * 
  * @param documents - Lista de documentos a filtrar
  * @param searchQuery - Texto de búsqueda (busca en nombre y descripción)
  * @param selectedFolderId - ID de carpeta para filtrar (opcional)
+ * @param statusFilter - Estado para filtrar (opcional)
  * @returns Lista filtrada de documentos
  */
 export function useDocumentFilter(
   documents: Document[],
   searchQuery: string,
-  selectedFolderId: string | null = null
+  selectedFolderId: string | null = null,
+  statusFilter: string | null = null
 ) {
   return useMemo(() => {
     let filtered = documents
@@ -22,6 +24,11 @@ export function useDocumentFilter(
     // Filtrar por carpeta
     if (selectedFolderId) {
       filtered = filtered.filter((doc) => doc.folder_id === selectedFolderId)
+    }
+
+    // Filtrar por estado
+    if (statusFilter) {
+      filtered = filtered.filter((doc) => doc.status === statusFilter)
     }
 
     // Filtrar por búsqueda
@@ -35,7 +42,7 @@ export function useDocumentFilter(
     }
 
     return filtered
-  }, [documents, searchQuery, selectedFolderId])
+  }, [documents, searchQuery, selectedFolderId, statusFilter])
 }
 
 

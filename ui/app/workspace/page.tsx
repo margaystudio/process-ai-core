@@ -6,8 +6,10 @@ import { useWorkspace } from '@/contexts/WorkspaceContext'
 import { listDocuments, Document } from '@/lib/api'
 import FolderTree from '@/components/processes/FolderTree'
 import DocumentCard from '@/components/documents/DocumentCard'
+import StatusFilterChips from '@/components/documents/StatusFilterChips'
 import { usePdfViewer } from '@/hooks/usePdfViewer'
 import { useDocumentFilter } from '@/hooks/useDocumentFilter'
+import { useCanApproveDocuments, useCanRejectDocuments } from '@/hooks/useHasPermission'
 
 export default function WorkspacePage() {
   const { selectedWorkspaceId, selectedWorkspace } = useWorkspace()
@@ -16,6 +18,14 @@ export default function WorkspacePage() {
   const [error, setError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null)
+  const [statusFilter, setStatusFilter] = useState<string | null>(null)
+  
+  // Hooks para permisos y determinar acción principal
+  const { hasPermission: canApprove } = useCanApproveDocuments()
+  const { hasPermission: canReject } = useCanRejectDocuments()
+  
+  // Determinar acción principal: si puede aprobar/rechazar, es admin/validator -> "Ver Detalles", sino "Ver PDF"
+  const primaryAction = (canApprove || canReject) ? 'view' : 'pdf'
   
   // Hook para manejar visualización de PDFs
   const { openPdf, ModalComponent } = usePdfViewer()
@@ -48,8 +58,8 @@ export default function WorkspacePage() {
     loadDocuments()
   }, [selectedWorkspaceId, selectedFolderId])
 
-  // Filtrar documentos por búsqueda y carpeta
-  const filteredDocuments = useDocumentFilter(documents, searchQuery, selectedFolderId)
+  // Filtrar documentos por búsqueda, carpeta y estado
+  const filteredDocuments = useDocumentFilter(documents, searchQuery, selectedFolderId, statusFilter)
 
 
   if (!selectedWorkspaceId) {
@@ -113,8 +123,8 @@ export default function WorkspacePage() {
               <h1 className="text-3xl font-bold text-gray-900">
                 {selectedWorkspace?.name || 'Espacio de trabajo'}
               </h1>
-              <p className="text-gray-600 mt-1">
-                Gestión de documentos y estructura de carpetas
+              <p className="text-sm text-gray-500 mt-1">
+                Procesos documentados, versionados y auditables
               </p>
             </div>
             <Link
@@ -127,7 +137,7 @@ export default function WorkspacePage() {
 
           {/* Barra de búsqueda */}
           <div className="bg-white rounded-lg border border-gray-200 p-4">
-            <div>
+            <div className="mb-4">
               <label htmlFor="search" className="block text-sm font-medium text-gray-700 mb-2">
                 Buscar documentos
               </label>
@@ -140,7 +150,11 @@ export default function WorkspacePage() {
                 className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
-
+            {/* Chips de filtro por estado */}
+            <StatusFilterChips
+              selectedStatus={statusFilter}
+              onStatusChange={setStatusFilter}
+            />
           </div>
         </div>
 
@@ -176,19 +190,30 @@ export default function WorkspacePage() {
               ) : filteredDocuments.length === 0 ? (
                 <div className="text-center py-12">
                   <p className="text-gray-500 mb-4">
-                    {searchQuery
-                      ? 'No se encontraron documentos que coincidan con la búsqueda'
+                    {searchQuery || statusFilter
+                      ? 'No se encontraron documentos que coincidan con los filtros aplicados'
                       : selectedFolderId
                       ? 'No hay documentos en esta carpeta'
                       : 'No hay documentos en este espacio de trabajo'}
                   </p>
-                  {!searchQuery && (
+                  {!searchQuery && !statusFilter && (
                     <Link
                       href="/processes/new"
                       className="inline-block px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
                     >
                       Crear primer documento
                     </Link>
+                  )}
+                  {(searchQuery || statusFilter) && (
+                    <button
+                      onClick={() => {
+                        setSearchQuery('')
+                        setStatusFilter(null)
+                      }}
+                      className="inline-block px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300"
+                    >
+                      Limpiar filtros
+                    </button>
                   )}
                 </div>
               ) : (
@@ -207,7 +232,9 @@ export default function WorkspacePage() {
                           window.location.href = `/documents/${doc.id}`
                         }}
                         onViewPdf={() => openPdf(doc)}
+                        onStatusClick={(status) => setStatusFilter(status)}
                         showActions={true}
+                        primaryAction={primaryAction}
                       />
                     ))}
                   </div>
