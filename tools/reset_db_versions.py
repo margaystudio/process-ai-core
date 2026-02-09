@@ -77,6 +77,7 @@ def reset_document_versions():
                 rejected_at DATETIME,
                 rejected_by VARCHAR(36) REFERENCES users(id) ON DELETE SET NULL,
                 is_current BOOLEAN DEFAULT 0,
+                created_by VARCHAR(36) REFERENCES users(id) ON DELETE SET NULL,
                 created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
             )
         """))
@@ -91,6 +92,7 @@ def reset_document_versions():
         conn.execute(text("CREATE INDEX idx_document_versions_approved_by ON document_versions(approved_by)"))
         conn.execute(text("CREATE INDEX idx_document_versions_rejected_by ON document_versions(rejected_by)"))
         conn.execute(text("CREATE INDEX idx_document_versions_validation_id ON document_versions(validation_id)"))
+        conn.execute(text("CREATE INDEX idx_document_versions_created_by ON document_versions(created_by)"))
         # Índice compuesto para performance
         conn.execute(text("CREATE INDEX idx_document_versions_doc_status ON document_versions(document_id, version_status)"))
         

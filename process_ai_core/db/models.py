@@ -510,6 +510,9 @@ class DocumentVersion(Base):
     # Indicador de versión actual
     is_current: Mapped[bool] = mapped_column(default=False, index=True)
     
+    # Usuario que creó esta versión (nullable inicialmente, preparado para backfill)
+    created_by: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     
     # Relaciones
@@ -517,6 +520,7 @@ class DocumentVersion(Base):
     run: Mapped["Run | None"] = relationship("Run", foreign_keys=[run_id])
     approver: Mapped["User | None"] = relationship("User", foreign_keys=[approved_by])
     validator: Mapped["User | None"] = relationship("User", foreign_keys=[rejected_by])
+    creator: Mapped["User | None"] = relationship("User", foreign_keys=[created_by])
     validation: Mapped["Validation | None"] = relationship("Validation", foreign_keys=[validation_id])
     supersedes: Mapped["DocumentVersion | None"] = relationship("DocumentVersion", foreign_keys=[supersedes_version_id], remote_side="DocumentVersion.id")
 

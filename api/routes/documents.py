@@ -1417,6 +1417,7 @@ async def get_document_versions(document_id: str):
                 "rejected_at": v.rejected_at.isoformat() if v.rejected_at else None,
                 "rejected_by": v.rejected_by,
                 "is_current": v.is_current,
+                "created_by": v.created_by,  # Agregar created_by
                 "created_at": v.created_at.isoformat(),
             }
             for v in versions

@@ -801,6 +801,7 @@ def get_or_create_draft(
         rejected_at=None,
         rejected_by=None,
         is_current=False,
+        created_by=user_id,  # Setear created_by al crear la versión
     )
     session.add(draft_version)
     
@@ -998,6 +999,14 @@ def approve_version(
     if version.version_status != "IN_REVIEW":
         raise ValueError(f"La versión {version.id} no está en IN_REVIEW. Estado actual: {version.version_status}")
     
+    # Validar segregación de funciones: el creador no puede aprobar su propia versión
+    if version.created_by and approver_id and version.created_by == approver_id:
+        raise ValueError("No puedes aprobar una versión que creaste. Debe validarla otro usuario.")
+    
+    # Loggear warning si created_by es NULL (versiones antiguas)
+    if not version.created_by:
+        logger.warning(f"Versión {version.id} no tiene created_by. Permitir validación pero registrar en logs.")
+    
     # Marcar versión anterior APPROVED como OBSOLETE
     previous_current = (
         session.query(DocumentVersion)
@@ -1097,6 +1106,18 @@ def reject_version(
     
     if version.version_status != "IN_REVIEW":
         raise ValueError(f"La versión {version.id} no está en IN_REVIEW. Estado actual: {version.version_status}")
+    
+    # Validar segregación de funciones: el creador no puede rechazar su propia versión
+    if version.created_by and rejector_id and version.created_by == rejector_id:
+        raise ValueError("No puedes rechazar una versión que creaste. Debe validarla otro usuario.")
+    
+    # Validar que observations no esté vacío en rechazo
+    if not observations or not observations.strip():
+        raise ValueError("Las observaciones son obligatorias para rechazar una versión.")
+    
+    # Loggear warning si created_by es NULL (versiones antiguas)
+    if not version.created_by:
+        logger.warning(f"Versión {version.id} no tiene created_by. Permitir validación pero registrar en logs.")
     
     # Cambiar versión a REJECTED
     version.version_status = "REJECTED"

@@ -369,6 +369,17 @@ async def approve_document_validation_direct(
             detail=f"No hay versión IN_REVIEW para el documento {document_id}. El documento debe estar en estado 'pending_validation' con una versión enviada a revisión."
         )
     
+    # Validar segregación de funciones: el creador no puede aprobar su propia versión
+    if version.created_by and version.created_by == user_id:
+        raise HTTPException(
+            status_code=403,
+            detail="No puedes aprobar una versión que creaste. Debe validarla otro usuario."
+        )
+    
+    # Loggear warning si created_by es NULL (versiones antiguas)
+    if not version.created_by:
+        logger.warning(f"Versión {version.id} no tiene created_by. Permitir validación pero registrar en logs.")
+    
     # Verificar que la versión tenga validation_id asociado (debería existir desde submit)
     if not version.validation_id:
         # Si no tiene validation_id, crear una validación pendiente y asociarla
@@ -472,6 +483,17 @@ async def reject_document_validation_direct(
             status_code=400,
             detail=f"No hay versión IN_REVIEW para el documento {document_id}. El documento debe estar en estado 'pending_validation' con una versión enviada a revisión."
         )
+    
+    # Validar segregación de funciones: el creador no puede rechazar su propia versión
+    if version.created_by and version.created_by == user_id:
+        raise HTTPException(
+            status_code=403,
+            detail="No puedes rechazar una versión que creaste. Debe validarla otro usuario."
+        )
+    
+    # Loggear warning si created_by es NULL (versiones antiguas)
+    if not version.created_by:
+        logger.warning(f"Versión {version.id} no tiene created_by. Permitir validación pero registrar en logs.")
     
     # Verificar que la versión tenga validation_id asociado (debería existir desde submit)
     if not version.validation_id:

@@ -36,6 +36,7 @@ import { usePdfViewer } from '@/hooks/usePdfViewer'
 import { FileItemData } from '@/components/processes/FileItem'
 import { formatDateTime } from '@/utils/dateFormat'
 import { useCanApproveDocuments, useCanRejectDocuments } from '@/hooks/useHasPermission'
+import { useUserId } from '@/hooks/useUserId'
 
 export default function DocumentDetailPage() {
   const params = useParams()
@@ -43,6 +44,7 @@ export default function DocumentDetailPage() {
   const documentId = params.id as string
   const { selectedWorkspaceId } = useWorkspace()
   const { withLoading } = useLoading()
+  const userId = useUserId()
   const { hasPermission: canApprove, loading: loadingApprove } = useCanApproveDocuments()
   const { hasPermission: canReject, loading: loadingReject } = useCanRejectDocuments()
   
@@ -441,8 +443,14 @@ export default function DocumentDetailPage() {
   // Calcular si mostrar panel de validación (ANTES de los returns condicionales - regla de hooks)
   const hasInReviewVersion = document ? versions.some(v => v.version_status === 'IN_REVIEW') : false
   const isPendingValidation = document?.status === 'pending_validation' || false
-  // Mostrar panel si hay versión IN_REVIEW y el usuario tiene permisos
-  const showValidationPanel = isPendingValidation && hasInReviewVersion && (canApprove || canReject)
+  
+  // Obtener versión IN_REVIEW para validar segregación de funciones
+  const inReviewVersion = versions.find(v => v.version_status === 'IN_REVIEW')
+  // Calcular canValidate: el usuario puede validar si NO creó la versión (o si created_by es null)
+  const canValidate = inReviewVersion ? (inReviewVersion.created_by === null || inReviewVersion.created_by !== userId) : true
+  
+  // Mostrar panel si hay versión IN_REVIEW, el usuario tiene permisos Y puede validar (no es el creador)
+  const showValidationPanel = isPendingValidation && hasInReviewVersion && (canApprove || canReject) && canValidate
   // Mostrar sección si hay panel, validaciones previas, o estado rechazado, o si hay versión IN_REVIEW (para mostrar mensaje)
   const shouldShowValidationSection = showValidationPanel || (validations.length > 0) || (document?.status === 'rejected') || (isPendingValidation && hasInReviewVersion)
   
@@ -824,7 +832,7 @@ export default function DocumentDetailPage() {
                                 required
                               />
                             </div>
-                            {canReject && (
+                            {canReject && canValidate && (
                               <button
                                 onClick={handleRejectDocument}
                                 disabled={isValidating || !rejectObservations.trim()}
@@ -856,7 +864,7 @@ export default function DocumentDetailPage() {
                             placeholder="Observaciones adicionales para la aprobación..."
                           />
                         </div>
-                        {canApprove && (
+                        {canApprove && canValidate && (
                           <button
                             onClick={handleApproveDocument}
                             disabled={isValidating}
@@ -882,7 +890,7 @@ export default function DocumentDetailPage() {
                             required
                           />
                         </div>
-                        {canReject && (
+                        {canReject && canValidate && (
                           <button
                             onClick={handleRejectDocument}
                             disabled={isValidating || !rejectObservations.trim()}

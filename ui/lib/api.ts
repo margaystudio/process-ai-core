@@ -759,6 +759,7 @@ export interface DocumentVersion {
   rejected_at: string | null;
   rejected_by: string | null;
   is_current: boolean;
+  created_by: string | null; // Usuario que creó la versión
   created_at: string;
 }
 
