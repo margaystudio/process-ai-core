@@ -232,15 +232,17 @@ export default function Header() {
                           {user.email}
                         </p>
                       </div>
-                      {selectedWorkspaceId && (
-                        <Link
-                          href={`/workspace/${selectedWorkspaceId}/settings`}
-                          onClick={() => setUserMenuOpen(false)}
-                          className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors"
-                        >
-                          Configuración del espacio de trabajo
-                        </Link>
-                      )}
+                      {/* Mi perfil - disabled con tooltip */}
+                      <button
+                        disabled
+                        className="w-full text-left px-4 py-2 text-sm text-gray-400 cursor-not-allowed transition-colors relative group"
+                        title="Próximamente"
+                      >
+                        Mi perfil
+                        <span className="absolute left-full ml-2 top-1/2 -translate-y-1/2 hidden group-hover:block z-10 bg-gray-900 text-white text-xs rounded px-2 py-1 whitespace-nowrap pointer-events-none">
+                          Próximamente
+                        </span>
+                      </button>
                       <button
                         onClick={handleSignOut}
                         className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors"

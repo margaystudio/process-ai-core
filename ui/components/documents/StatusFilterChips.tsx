@@ -15,28 +15,20 @@ const statusOptions = [
 
 export default function StatusFilterChips({ selectedStatus, onStatusChange }: StatusFilterChipsProps) {
   return (
-    <div className="flex flex-wrap gap-2 mb-4">
+    <div className="flex flex-wrap gap-2">
       {statusOptions.map((option) => (
         <button
           key={option.value || 'all'}
           onClick={() => onStatusChange(option.value)}
-          className={`px-3 py-1.5 text-sm font-medium rounded-md transition ${
+          className={`px-3 py-1.5 text-sm rounded-md transition ${
             selectedStatus === option.value
-              ? 'bg-blue-600 text-white'
-              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              ? 'bg-blue-600 text-white font-semibold shadow-sm'
+              : 'bg-gray-100 text-gray-700 hover:bg-gray-200 font-medium'
           }`}
         >
           {option.label}
         </button>
       ))}
-      {selectedStatus && (
-        <button
-          onClick={() => onStatusChange(null)}
-          className="px-3 py-1.5 text-sm font-medium text-gray-600 hover:text-gray-800 underline"
-        >
-          Limpiar filtro
-        </button>
-      )}
     </div>
   )
 }

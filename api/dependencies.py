@@ -124,7 +124,24 @@ async def get_current_user_id(
                 logger.info(f"Buscando usuario con external_id: {supabase_user_id}")
                 local_user = get_user_by_external_id(session, supabase_user_id)
                 
-                logger.info(f"Usuario encontrado en BD local: {local_user is not None}")
+                # Si no se encuentra por external_id, buscar por email (para usuarios creados localmente antes de vincular con Supabase)
+                if not local_user:
+                    supabase_email = decoded.get("email")
+                    if supabase_email:
+                        logger.info(f"Usuario no encontrado por external_id, buscando por email: {supabase_email}")
+                        from process_ai_core.db.helpers import get_user_by_email
+                        local_user = get_user_by_email(session, supabase_email)
+                        logger.info(f"Usuario encontrado por email: {local_user is not None}")
+                        if local_user:
+                            logger.info(f"Usuario encontrado: {local_user.email} (ID: {local_user.id})")
+                            
+                            # Si se encuentra por email, vincular automáticamente el external_id
+                            logger.info(f"Vinculando usuario {local_user.id} ({local_user.email}) con Supabase user_id {supabase_user_id}")
+                            local_user.external_id = supabase_user_id
+                            local_user.auth_provider = "supabase"
+                            session.commit()
+                            logger.info("Usuario vinculado exitosamente")
+                
                 if local_user:
                     logger.info(f"Usuario encontrado: {local_user.email} (id: {local_user.id})")
                     return local_user.id
@@ -132,8 +149,10 @@ async def get_current_user_id(
                     # Listar todos los external_ids para debugging
                     all_users = session.query(User).all()
                     external_ids = [u.external_id for u in all_users if u.external_id]
+                    emails = [u.email for u in all_users if u.email]
                     logger.warning(f"Usuario con external_id {supabase_user_id} no encontrado en BD local")
                     logger.warning(f"External IDs en BD: {external_ids}")
+                    logger.warning(f"Emails en BD: {emails}")
                     raise HTTPException(
                         status_code=404,
                         detail=f"User not found in local database. Supabase ID: {supabase_user_id}"

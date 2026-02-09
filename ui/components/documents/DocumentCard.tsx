@@ -54,9 +54,10 @@ export default function DocumentCard({
   }, [document.id, document.status])
 
   const getStatusBadge = () => {
+    // Labels unificados: en el badge usamos versión corta, en tooltips/subtítulos la versión completa
     const statusConfig = {
       approved: { label: 'Aprobado', className: 'bg-green-100 text-green-800' },
-      pending_validation: { label: 'Pendiente de validación', className: 'bg-yellow-100 text-yellow-800' },
+      pending_validation: { label: 'Pendiente', className: 'bg-yellow-100 text-yellow-800' }, // Versión corta para badge
       rejected: { label: 'Rechazado', className: 'bg-red-100 text-red-800' },
       archived: { label: 'Archivado', className: 'bg-gray-100 text-gray-800' },
       draft: { label: 'Borrador', className: 'bg-gray-100 text-gray-800' },
@@ -65,7 +66,10 @@ export default function DocumentCard({
     const config = statusConfig[document.status as keyof typeof statusConfig] || statusConfig.draft
 
     const badgeContent = (
-      <span className={`px-2 py-1 rounded-full text-xs font-medium ${config.className} ${onStatusClick ? 'cursor-pointer hover:opacity-80 transition' : ''}`}>
+      <span 
+        className={`px-2 py-1 rounded-full text-xs font-medium ${config.className} ${onStatusClick ? 'cursor-pointer hover:opacity-80 transition' : ''}`}
+        title={document.status === 'pending_validation' ? 'Pendiente de validación' : undefined}
+      >
         {config.label}
       </span>
     )
@@ -88,9 +92,10 @@ export default function DocumentCard({
   }
 
   const getStatusLabel = () => {
+    // Para la línea audit-friendly, usar versión corta
     const statusLabels: Record<string, string> = {
       approved: 'Aprobado',
-      pending_validation: 'Pendiente de validación',
+      pending_validation: 'Pendiente', // Versión corta para línea audit
       rejected: 'Rechazado',
       archived: 'Archivado',
       draft: 'Borrador',
@@ -98,13 +103,25 @@ export default function DocumentCard({
     return statusLabels[document.status] || 'Borrador'
   }
 
+  // Indicador visual sutil para documentos pendientes de validación
+  const isPendingValidation = document.status === 'pending_validation'
+  
   return (
-    <div className="bg-white border border-gray-200 rounded-lg p-6 hover:border-blue-300 hover:shadow-md transition">
+    <div className={`bg-white border rounded-lg p-6 hover:border-blue-300 hover:shadow-md transition ${
+      isPendingValidation 
+        ? 'border-l-4 border-l-yellow-400 border-gray-200' 
+        : 'border-gray-200'
+    }`}>
       <div className="flex items-start justify-between">
         <div className="flex-1">
           <div className="flex items-center gap-2 mb-2">
             <h3 className="text-lg font-semibold text-gray-900">{document.name}</h3>
             {getStatusBadge()}
+            {isPendingValidation && (
+              <span className="text-xs text-gray-500" title="Requiere validación">
+                ⚠️
+              </span>
+            )}
           </div>
           {document.description && (
             <p className="text-sm text-gray-600 mb-2 line-clamp-2">{document.description}</p>

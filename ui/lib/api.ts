@@ -261,14 +261,18 @@ export async function listWorkspaces(): Promise<WorkspaceResponse[]> {
  * Obtiene los workspaces de un usuario específico.
  */
 export async function getUserWorkspaces(userId: string): Promise<WorkspaceResponse[]> {
+  console.log('[getUserWorkspaces] Obteniendo workspaces para userId:', userId)
   const response = await fetch(`${API_URL}/api/v1/users/${userId}/workspaces`);
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
+    console.error('[getUserWorkspaces] Error obteniendo workspaces:', error)
     throw new Error(error.detail || `HTTP ${response.status}`);
   }
 
-  return response.json();
+  const data = await response.json()
+  console.log('[getUserWorkspaces] Workspaces obtenidos:', data.length, data.map((ws: any) => ws.name))
+  return data
 }
 
 /**
@@ -942,8 +946,15 @@ export async function checkPermission(
   workspaceId: string,
   permissionName: string
 ): Promise<{ has_permission: boolean }> {
+  // Obtener token de autenticación
+  const { getAuthHeaders } = await import('@/lib/api-auth')
+  const headers = await getAuthHeaders({})
+  
   const response = await fetch(
-    `${API_URL}/api/v1/users/${userId}/permission/${workspaceId}/${encodeURIComponent(permissionName)}`
+    `${API_URL}/api/v1/users/${userId}/permission/${workspaceId}/${encodeURIComponent(permissionName)}`,
+    {
+      headers,
+    }
   );
 
   if (!response.ok) {

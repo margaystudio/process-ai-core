@@ -180,13 +180,26 @@ export default function Home() {
             return
           }
           
-          // No hay invitaciones pendientes, redirigir a onboarding
-          console.log('No hay invitaciones pendientes, redirigiendo a onboarding')
-          router.push('/onboarding')
+          // No hay invitaciones pendientes
+          // Verificar si el usuario es superadmin antes de redirigir a onboarding
+          const isSuperadmin = workspaces.some(ws => ws.workspace_type === 'system')
+          
+          if (isSuperadmin) {
+            console.log('Usuario es superadmin, redirigiendo a /clients')
+            router.push('/clients')
+          } else {
+            console.log('No hay invitaciones pendientes, redirigiendo a onboarding')
+            router.push('/onboarding')
+          }
         } catch (err) {
           console.error('Error verificando invitaciones pendientes:', err)
-          // Si hay error, redirigir a onboarding de todas formas
-          router.push('/onboarding')
+          // Si hay error, verificar si es superadmin antes de redirigir
+          const isSuperadmin = workspaces.some(ws => ws.workspace_type === 'system')
+          if (isSuperadmin) {
+            router.push('/clients')
+          } else {
+            router.push('/onboarding')
+          }
         } finally {
           setCheckingInvitations(false)
         }

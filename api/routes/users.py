@@ -333,19 +333,31 @@ async def check_user_permission(
     user_id: str,
     workspace_id: str,
     permission_name: str,
+    authenticated_user_id: str = Depends(get_current_user_id),
     session: Session = Depends(get_db),
 ):
     """
     Verifica si un usuario tiene un permiso específico en un workspace.
     
     Args:
-        user_id: ID del usuario
+        user_id: ID del usuario (debe coincidir con el usuario autenticado)
         workspace_id: ID del workspace
         permission_name: Nombre del permiso (ej: "workspaces.edit", "documents.approve")
+        authenticated_user_id: ID del usuario autenticado (del token JWT)
     
     Returns:
         { has_permission: bool }
+    
+    Raises:
+        403: Si el user_id de la URL no coincide con el usuario autenticado
     """
+    # Verificar que el usuario autenticado coincida con el user_id de la URL
+    if user_id != authenticated_user_id:
+        raise HTTPException(
+            status_code=403,
+            detail="You can only check your own permissions"
+        )
+    
     has_perm = has_permission(session, user_id, workspace_id, permission_name)
     return {"has_permission": has_perm}
 

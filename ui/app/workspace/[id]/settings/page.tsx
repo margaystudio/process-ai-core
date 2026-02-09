@@ -24,10 +24,16 @@ export default function WorkspaceSettingsPage() {
   const params = useParams()
   const { withLoading } = useLoading()
   const userId = useUserId()
-  const { selectedWorkspaceId } = useWorkspace()
+  const { selectedWorkspaceId, workspaces } = useWorkspace()
   const workspaceId = (params?.id as string) || selectedWorkspaceId
   const { hasPermission: canEditWorkspace, loading: loadingEditPerm } = useCanEditWorkspace()
   const { hasPermission: canManageUsers, loading: loadingManagePerm } = useCanManageUsers()
+  
+  // Verificar si el usuario es superadmin (tiene un workspace de tipo "system")
+  const isSuperadmin = workspaces.some(ws => ws.workspace_type === 'system')
+  
+  // Superadmin tiene acceso a la configuración de cualquier workspace
+  const hasAccess = isSuperadmin || canEditWorkspace
 
   const [activeTab, setActiveTab] = useState<'general' | 'users' | 'subscription' | 'limits'>('general')
   const [loading, setLoading] = useState(false)
@@ -153,8 +159,8 @@ export default function WorkspaceSettingsPage() {
     )
   }
 
-  // Verificar permisos: solo owner/admin pueden acceder a settings
-  if (!loadingEditPerm && !canEditWorkspace) {
+  // Verificar permisos: solo owner/admin/superadmin pueden acceder a settings
+  if (!loadingEditPerm && !hasAccess) {
     return (
       <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
         <div className="max-w-7xl mx-auto">
@@ -275,6 +281,13 @@ export default function WorkspaceSettingsPage() {
                           <option value="viewer">Viewer</option>
                           <option value="admin">Admin</option>
                         </select>
+                        {/* Descripción dinámica del rol */}
+                        <p className="mt-1 text-xs text-gray-500">
+                          {inviteRole === 'viewer' && 'Puede consultar procesos aprobados. Ideal para operarios.'}
+                          {inviteRole === 'creator' && 'Puede crear y editar procesos, pero no aprobarlos.'}
+                          {inviteRole === 'approver' && 'Puede revisar y aprobar procesos.'}
+                          {inviteRole === 'admin' && 'Puede administrar usuarios y configurar el espacio de trabajo.'}
+                        </p>
                       </div>
 
                       <div>

@@ -103,6 +103,11 @@ async def create_workspace(
                     plan_id=plan.id,
                     status="trial",
                 )
+            
+            # Asociar el usuario que crea el workspace como admin (si es superadmin)
+            # Esto permite que el superadmin vea y gestione el workspace que creó
+            if is_superadmin(user_id, session):
+                add_user_to_workspace_helper(session, user_id, workspace.id, "admin")
         else:
             # B2C: crear workspace de usuario
             from process_ai_core.db.helpers import create_user_workspace

@@ -3,9 +3,11 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createWorkspace, getCatalogOptions, createCatalogOption, CatalogOption } from '@/lib/api'
+import { useWorkspace } from '@/contexts/WorkspaceContext'
 
 export default function NewClientPage() {
   const router = useRouter()
+  const { refreshWorkspaces } = useWorkspace()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<any>(null)
@@ -120,6 +122,9 @@ export default function NewClientPage() {
       })
 
       setResult(response)
+      
+      // Refrescar workspaces para que aparezca el nuevo
+      await refreshWorkspaces()
       
       // Redirigir inmediatamente
       router.push('/clients')

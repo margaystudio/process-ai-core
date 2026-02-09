@@ -9,7 +9,7 @@ import DocumentCard from '@/components/documents/DocumentCard'
 import StatusFilterChips from '@/components/documents/StatusFilterChips'
 import { usePdfViewer } from '@/hooks/usePdfViewer'
 import { useDocumentFilter } from '@/hooks/useDocumentFilter'
-import { useCanApproveDocuments, useCanRejectDocuments } from '@/hooks/useHasPermission'
+import { useCanApproveDocuments, useCanRejectDocuments, useCanEditWorkspace } from '@/hooks/useHasPermission'
 
 export default function WorkspacePage() {
   const { selectedWorkspaceId, selectedWorkspace } = useWorkspace()
@@ -23,9 +23,13 @@ export default function WorkspacePage() {
   // Hooks para permisos y determinar acción principal
   const { hasPermission: canApprove } = useCanApproveDocuments()
   const { hasPermission: canReject } = useCanRejectDocuments()
+  const { hasPermission: canEditWorkspace } = useCanEditWorkspace()
   
   // Determinar acción principal: si puede aprobar/rechazar, es admin/validator -> "Ver Detalles", sino "Ver PDF"
   const primaryAction = (canApprove || canReject) ? 'view' : 'pdf'
+  
+  // Mostrar botón "+ Nuevo Proceso" solo si tiene permisos de edición (admin/editor)
+  const canCreateDocuments = canEditWorkspace
   
   // Hook para manejar visualización de PDFs
   const { openPdf, ModalComponent } = usePdfViewer()
@@ -60,6 +64,32 @@ export default function WorkspacePage() {
 
   // Filtrar documentos por búsqueda, carpeta y estado
   const filteredDocuments = useDocumentFilter(documents, searchQuery, selectedFolderId, statusFilter)
+  
+  // Ordenar documentos por prioridad de estado (solo UI, sin afectar API)
+  // Orden: Pendiente de validación > Borrador > Rechazado > Aprobado > Otros
+  const sortedDocuments = [...filteredDocuments].sort((a, b) => {
+    const statusPriority: Record<string, number> = {
+      'pending_validation': 1,
+      'draft': 2,
+      'rejected': 3,
+      'approved': 4,
+    }
+    const priorityA = statusPriority[a.status] || 99
+    const priorityB = statusPriority[b.status] || 99
+    return priorityA - priorityB
+  })
+  
+  // Obtener label del estado para mostrar en el texto informativo
+  const getStatusLabel = (status: string | null): string => {
+    if (!status) return 'Todos'
+    const labels: Record<string, string> = {
+      'pending_validation': 'Pendiente',
+      'draft': 'Borrador',
+      'approved': 'Aprobado',
+      'rejected': 'Rechazado',
+    }
+    return labels[status] || status
+  }
 
 
   if (!selectedWorkspaceId) {
@@ -127,12 +157,14 @@ export default function WorkspacePage() {
                 Procesos documentados, versionados y auditables
               </p>
             </div>
-            <Link
-              href="/processes/new"
-              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 font-medium"
-            >
-              + Nuevo Proceso
-            </Link>
+            {canCreateDocuments && (
+              <Link
+                href="/processes/new"
+                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 font-medium"
+              >
+                + Nuevo Proceso
+              </Link>
+            )}
           </div>
 
           {/* Barra de búsqueda */}
@@ -210,7 +242,7 @@ export default function WorkspacePage() {
                         setSearchQuery('')
                         setStatusFilter(null)
                       }}
-                      className="inline-block px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300"
+                      className="inline-block px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 text-sm"
                     >
                       Limpiar filtros
                     </button>
@@ -218,13 +250,28 @@ export default function WorkspacePage() {
                 </div>
               ) : (
                 <>
+                  {/* Texto informativo del filtro activo */}
+                  {statusFilter && (
+                    <div className="mb-3 p-3 bg-blue-50 border border-blue-200 rounded-md flex items-center justify-between">
+                      <p className="text-sm text-gray-700">
+                        Mostrando: <span className="font-semibold text-gray-900">{getStatusLabel(statusFilter)}</span> ({sortedDocuments.length} {sortedDocuments.length === 1 ? 'documento' : 'documentos'})
+                      </p>
+                      <button
+                        onClick={() => setStatusFilter(null)}
+                        className="text-xs text-blue-600 hover:text-blue-700 hover:underline font-medium"
+                      >
+                        Limpiar filtros
+                      </button>
+                    </div>
+                  )}
+                  
                   <div className="mb-4 flex items-center justify-between">
                     <h2 className="text-lg font-semibold text-gray-900">
-                      Documentos ({filteredDocuments.length})
+                      Documentos ({sortedDocuments.length})
                     </h2>
                   </div>
                   <div className="space-y-3">
-                    {filteredDocuments.map((doc) => (
+                    {sortedDocuments.map((doc) => (
                       <DocumentCard
                         key={doc.id}
                         document={doc}
