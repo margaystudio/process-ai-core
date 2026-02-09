@@ -7,7 +7,7 @@ Este endpoint maneja:
 - PUT /api/v1/documents/{document_id}: Actualizar un documento
 """
 
-from fastapi import APIRouter, HTTPException, File, UploadFile, Form, Query, Body
+from fastapi import APIRouter, HTTPException, File, UploadFile, Form, Query, Body, Depends
 from typing import List, Optional
 import tempfile
 import shutil
@@ -32,6 +32,7 @@ from process_ai_core.export import export_pdf
 from process_ai_core.ingest import discover_raw_assets
 
 from ..models.requests import DocumentResponse, DocumentUpdateRequest, ProcessRunResponse
+from api.dependencies import get_current_user_id
 
 router = APIRouter(prefix="/api/v1/documents", tags=["documents"])
 
@@ -491,6 +492,7 @@ async def create_document_run(
     text_files: List[UploadFile] = File(default=[]),
     revision_notes: str = Form(""),
     reuse_previous_files: bool = Form(False),
+    user_id: str = Depends(get_current_user_id),
 ):
     """
     Crea un nuevo run para un documento existente.
@@ -778,6 +780,7 @@ async def create_document_run(
                             content_json=json_content,
                             content_markdown=markdown_content,
                             is_current=False,
+                            created_by=user_id,  # Setear created_by para segregación de funciones
                         )
                         db_session.add(draft_version)
                         db_session.flush()
@@ -793,6 +796,7 @@ async def create_document_run(
                             content_json=json_content,
                             content_markdown=markdown_content,
                             is_current=False,
+                            created_by=user_id,  # Setear created_by para segregación de funciones
                         )
                         db_session.add(draft_version)
                         db_session.flush()
@@ -802,7 +806,7 @@ async def create_document_run(
                             updated_version, validation = submit_version_for_review(
                                 session=db_session,
                                 version_id=draft_version.id,
-                                submitter_id=None,  # TODO: obtener del contexto de autenticación
+                                submitter_id=user_id,  # Usuario que creó la versión
                             )
                             logger.info(f"Versión {draft_version.id} enviada automáticamente a revisión (IN_REVIEW)")
                         except ValueError as e:
@@ -966,6 +970,7 @@ async def patch_document_with_ai(
     document_id: str,
     observations: str = Body(..., embed=True),
     run_id: str | None = Body(None, embed=True),
+    user_id: str = Depends(get_current_user_id),
 ):
     """
     Aplica un patch por IA usando observaciones de validación.
@@ -1296,6 +1301,7 @@ Responde SOLO con el JSON corregido, sin texto adicional.
                         content_json=json_content,
                         content_markdown=markdown_content,
                         is_current=False,
+                        created_by=user_id,  # Setear created_by para segregación de funciones
                     )
                     session.add(draft_version)
                     session.flush()
@@ -1311,6 +1317,7 @@ Responde SOLO con el JSON corregido, sin texto adicional.
                         content_json=json_content,
                         content_markdown=markdown_content,
                         is_current=False,
+                        created_by=user_id,  # Setear created_by para segregación de funciones
                     )
                     session.add(draft_version)
                     session.flush()
@@ -1320,7 +1327,7 @@ Responde SOLO con el JSON corregido, sin texto adicional.
                         updated_version, validation = submit_version_for_review(
                             session=session,
                             version_id=draft_version.id,
-                            submitter_id=None,  # TODO: obtener del contexto de autenticación
+                            submitter_id=user_id,  # Usuario que creó la versión
                         )
                         logger.info(f"Versión {draft_version.id} enviada automáticamente a revisión (IN_REVIEW)")
                     except ValueError as e:

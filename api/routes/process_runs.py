@@ -11,10 +11,11 @@ import uuid
 from pathlib import Path
 from typing import List
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 
 from process_ai_core.config import get_settings
+from api.dependencies import get_current_user_id
 from process_ai_core.document_profiles import get_profile
 from process_ai_core.domain_models import RawAsset
 from process_ai_core.engine import run_process_pipeline
@@ -37,6 +38,7 @@ async def create_process_run(
     video_files: List[UploadFile] = File(default=[]),
     image_files: List[UploadFile] = File(default=[]),
     text_files: List[UploadFile] = File(default=[]),
+    user_id: str = Depends(get_current_user_id),
 ):
     """
     Crea una nueva corrida del pipeline de documentación.
@@ -325,6 +327,7 @@ async def create_process_run(
                             content_json=json_content,
                             content_markdown=markdown_content,
                             is_current=False,
+                            created_by=user_id,  # Setear created_by para segregación de funciones
                         )
                         db_session.add(draft_version)
                         db_session.flush()
@@ -340,6 +343,7 @@ async def create_process_run(
                             content_json=json_content,
                             content_markdown=markdown_content,
                             is_current=False,
+                            created_by=user_id,  # Setear created_by para segregación de funciones
                         )
                         db_session.add(draft_version)
                         db_session.flush()
@@ -350,7 +354,7 @@ async def create_process_run(
                             updated_version, validation = submit_version_for_review(
                                 session=db_session,
                                 version_id=draft_version.id,
-                                submitter_id=None,  # TODO: obtener del contexto de autenticación
+                                submitter_id=user_id,  # Usuario que creó la versión
                             )
                             logger.info(f"Versión {draft_version.id} enviada automáticamente a revisión (IN_REVIEW)")
                         except ValueError as e:
