@@ -24,6 +24,27 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
+
+@router.get("/check-email/{email}")
+async def check_email_exists(email: str):
+    """
+    Verifica si un email ya existe en la base de datos local.
+    
+    Args:
+        email: Email a verificar
+    
+    Returns:
+        { exists: bool, user_id: str | null }
+    """
+    from process_ai_core.db.helpers import get_user_by_email
+    
+    with get_db_session() as session:
+        user = get_user_by_email(session, email)
+        return {
+            "exists": user is not None,
+            "user_id": user.id if user else None,
+        }
+
 # Cliente de Supabase para validar tokens
 try:
     from supabase import create_client, Client

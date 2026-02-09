@@ -1206,6 +1206,7 @@ export async function listAllWorkspaces(
 export interface InvitationResponse {
   id: string;
   workspace_id: string;
+  workspace_name?: string; // Nombre del workspace (opcional para compatibilidad)
   invited_by_user_id: string;
   email: string;
   role_id: string;
@@ -1217,6 +1218,20 @@ export interface InvitationResponse {
   created_at: string;
   invitation_url?: string; // URL para aceptar la invitación
   token?: string; // Token de la invitación (para uso directo)
+}
+
+/**
+ * Verifica si un email existe en la base de datos.
+ */
+export async function checkEmailExists(email: string): Promise<{ exists: boolean; user_id: string | null }> {
+  const response = await fetch(`${API_URL}/api/v1/auth/check-email/${encodeURIComponent(email)}`)
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }))
+    throw new Error(error.detail || `HTTP ${response.status}`)
+  }
+
+  return response.json()
 }
 
 /**

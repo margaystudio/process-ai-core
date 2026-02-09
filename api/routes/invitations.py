@@ -46,6 +46,7 @@ class CreateInvitationRequest(BaseModel):
 class InvitationResponse(BaseModel):
     id: str
     workspace_id: str
+    workspace_name: Optional[str] = None  # Nombre del workspace (opcional para compatibilidad)
     invited_by_user_id: str
     email: str
     role_id: str
@@ -128,9 +129,12 @@ async def create_invitation(
     frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
     invitation_url = f"{frontend_url}/invitations/accept/{invitation.token}"
     
+    workspace = session.query(Workspace).filter_by(id=invitation.workspace_id).first()
+    
     return InvitationResponse(
         id=invitation.id,
         workspace_id=invitation.workspace_id,
+        workspace_name=workspace.name if workspace else None,
         invited_by_user_id=invitation.invited_by_user_id,
         email=invitation.email,
         role_id=invitation.role_id,
@@ -175,10 +179,12 @@ async def list_invitations(
     result = []
     for invitation in invitations:
         role = session.query(Role).filter_by(id=invitation.role_id).first()
+        workspace = session.query(Workspace).filter_by(id=invitation.workspace_id).first()
         invitation_url = f"{frontend_url}/invitations/accept/{invitation.token}" if invitation.status == "pending" else None
         result.append(InvitationResponse(
             id=invitation.id,
             workspace_id=invitation.workspace_id,
+            workspace_name=workspace.name if workspace else None,
             invited_by_user_id=invitation.invited_by_user_id,
             email=invitation.email,
             role_id=invitation.role_id,
@@ -224,6 +230,7 @@ async def get_invitation_by_token_endpoint(
     return InvitationResponse(
         id=invitation.id,
         workspace_id=invitation.workspace_id,
+        workspace_name=workspace.name if workspace else None,
         invited_by_user_id=invitation.invited_by_user_id,
         email=invitation.email,
         role_id=invitation.role_id,
@@ -586,10 +593,12 @@ async def get_pending_invitations_by_email_endpoint(
     result = []
     for invitation in invitations:
         role = session.query(Role).filter_by(id=invitation.role_id).first()
+        workspace = session.query(Workspace).filter_by(id=invitation.workspace_id).first()
         invitation_url = f"{frontend_url}/invitations/accept/{invitation.token}"
         result.append(InvitationResponse(
             id=invitation.id,
             workspace_id=invitation.workspace_id,
+            workspace_name=workspace.name if workspace else None,
             invited_by_user_id=invitation.invited_by_user_id,
             email=invitation.email,
             role_id=invitation.role_id,
