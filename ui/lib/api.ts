@@ -106,8 +106,19 @@ export interface FolderCreateRequest {
 export async function createProcessRun(
   formData: FormData
 ): Promise<RunResponse> {
+  // Obtener token de autenticación
+  const { getAccessToken } = await import('@/lib/api-auth')
+  const token = await getAccessToken()
+  
+  const headers: HeadersInit = {}
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`
+  }
+  // No establecer Content-Type para FormData, el navegador lo hace automáticamente
+  
   const response = await fetch(`${API_URL}/api/v1/process-runs`, {
     method: 'POST',
+    headers,
     body: formData,
   });
 
@@ -543,8 +554,19 @@ export async function createDocumentRun(
   documentId: string,
   formData: FormData
 ): Promise<RunResponse> {
+  // Obtener token de autenticación
+  const { getAccessToken } = await import('@/lib/api-auth')
+  const token = await getAccessToken()
+  
+  const headers: HeadersInit = {}
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`
+  }
+  // No establecer Content-Type para FormData, el navegador lo hace automáticamente
+  
   const response = await fetch(`${API_URL}/api/v1/documents/${documentId}/runs`, {
     method: 'POST',
+    headers,
     body: formData,
   });
 
