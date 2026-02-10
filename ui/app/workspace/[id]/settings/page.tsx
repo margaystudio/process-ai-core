@@ -276,17 +276,19 @@ export default function WorkspaceSettingsPage() {
                           onChange={(e) => setInviteRole(e.target.value)}
                           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
                         >
-                          <option value="creator">Creator</option>
-                          <option value="approver">Approver</option>
-                          <option value="viewer">Viewer</option>
+                          <option value="owner">Owner</option>
                           <option value="admin">Admin</option>
+                          <option value="approver">Approver</option>
+                          <option value="creator">Creator</option>
+                          <option value="viewer">Viewer</option>
                         </select>
                         {/* Descripción dinámica del rol */}
                         <p className="mt-1 text-xs text-gray-500">
-                          {inviteRole === 'viewer' && 'Puede consultar procesos aprobados. Ideal para operarios.'}
-                          {inviteRole === 'creator' && 'Puede crear y editar procesos, pero no aprobarlos.'}
-                          {inviteRole === 'approver' && 'Puede revisar y aprobar procesos.'}
+                          {inviteRole === 'owner' && 'Dueño del workspace. Tiene todos los permisos, incluyendo eliminar documentos.'}
                           {inviteRole === 'admin' && 'Puede administrar usuarios y configurar el espacio de trabajo.'}
+                          {inviteRole === 'approver' && 'Puede revisar y aprobar procesos.'}
+                          {inviteRole === 'creator' && 'Puede crear y editar procesos, pero no aprobarlos.'}
+                          {inviteRole === 'viewer' && 'Puede consultar procesos aprobados. Ideal para operarios.'}
                         </p>
                       </div>
 
