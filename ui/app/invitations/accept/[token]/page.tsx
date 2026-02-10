@@ -524,30 +524,28 @@ export default function AcceptInvitationPage() {
       setIsAuthenticated(loggedIn)
 
       if (loggedIn) {
-        // Usuario logueado: verificar email y aceptar automáticamente
+        // Usuario logueado: verificar email pero NO aceptar automáticamente
         const userEmail = await getLoggedInUserEmail()
-        if (userEmail?.toLowerCase() === invitation.email.toLowerCase()) {
-          // Solo aceptar si no estamos ya procesando
-          if (!loading) {
-            handleAcceptInvitation()
-          }
-        } else {
+        if (userEmail?.toLowerCase() !== invitation.email.toLowerCase()) {
           setError(`Esta invitación es para ${invitation.email}, pero estás autenticado como ${userEmail}.`)
         }
+        // No aceptar automáticamente - el usuario debe hacer click en "Aceptar invitación"
       }
     }
 
     checkAuth()
     
-    // También escuchar cambios en la sesión de Supabase
+    // También escuchar cambios en la sesión de Supabase (solo para actualizar estado, NO aceptar automáticamente)
     const supabase = createClient()
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.user && invitation) {
         const userEmail = session.user.email
         if (userEmail?.toLowerCase() === invitation.email.toLowerCase()) {
           setIsAuthenticated(true)
-          handleAcceptInvitation()
+          // NO aceptar automáticamente - el usuario debe hacer click en "Aceptar invitación"
         }
+      } else {
+        setIsAuthenticated(false)
       }
     })
 
