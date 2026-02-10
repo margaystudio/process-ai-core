@@ -155,6 +155,7 @@ def run_documentation_pipeline(
 # Funciones de compatibilidad (procesos)
 # ============================================================
 
+
 def run_process_pipeline(
     *,
     process_name: str,

@@ -9,6 +9,7 @@ Este endpoint maneja:
 """
 
 from fastapi import APIRouter, HTTPException, Query, Depends
+from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -360,4 +361,60 @@ async def check_user_permission(
     
     has_perm = has_permission(session, user_id, workspace_id, permission_name)
     return {"has_permission": has_perm}
+
+
+class UpdateUserProfileRequest(BaseModel):
+    """Request para actualizar perfil de usuario."""
+    name: str
+
+
+@router.put("/{user_id}")
+async def update_user_profile(
+    user_id: str,
+    request: UpdateUserProfileRequest,
+    authenticated_user_id: str = Depends(get_current_user_id),
+    session: Session = Depends(get_db),
+):
+    """
+    Actualiza el perfil de un usuario (nombre).
+    
+    Args:
+        user_id: ID del usuario (debe coincidir con el usuario autenticado)
+        request: Datos a actualizar (name: nombre completo del usuario)
+        authenticated_user_id: ID del usuario autenticado (del token JWT)
+    
+    Returns:
+        Datos del usuario actualizado
+    
+    Raises:
+        403: Si el user_id de la URL no coincide con el usuario autenticado
+        404: Si el usuario no existe
+    """
+    # Verificar que el usuario autenticado coincida con el user_id de la URL
+    if user_id != authenticated_user_id:
+        raise HTTPException(
+            status_code=403,
+            detail="You can only update your own profile"
+        )
+    
+    user = session.query(User).filter_by(id=user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Usuario {user_id} no encontrado"
+        )
+    
+    # Actualizar nombre
+    user.name = request.name
+    from datetime import datetime, UTC
+    user.updated_at = datetime.now(UTC)
+    
+    session.commit()
+    
+    return {
+        "id": user.id,
+        "email": user.email,
+        "name": user.name,
+        "updated_at": user.updated_at.isoformat(),
+    }
 

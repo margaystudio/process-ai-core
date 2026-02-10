@@ -1258,6 +1258,32 @@ export async function checkEmailExists(email: string): Promise<{ exists: boolean
 }
 
 /**
+ * Actualiza el perfil de un usuario (nombre).
+ */
+export async function updateUserProfile(
+  userId: string,
+  firstName: string,
+  lastName: string,
+  authToken: string
+): Promise<void> {
+  const fullName = `${firstName} ${lastName}`.trim()
+  
+  const response = await fetch(`${API_URL}/api/v1/users/${userId}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${authToken}`,
+    },
+    body: JSON.stringify({ name: fullName }),
+  })
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }))
+    throw new Error(error.detail || `HTTP ${response.status}`)
+  }
+}
+
+/**
  * Lista invitaciones de un workspace.
  */
 export async function listWorkspaceInvitations(
