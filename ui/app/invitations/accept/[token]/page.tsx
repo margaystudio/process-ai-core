@@ -654,26 +654,22 @@ export default function AcceptInvitationPage() {
             </div>
           )}
 
-          {!isAuthenticated ? (
-            <div className="space-y-3">
-              <button
-                onClick={handleAcceptClick}
-                className="w-full px-6 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 font-medium"
-              >
-                Aceptar invitación
-              </button>
+          <div className="space-y-3">
+            <button
+              onClick={isAuthenticated ? handleAcceptInvitation : handleAcceptClick}
+              className="w-full px-6 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 font-medium"
+            >
+              Aceptar invitación
+            </button>
+            {!isAuthenticated && (
               <button
                 onClick={handleSignOut}
                 className="w-full text-sm text-gray-500 hover:text-gray-700 hover:underline"
               >
                 ¿No sos esta persona? Cerrar sesión
               </button>
-            </div>
-          ) : (
-            <div className="text-sm text-gray-600">
-              <p>Procesando invitación...</p>
-            </div>
-          )}
+            )}
+          </div>
         </div>
 
         {/* Modales de autenticación */}
