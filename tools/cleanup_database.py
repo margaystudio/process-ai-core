@@ -18,7 +18,7 @@ Uso:
 """
 import sys
 
-from process_ai_core.db.database import get_db_session, get_db_engine
+from process_ai_core.db.database import get_db_session
 from process_ai_core.db.models import (
     Document,
     Process,
@@ -32,7 +32,6 @@ from process_ai_core.db.models import (
     Workspace,
 )
 from process_ai_core.config import get_settings
-from sqlalchemy import text
 from pathlib import Path
 import shutil
 
@@ -92,34 +91,53 @@ def cleanup_database(skip_confirmation: bool = False):
             deleted_audit = session.query(AuditLog).delete()
             print(f"   ✓ AuditLog: {deleted_audit} registros eliminados")
             
-            # 2. DocumentVersion (referencia a documents, runs)
-            deleted_versions = session.query(DocumentVersion).delete()
-            print(f"   ✓ DocumentVersion: {deleted_versions} registros eliminados")
+            # 2. Anular approved_version_id en documents (FK a document_versions)
+            updated_docs = session.query(Document).filter(Document.approved_version_id.isnot(None)).update(
+                {Document.approved_version_id: None}, synchronize_session=False
+            )
+            if updated_docs:
+                print(f"   ✓ Document.approved_version_id anulados: {updated_docs} documentos")
             
-            # 3. Validation (referencia a documents, runs)
+            # 3. Anular validation_id en DocumentVersion y Run (FK a validations) para poder borrar validations
+            updated_versions_fk = session.query(DocumentVersion).filter(
+                DocumentVersion.validation_id.isnot(None)
+            ).update({DocumentVersion.validation_id: None}, synchronize_session=False)
+            if updated_versions_fk:
+                print(f"   ✓ DocumentVersion.validation_id anulados: {updated_versions_fk} versiones")
+            updated_runs_fk = session.query(Run).filter(Run.validation_id.isnot(None)).update(
+                {Run.validation_id: None}, synchronize_session=False
+            )
+            if updated_runs_fk:
+                print(f"   ✓ Run.validation_id anulados: {updated_runs_fk} runs")
+            
+            # 4. Validation (referencia a documents, runs; ya nadie la referencia)
             deleted_validations = session.query(Validation).delete()
             print(f"   ✓ Validation: {deleted_validations} registros eliminados")
             
-            # 4. Artifact (referencia a runs)
+            # 5. DocumentVersion (referencia a documents, runs)
+            deleted_versions = session.query(DocumentVersion).delete()
+            print(f"   ✓ DocumentVersion: {deleted_versions} registros eliminados")
+            
+            # 6. Artifact (referencia a runs)
             deleted_artifacts = session.query(Artifact).delete()
             print(f"   ✓ Artifact: {deleted_artifacts} registros eliminados")
             
-            # 5. Run (referencia a documents)
+            # 7. Run (referencia a documents)
             deleted_runs = session.query(Run).delete()
             print(f"   ✓ Run: {deleted_runs} registros eliminados")
             
-            # 6. Process y Recipe (tablas hijas de Document)
+            # 8. Process y Recipe (tablas hijas de Document)
             deleted_processes = session.query(Process).delete()
             print(f"   ✓ Process: {deleted_processes} registros eliminados")
             
             deleted_recipes = session.query(Recipe).delete()
             print(f"   ✓ Recipe: {deleted_recipes} registros eliminados")
             
-            # 7. Document (tabla base)
+            # 9. Document (tabla base)
             deleted_documents = session.query(Document).delete()
             print(f"   ✓ Document: {deleted_documents} registros eliminados")
             
-            # 8. Folders (excepto root folders)
+            # 10. Folders (excepto root folders)
             # Los root folders tienen parent_id = None y son creados automáticamente
             # Eliminamos solo las carpetas que no son raíz
             deleted_folders = session.query(Folder).filter(Folder.parent_id.isnot(None)).delete()

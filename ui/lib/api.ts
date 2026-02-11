@@ -287,6 +287,23 @@ export async function getUserWorkspaces(userId: string): Promise<WorkspaceRespon
 }
 
 /**
+ * Obtiene un usuario por ID (nombre, email, etc. para mostrar en UI).
+ */
+export async function getUser(userId: string): Promise<{ id: string; email: string; name: string | null }> {
+  const response = await fetch(`${API_URL}/api/v1/users/${userId}`);
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
+    throw new Error(error.detail || `HTTP ${response.status}`);
+  }
+  const data = await response.json();
+  return {
+    id: data.id,
+    email: data.email ?? '',
+    name: data.name ?? null,
+  };
+}
+
+/**
  * Agrega un usuario a un workspace con un rol específico.
  */
 export async function addUserToWorkspace(
@@ -766,6 +783,59 @@ export async function rejectDocumentValidation(
   return response.json();
 }
 
+/**
+ * Cancela el envío a revisión y vuelve la versión a borrador.
+ * Solo el creador de la versión puede cancelar.
+ */
+export async function cancelDocumentSubmission(
+  documentId: string,
+  versionId: string,
+  userId: string,
+  workspaceId: string
+): Promise<{ message: string; version: { id: string; version_number: number; version_status: string } }> {
+  const { getAuthHeaders } = await import('@/lib/api-auth');
+  const headers = await getAuthHeaders({ 'Content-Type': 'application/json' });
+  const response = await fetch(
+    `${API_URL}/api/v1/documents/${documentId}/versions/${versionId}/cancel-submission`,
+    {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ user_id: userId, workspace_id: workspaceId }),
+    }
+  );
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
+    throw new Error(error.detail || `HTTP ${response.status}`);
+  }
+  return response.json();
+}
+
+/**
+ * Envía una versión DRAFT a revisión (cambia a IN_REVIEW).
+ */
+export async function submitVersionForReview(
+  documentId: string,
+  versionId: string,
+  userId: string,
+  workspaceId: string
+): Promise<{ message: string; version: { id: string; version_number: number; version_status: string; validation_id: string }; validation: { id: string; status: string; document_id: string; created_at: string } }> {
+  const { getAuthHeaders } = await import('@/lib/api-auth');
+  const headers = await getAuthHeaders({ 'Content-Type': 'application/json' });
+  const response = await fetch(
+    `${API_URL}/api/v1/documents/${documentId}/versions/${versionId}/submit`,
+    {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ user_id: userId, workspace_id: workspaceId }),
+    }
+  );
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
+    throw new Error(error.detail || `HTTP ${response.status}`);
+  }
+  return response.json();
+}
+
 // ============================================================
 // Document Versions API
 // ============================================================
@@ -776,6 +846,7 @@ export interface DocumentVersion {
   version_status: string; // DRAFT | IN_REVIEW | APPROVED | REJECTED | OBSOLETE
   content_type: string;
   run_id: string | null;
+  validation_id?: string | null; // Validación asociada (cuando está IN_REVIEW)
   approved_at: string | null;
   approved_by: string | null;
   rejected_at: string | null;
@@ -893,11 +964,19 @@ export async function patchDocumentWithAI(
   observations: string,
   runId?: string
 ): Promise<RunResponse> {
+  const { getAccessToken } = await import('@/lib/api-auth')
+  const token = await getAccessToken()
+
+  const headers: HeadersInit = {
+    'Content-Type': 'application/json',
+  }
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`
+  }
+
   const response = await fetch(`${API_URL}/api/v1/documents/${documentId}/patch`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers,
     body: JSON.stringify({ observations, run_id: runId }),
   });
 

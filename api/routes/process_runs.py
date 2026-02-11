@@ -332,7 +332,7 @@ async def create_process_run(
                         db_session.add(draft_version)
                         db_session.flush()
                     else:
-                        # Crear versión DRAFT directamente desde el run
+                        # Crear versión DRAFT; el creador enviará a revisión cuando esté conforme
                         draft_version = DocumentVersion(
                             id=str(uuid.uuid4()),
                             document_id=document_id,
@@ -347,35 +347,22 @@ async def create_process_run(
                         )
                         db_session.add(draft_version)
                         db_session.flush()
-                        
-                        # Enviar automáticamente a revisión (cambia a IN_REVIEW y crea Validation)
-                        try:
-                            from process_ai_core.db.helpers import submit_version_for_review
-                            updated_version, validation = submit_version_for_review(
-                                session=db_session,
-                                version_id=draft_version.id,
-                                submitter_id=user_id,  # Usuario que creó la versión
-                            )
-                            logger.info(f"Versión {draft_version.id} enviada automáticamente a revisión (IN_REVIEW)")
-                        except ValueError as e:
-                            # Si falla (ej: ya existe IN_REVIEW), dejar como DRAFT
-                            logger.warning(f"No se pudo enviar versión a revisión automáticamente: {e}")
                     
-                    # Actualizar estado del documento a pending_validation
+                    # Dejar documento en draft para que el creador pueda revisar/corregir antes de enviar
                     update_document_status(
                         session=db_session,
                         document_id=document_id,
-                        status="pending_validation",
+                        status="draft",
                     )
                     
                     db_session.commit()
                 except Exception as e:
-                    # Si falla la creación de versión, al menos actualizar el estado
+                    # Si falla la creación de versión, dejar en draft
                     logger.error(f"Error al crear versión desde run: {e}", exc_info=True)
                     update_document_status(
                         session=db_session,
                         document_id=document_id,
-                        status="pending_validation",
+                        status="draft",
                     )
                     db_session.commit()
                 

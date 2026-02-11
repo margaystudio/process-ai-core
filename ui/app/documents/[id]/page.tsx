@@ -2,16 +2,16 @@
 
 import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { 
-  getDocument, 
-  updateDocument, 
+import {
+  getDocument,
+  updateDocument,
   deleteDocument,
-  getCatalogOptions, 
-  getDocumentRuns, 
-  createDocumentRun, 
-  getArtifactUrl, 
-  CatalogOption, 
-  Document, 
+  getCatalogOptions,
+  getDocumentRuns,
+  createDocumentRun,
+  getArtifactUrl,
+  CatalogOption,
+  Document,
   DocumentUpdateRequest,
   createValidation,
   approveValidation,
@@ -24,6 +24,9 @@ import {
   updateDocumentContent,
   getDocumentAuditLog,
   getDocumentVersions,
+  cancelDocumentSubmission,
+  submitVersionForReview,
+  getUser,
   AuditLogEntry,
   DocumentVersion,
 } from '@/lib/api'
@@ -37,16 +40,31 @@ import { FileItemData } from '@/components/processes/FileItem'
 import { formatDateTime } from '@/utils/dateFormat'
 import { useCanApproveDocuments, useCanRejectDocuments } from '@/hooks/useHasPermission'
 import { useUserId } from '@/hooks/useUserId'
+import {
+  getDocumentRole,
+  canApprove,
+  canReject,
+  canCancelSubmission,
+  canEditMetadata,
+  canCreateNewVersion,
+  canSubmitForReview,
+  type DocumentStatus,
+} from '@/lib/documentPermissions'
 
 export default function DocumentDetailPage() {
   const params = useParams()
   const router = useRouter()
   const documentId = params.id as string
   const { selectedWorkspaceId } = useWorkspace()
+  const [showCancelSubmitConfirm, setShowCancelSubmitConfirm] = useState(false)
+  const [showApproveConfirm, setShowApproveConfirm] = useState(false)
+  const [showRejectConfirm, setShowRejectConfirm] = useState(false)
+  const [isCancelling, setIsCancelling] = useState(false)
+  const [isSubmittingForReview, setIsSubmittingForReview] = useState(false)
   const { withLoading } = useLoading()
   const userId = useUserId()
-  const { hasPermission: canApprove, loading: loadingApprove } = useCanApproveDocuments()
-  const { hasPermission: canReject, loading: loadingReject } = useCanRejectDocuments()
+  const { hasPermission: hasApprovePermission, loading: loadingApprove } = useCanApproveDocuments()
+  const { hasPermission: hasRejectPermission, loading: loadingReject } = useCanRejectDocuments()
   
   const [document, setDocument] = useState<Document | null>(null)
   const [loading, setLoading] = useState(true)
@@ -86,6 +104,8 @@ export default function DocumentDetailPage() {
   const [showHistory, setShowHistory] = useState(false)
   const [auditLog, setAuditLog] = useState<AuditLogEntry[]>([])
   const [versions, setVersions] = useState<DocumentVersion[]>([])
+  const [submitterDisplayName, setSubmitterDisplayName] = useState<string | null>(null)
+  const [userDisplayNames, setUserDisplayNames] = useState<Record<string, string>>({})
   
   // Hook para manejar visualización de artifacts
   const { openArtifactFromRun, ModalComponent } = usePdfViewer()
@@ -171,6 +191,56 @@ export default function DocumentDetailPage() {
       loadDocument()
     }
   }, [documentId, showHistory])
+
+  // Resolver nombre del usuario que envió a revisión (para mostrar en banner e historial)
+  const inReviewVersionForSubmitter = versions.find(v => v.version_status === 'IN_REVIEW')
+  useEffect(() => {
+    const createdBy = inReviewVersionForSubmitter?.created_by
+    if (!createdBy) {
+      setSubmitterDisplayName(null)
+      return
+    }
+    let cancelled = false
+    getUser(createdBy)
+      .then(u => {
+        if (!cancelled) {
+          setSubmitterDisplayName(u.name?.trim() || u.email || u.id)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setSubmitterDisplayName(null)
+      })
+    return () => { cancelled = true }
+  }, [inReviewVersionForSubmitter?.created_by])
+
+  // Resolver nombres de usuarios que enviaron a revisión (para historial de validaciones)
+  const validationSubmitterIdsKey = Array.from(new Set(
+    validations.flatMap(validation => {
+      const v = versions.find(ver => ver.validation_id === validation.id)
+      return v?.created_by ? [v.created_by] : []
+    })
+  )).sort().join(',')
+  useEffect(() => {
+    const userIds = validationSubmitterIdsKey ? validationSubmitterIdsKey.split(',') : []
+    if (userIds.length === 0) return
+    let cancelled = false
+    const next: Record<string, string> = {}
+    Promise.all(
+      userIds.map(async (uid) => {
+        try {
+          const u = await getUser(uid)
+          return { id: uid, name: u.name?.trim() || u.email || u.id }
+        } catch {
+          return { id: uid, name: uid }
+        }
+      })
+    ).then((results) => {
+      if (cancelled) return
+      results.forEach(({ id, name }) => { next[id] = name })
+      setUserDisplayNames(prev => ({ ...prev, ...next }))
+    })
+    return () => { cancelled = true }
+  }, [validationSubmitterIdsKey])
   
   const handleSave = async () => {
     if (!document) return
@@ -288,6 +358,55 @@ export default function DocumentDetailPage() {
         setError(err instanceof Error ? err.message : 'Error al rechazar documento')
       } finally {
         setIsValidating(false)
+      }
+    })
+  }
+
+  const handleSubmitForReview = async () => {
+    if (!draftVersion || !userId || !selectedWorkspaceId) return
+    await withLoading(async () => {
+      try {
+        setIsSubmittingForReview(true)
+        setError(null)
+        await submitVersionForReview(documentId, draftVersion.id, userId, selectedWorkspaceId)
+        const [updatedDoc, updatedVersions, updatedValidations] = await Promise.all([
+          getDocument(documentId),
+          getDocumentVersions(documentId),
+          listValidations(documentId),
+        ])
+        setDocument(updatedDoc)
+        setStatus(updatedDoc.status)
+        setVersions(updatedVersions)
+        setValidations(updatedValidations)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Error al enviar a revisión')
+      } finally {
+        setIsSubmittingForReview(false)
+      }
+    })
+  }
+
+  const handleCancelSubmission = async () => {
+    if (!inReviewVersion || !userId || !selectedWorkspaceId) return
+    setShowCancelSubmitConfirm(false)
+    await withLoading(async () => {
+      try {
+        setIsCancelling(true)
+        setError(null)
+        await cancelDocumentSubmission(documentId, inReviewVersion.id, userId, selectedWorkspaceId)
+        const [updatedDoc, updatedVersions, updatedValidations] = await Promise.all([
+          getDocument(documentId),
+          getDocumentVersions(documentId),
+          listValidations(documentId),
+        ])
+        setDocument(updatedDoc)
+        setStatus(updatedDoc.status)
+        setVersions(updatedVersions)
+        setValidations(updatedValidations)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Error al cancelar envío')
+      } finally {
+        setIsCancelling(false)
       }
     })
   }
@@ -444,13 +563,29 @@ export default function DocumentDetailPage() {
   const hasInReviewVersion = document ? versions.some(v => v.version_status === 'IN_REVIEW') : false
   const isPendingValidation = document?.status === 'pending_validation' || false
   
-  // Obtener versión IN_REVIEW para validar segregación de funciones
+  // Obtener versión IN_REVIEW y DRAFT para validar segregación y rol
   const inReviewVersion = versions.find(v => v.version_status === 'IN_REVIEW')
+  const draftVersion = versions.find(v => v.version_status === 'DRAFT')
   // Calcular canValidate: el usuario puede validar si NO creó la versión (o si created_by es null)
   const canValidate = inReviewVersion ? (inReviewVersion.created_by === null || inReviewVersion.created_by !== userId) : true
   
+  // Rol: "creator" si creó la versión IN_REVIEW o la versión DRAFT (así tras "cancelar envío" sigue pudiendo editar)
+  const isCreatorOfInReview = Boolean(inReviewVersion && userId && inReviewVersion.created_by === userId)
+  const isCreatorOfDraft = Boolean(draftVersion && userId && draftVersion.created_by === userId)
+  const isCreator = isCreatorOfInReview || isCreatorOfDraft
+  
+  // Rol y permisos centralizados (helpers)
+  const docStatus = (document?.status || 'draft') as DocumentStatus
+  const documentRole = getDocumentRole(isCreator, hasApprovePermission ?? false, hasRejectPermission ?? false)
+  const allowApprove = canApprove(documentRole, docStatus)
+  const allowReject = canReject(documentRole, docStatus)
+  const allowCancelSubmission = canCancelSubmission(documentRole, docStatus)
+  const allowEditMetadata = canEditMetadata(documentRole, docStatus)
+  const allowNewVersion = canCreateNewVersion(docStatus)
+  const allowSubmitForReview = canSubmitForReview(documentRole, docStatus)
+  
   // Mostrar panel si hay versión IN_REVIEW, el usuario tiene permisos Y puede validar (no es el creador)
-  const showValidationPanel = isPendingValidation && hasInReviewVersion && (canApprove || canReject) && canValidate
+  const showValidationPanel = isPendingValidation && hasInReviewVersion && (hasApprovePermission || hasRejectPermission) && canValidate
   // Mostrar sección si hay panel, validaciones previas, o estado rechazado, o si hay versión IN_REVIEW (para mostrar mensaje)
   const shouldShowValidationSection = showValidationPanel || (validations.length > 0) || (document?.status === 'rejected') || (isPendingValidation && hasInReviewVersion)
   
@@ -462,8 +597,8 @@ export default function DocumentDetailPage() {
         isPendingValidation,
         versions: versions.map(v => ({ id: v.id, status: v.version_status })),
         hasInReviewVersion,
-        canApprove,
-        canReject,
+        hasApprovePermission,
+        hasRejectPermission,
         loadingApprove,
         loadingReject,
         showValidationPanel,
@@ -471,7 +606,7 @@ export default function DocumentDetailPage() {
         validationsCount: validations.length,
       })
     }
-  }, [document, versions, hasInReviewVersion, isPendingValidation, canApprove, canReject, loadingApprove, loadingReject, showValidationPanel, shouldShowValidationSection, validations.length])
+  }, [document, versions, hasInReviewVersion, isPendingValidation, hasApprovePermission, hasRejectPermission, loadingApprove, loadingReject, showValidationPanel, shouldShowValidationSection, validations.length])
   
   if (loading) {
     return (
@@ -521,12 +656,23 @@ export default function DocumentDetailPage() {
             </h1>
             {!isEditing && (
             <div className="flex items-center gap-2">
-              <button
-                onClick={() => setIsEditing(true)}
-                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-              >
-                Editar
-              </button>
+              {allowEditMetadata && (
+                <button
+                  onClick={() => setIsEditing(true)}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                >
+                  Editar
+                </button>
+              )}
+              {allowSubmitForReview && draftVersion && (
+                <button
+                  onClick={handleSubmitForReview}
+                  disabled={isSubmittingForReview}
+                  className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isSubmittingForReview ? 'Enviando...' : 'Enviar a revisión'}
+                </button>
+              )}
               <button
                 onClick={handleDelete}
                 disabled={isDeleting}
@@ -542,6 +688,34 @@ export default function DocumentDetailPage() {
         {error && (
           <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-md text-red-700">
             {error}
+          </div>
+        )}
+
+        {/* Banner contextual: Pendiente de validación */}
+        {isPendingValidation && document && (
+          <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+            <p className="text-amber-900 font-medium mb-1">Este documento está pendiente de validación.</p>
+            <p className="text-amber-800 text-sm mb-4">
+              Enviado el {inReviewVersion ? formatDateTime(inReviewVersion.created_at) : '—'} por{' '}
+              {inReviewVersion?.created_by ? (
+                <span title={inReviewVersion.created_by}>
+                  {submitterDisplayName ?? inReviewVersion.created_by}
+                </span>
+              ) : (
+                '—'
+              )}
+              .
+            </p>
+            {allowCancelSubmission && inReviewVersion && (
+              <button
+                type="button"
+                onClick={() => setShowCancelSubmitConfirm(true)}
+                disabled={isCancelling}
+                className="px-4 py-2 border border-amber-600 text-amber-800 bg-white rounded-md hover:bg-amber-50 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+              >
+                {isCancelling ? 'Cancelando...' : 'Cancelar envío y volver a borrador'}
+              </button>
+            )}
           </div>
         )}
         
@@ -806,7 +980,7 @@ export default function DocumentDetailPage() {
                                 placeholder="Observaciones adicionales para la aprobación..."
                               />
                             </div>
-                            {canApprove && (
+                            {hasApprovePermission && (
                               <button
                                 onClick={handleApproveDocument}
                                 disabled={isValidating}
@@ -832,7 +1006,7 @@ export default function DocumentDetailPage() {
                                 required
                               />
                             </div>
-                            {canReject && canValidate && (
+                            {hasRejectPermission && canValidate && (
                               <button
                                 onClick={handleRejectDocument}
                                 disabled={isValidating || !rejectObservations.trim()}
@@ -864,7 +1038,7 @@ export default function DocumentDetailPage() {
                             placeholder="Observaciones adicionales para la aprobación..."
                           />
                         </div>
-                        {canApprove && canValidate && (
+                        {hasApprovePermission && canValidate && (
                           <button
                             onClick={handleApproveDocument}
                             disabled={isValidating}
@@ -890,7 +1064,7 @@ export default function DocumentDetailPage() {
                             required
                           />
                         </div>
-                        {canReject && canValidate && (
+                        {hasRejectPermission && canValidate && (
                           <button
                             onClick={handleRejectDocument}
                             disabled={isValidating || !rejectObservations.trim()}
@@ -904,7 +1078,7 @@ export default function DocumentDetailPage() {
                   ) : null}
                     
                     {/* Mensaje si hay versión IN_REVIEW pero el usuario no tiene permisos */}
-                    {isPendingValidation && hasInReviewVersion && !canApprove && !canReject && (
+                    {isPendingValidation && hasInReviewVersion && !hasApprovePermission && !hasRejectPermission && (
                       <div className="mb-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
                         <p className="text-sm text-blue-800">
                           El documento tiene una versión en revisión, pero no tienes permisos para aprobar o rechazar documentos.
@@ -925,39 +1099,52 @@ export default function DocumentDetailPage() {
                     {validations.length > 0 && (
                       <div className="space-y-4">
                         <h3 className="text-md font-medium text-gray-900">Historial de Validaciones</h3>
-                        {validations.map((validation) => (
-                          <div key={validation.id} className="border border-gray-200 rounded-lg p-4">
-                            <div className="flex items-center gap-2 mb-2">
-                              <span className={`px-2 py-1 rounded text-xs font-medium ${
-                                validation.status === 'approved' ? 'bg-green-100 text-green-800' :
-                                validation.status === 'rejected' ? 'bg-red-100 text-red-800' :
-                                'bg-yellow-100 text-yellow-800'
-                              }`}>
-                                {validation.status === 'approved' ? 'Aprobada' :
-                                 validation.status === 'rejected' ? 'Rechazada' :
-                                 'Pendiente'}
-                              </span>
-                              <span className="text-xs text-gray-500">
-                                {formatDateTime(validation.created_at)}
-                              </span>
-                            </div>
-                            {validation.observations && (
-                              <p className="text-sm text-gray-700 whitespace-pre-wrap mt-2">
-                                {validation.observations}
-                              </p>
-                            )}
-                          </div>
-                        ))}
+                        {[...validations]
+                          .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+                          .map((validation, index) => {
+                            const versionForValidation = versions.find(v => v.validation_id === validation.id)
+                            const submittedBy = versionForValidation?.created_by ?? null
+                            const isFirstSubmission = index === 0
+                            const submitLabel = isFirstSubmission ? 'Enviado' : 'Reenviado para validación'
+                            return (
+                              <div key={validation.id} className="border border-gray-200 rounded-lg p-4">
+                                <div className="flex items-center gap-2 mb-2 flex-wrap">
+                                  <span className={`px-2 py-1 rounded text-xs font-medium ${
+                                    validation.status === 'approved' ? 'bg-green-100 text-green-800' :
+                                    validation.status === 'rejected' ? 'bg-red-100 text-red-800' :
+                                    'bg-yellow-100 text-yellow-800'
+                                  }`}>
+                                    {validation.status === 'approved' ? 'Aprobada' :
+                                     validation.status === 'rejected' ? 'Rechazada' :
+                                     'Pendiente'}
+                                  </span>
+                                  <span className="text-xs text-gray-600">
+                                    {submitLabel} el {formatDateTime(validation.created_at)}
+                                    {submittedBy && (
+                                      <> por <span title={submittedBy}>{userDisplayNames[submittedBy] ?? submittedBy}</span></>
+                                    )}
+                                  </span>
+                                </div>
+                                {validation.observations && (
+                                  <p className="text-sm text-gray-700 whitespace-pre-wrap mt-2">
+                                    {validation.observations}
+                                  </p>
+                                )}
+                              </div>
+                            )
+                          })}
                       </div>
                     )}
                 </div>
               )}
               
-              {/* Opciones de corrección para documentos rechazados */}
-              {document.status === 'rejected' && (
+              {/* Opciones de corrección: en rechazado o en borrador (creador puede modificar contenido) */}
+              {(document.status === 'rejected' || (document.status === 'draft' && allowEditMetadata)) && (
                 <div className="mt-6 p-4 bg-yellow-50 rounded-lg border border-yellow-200">
                   <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-lg font-medium text-gray-900">Corregir Documento</h3>
+                    <h3 className="text-lg font-medium text-gray-900">
+                      {document.status === 'draft' ? 'Modificar contenido del documento' : 'Corregir Documento'}
+                    </h3>
                     <button
                       onClick={() => setShowCorrectionOptions(!showCorrectionOptions)}
                       className="px-4 py-2 bg-yellow-600 text-white rounded-md hover:bg-yellow-700 text-sm font-medium"
@@ -1066,8 +1253,10 @@ export default function DocumentDetailPage() {
                 <div className="flex items-center justify-between mb-4">
                   <h2 className="text-xl font-semibold text-gray-900">Versiones Generadas</h2>
                   <button
-                    onClick={() => setShowNewVersionForm(!showNewVersionForm)}
-                    className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 text-sm font-medium"
+                    onClick={() => allowNewVersion && setShowNewVersionForm(!showNewVersionForm)}
+                    disabled={!allowNewVersion}
+                    title={!allowNewVersion ? 'Solo disponible cuando el documento está aprobado o rechazado' : undefined}
+                    className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
                   >
                     {showNewVersionForm ? 'Cancelar' : '+ Nueva Versión'}
                   </button>
@@ -1203,6 +1392,102 @@ export default function DocumentDetailPage() {
                 onClose={() => setIsNewVersionModalOpen(false)}
                 onAdd={handleAddNewVersionFile}
               />
+
+              {/* Modal: Cancelar envío */}
+              {showCancelSubmitConfirm && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true">
+                  <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
+                    <p className="text-gray-900 mb-6">¿Querés cancelar el envío y volver a borrador?</p>
+                    <div className="flex gap-3 justify-end">
+                      <button
+                        type="button"
+                        onClick={() => setShowCancelSubmitConfirm(false)}
+                        className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50"
+                      >
+                        No
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleCancelSubmission}
+                        disabled={isCancelling}
+                        className="px-4 py-2 bg-amber-600 text-white rounded-md hover:bg-amber-700 disabled:opacity-50"
+                      >
+                        {isCancelling ? 'Cancelando...' : 'Sí, volver a borrador'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Modal: Confirmar aprobación */}
+              {showApproveConfirm && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true">
+                  <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
+                    <p className="text-gray-900 mb-6">¿Confirmar aprobación?</p>
+                    <div className="flex gap-3 justify-end">
+                      <button
+                        type="button"
+                        onClick={() => setShowApproveConfirm(false)}
+                        className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          setShowApproveConfirm(false)
+                          await handleApproveDocument()
+                        }}
+                        disabled={isValidating}
+                        className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50"
+                      >
+                        {isValidating ? 'Aprobando...' : 'Aprobar'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Modal: Rechazar (motivo obligatorio) */}
+              {showRejectConfirm && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true">
+                  <div className="bg-white rounded-lg shadow-xl p-6 max-w-lg w-full mx-4">
+                    <h3 className="text-lg font-medium text-gray-900 mb-2">Rechazar documento</h3>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Motivo del rechazo <span className="text-red-600">*</span>
+                    </label>
+                    <textarea
+                      value={rejectObservations}
+                      onChange={(e) => setRejectObservations(e.target.value)}
+                      rows={4}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-red-500 mb-4"
+                      placeholder="Describe las razones del rechazo y las correcciones necesarias..."
+                    />
+                    <div className="flex gap-3 justify-end">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowRejectConfirm(false)
+                        }}
+                        className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          setShowRejectConfirm(false)
+                          await handleRejectDocument()
+                        }}
+                        disabled={isValidating || !rejectObservations.trim()}
+                        className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50"
+                      >
+                        {isValidating ? 'Rechazando...' : 'Confirmar rechazo'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
               
               <ModalComponent />
               

@@ -11,8 +11,10 @@
     "build:prod": "next build",
     "start": "next start",
     "start:test": "cross-env NODE_ENV=test next start --port 3001",
-    "lint": "next lint"
-  },
+"lint": "next lint",
+  "test": "vitest run",
+  "test:watch": "vitest"
+},
   "dependencies": {
     "@supabase/ssr": "^0.8.0",
     "@supabase/supabase-js": "^2.89.0",

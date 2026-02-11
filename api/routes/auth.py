@@ -128,8 +128,9 @@ async def sync_user(request: SyncUserRequest):
                         detail="Usuario no encontrado en la base de datos local. Por favor, contacta al administrador."
                     )
                 
-                # Usuario existe pero no tiene external_id, actualizarlo
+                # Usuario existe pero no tiene external_id, actualizarlo (incl. nombre del formulario de invitación)
                 user.external_id = request.supabase_user_id
+                user.name = request.name
                 user.auth_provider = request.auth_provider
                 if request.metadata:
                     import json

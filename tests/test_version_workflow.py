@@ -20,6 +20,8 @@ from process_ai_core.db.helpers import (
     approve_version,
     reject_version,
     check_version_immutable,
+    get_in_review_version,
+    get_editable_version,
 )
 
 
@@ -516,3 +518,55 @@ def test_in_review_bloquea_edicion(session, test_document):
             session=session,
             document_id=test_document.id,
         )
+
+
+# --- Tests para flujo Patch por IA (reglas: bloquear solo IN_REVIEW, reutilizar DRAFT, source REJECTED > APPROVED) ---
+
+
+def test_patch_logic_in_review_returns_version(session, test_document):
+    """Cuando hay IN_REVIEW, get_in_review_version retorna esa versión (patch endpoint devuelve 409)."""
+    draft = get_or_create_draft(session=session, document_id=test_document.id)
+    submit_version_for_review(session, draft.id)
+    session.commit()
+    in_review = get_in_review_version(session, test_document.id)
+    assert in_review is not None
+    assert in_review.version_status == "IN_REVIEW"
+
+
+def test_patch_logic_reuse_draft(session, test_document):
+    """Cuando hay DRAFT y no IN_REVIEW, get_editable_version lo retorna y get_or_create_draft lo reutiliza (mismo id)."""
+    draft1 = get_or_create_draft(session=session, document_id=test_document.id)
+    session.commit()
+    editable = get_editable_version(session, test_document.id)
+    assert editable is not None
+    assert editable.id == draft1.id
+    # get_or_create_draft debe devolver el mismo DRAFT (reutiliza)
+    draft2 = get_or_create_draft(session=session, document_id=test_document.id)
+    assert draft2.id == draft1.id
+
+
+def test_patch_logic_no_draft_rejected_creates_draft_with_supersedes(session, test_document):
+    """Sin DRAFT y con REJECTED, get_or_create_draft con source_version_id=rejected.id crea DRAFT con supersedes_version_id=rejected."""
+    draft = get_or_create_draft(session=session, document_id=test_document.id)
+    updated_version, validation = submit_version_for_review(session, draft.id)
+    rejected = reject_version(session, validation.id, observations="Corregir")
+    session.commit()
+    session.refresh(rejected)
+    new_draft = get_or_create_draft(
+        session=session,
+        document_id=test_document.id,
+        source_version_id=rejected.id,
+    )
+    assert new_draft.supersedes_version_id == rejected.id
+    assert new_draft.version_status == "DRAFT"
+
+
+def test_patch_logic_no_draft_approved_creates_draft_with_supersedes(session, test_document, approved_version):
+    """Sin DRAFT y con APPROVED vigente, get_or_create_draft (source_version_id=None) crea DRAFT con supersedes_version_id=approved."""
+    new_draft = get_or_create_draft(
+        session=session,
+        document_id=test_document.id,
+        source_version_id=None,
+    )
+    assert new_draft.supersedes_version_id == approved_version.id
+    assert new_draft.version_status == "DRAFT"

@@ -960,6 +960,65 @@ def submit_version_for_review(
     return version, validation
 
 
+def cancel_submission(
+    session: Session,
+    document_id: str,
+    version_id: str,
+    user_id: str,
+) -> DocumentVersion:
+    """
+    Cancela el envío a revisión: vuelve la versión IN_REVIEW a DRAFT y el documento a draft.
+    Solo el creador de la versión (created_by) puede cancelar.
+
+    Args:
+        session: Sesión de base de datos
+        document_id: ID del documento
+        version_id: ID de la versión IN_REVIEW a revertir
+        user_id: ID del usuario que cancela (debe ser created_by de la versión)
+
+    Returns:
+        DocumentVersion actualizada (ahora DRAFT)
+
+    Raises:
+        ValueError: Si la versión no existe, no está IN_REVIEW o el usuario no es el creador
+    """
+    version = (
+        session.query(DocumentVersion)
+        .filter_by(id=version_id, document_id=document_id)
+        .first()
+    )
+    if not version:
+        raise ValueError(f"Versión {version_id} no encontrada para el documento {document_id}")
+    if version.version_status != "IN_REVIEW":
+        raise ValueError(
+            f"Solo se puede cancelar un envío de una versión IN_REVIEW. Estado actual: {version.version_status}"
+        )
+    if version.created_by and version.created_by != user_id:
+        raise ValueError("Solo el usuario que envió la versión puede cancelar el envío.")
+
+    document = session.query(Document).filter_by(id=document_id).first()
+    if not document:
+        raise ValueError(f"Documento {document_id} no encontrado")
+
+    version.version_status = "DRAFT"
+    version.validation_id = None
+    document.status = "draft"
+
+    create_audit_log(
+        session=session,
+        document_id=document_id,
+        run_id=version.run_id,
+        user_id=user_id,
+        action="version.submission_cancelled",
+        entity_type="version",
+        entity_id=version.id,
+        metadata_json=json.dumps({
+            "version_number": version.version_number,
+        }),
+    )
+    return version
+
+
 def approve_version(
     session: Session,
     validation_id: str,

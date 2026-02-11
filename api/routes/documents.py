@@ -18,10 +18,12 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 from process_ai_core.db.database import get_db_session
-from process_ai_core.db.models import Document, Process, Recipe, Workspace, Run, Artifact
+from process_ai_core.db.models import Document, DocumentVersion, Process, Recipe, Workspace, Run, Artifact
 from process_ai_core.db.helpers import (
     create_run, create_artifact, delete_document,
-    submit_version_for_review, get_or_create_draft, approve_version, reject_version
+    submit_version_for_review, get_or_create_draft, approve_version, reject_version,
+    get_in_review_version, get_editable_version, create_audit_log, update_document_status,
+    cancel_submission,
 )
 from process_ai_core.config import get_settings
 from process_ai_core.domain_models import RawAsset
@@ -64,11 +66,28 @@ async def list_documents_pending_approval(
                 detail="No tiene permisos para ver documentos pendientes de aprobación"
             )
         
-        # Obtener documentos pendientes de validación
-        documents = session.query(Document).filter_by(
-            workspace_id=workspace_id,
-            status="pending_validation",
-        ).order_by(Document.created_at.asc()).all()
+        # Documentos pendientes de validación que el usuario SÍ puede revisar:
+        # excluir aquellos cuya versión IN_REVIEW fue creada por este usuario (segregación).
+        from sqlalchemy import or_
+        documents = (
+            session.query(Document)
+            .join(
+                DocumentVersion,
+                (DocumentVersion.document_id == Document.id)
+                & (DocumentVersion.version_status == "IN_REVIEW"),
+            )
+            .filter(
+                Document.workspace_id == workspace_id,
+                Document.status == "pending_validation",
+                or_(
+                    DocumentVersion.created_by.is_(None),
+                    DocumentVersion.created_by != user_id,
+                ),
+            )
+            .order_by(Document.created_at.asc())
+            .distinct()
+            .all()
+        )
         
         return [
             DocumentResponse(
@@ -721,7 +740,7 @@ async def create_document_run(
             
             # Persistir Artifacts en la base de datos y crear versión IN_REVIEW automáticamente
             with get_db_session() as db_session:
-                from process_ai_core.db.helpers import update_document_status, get_or_create_draft, submit_version_for_review
+                from process_ai_core.db.helpers import update_document_status, get_or_create_draft
                 from process_ai_core.db.models import DocumentVersion
                 import uuid
                 
@@ -785,7 +804,7 @@ async def create_document_run(
                         db_session.add(draft_version)
                         db_session.flush()
                     else:
-                        # Crear versión DRAFT directamente desde el run
+                        # Crear versión DRAFT; el creador enviará a revisión cuando esté conforme
                         draft_version = DocumentVersion(
                             id=str(uuid.uuid4()),
                             document_id=document_id,
@@ -800,34 +819,22 @@ async def create_document_run(
                         )
                         db_session.add(draft_version)
                         db_session.flush()
-                        
-                        # Enviar automáticamente a revisión (cambia a IN_REVIEW y crea Validation)
-                        try:
-                            updated_version, validation = submit_version_for_review(
-                                session=db_session,
-                                version_id=draft_version.id,
-                                submitter_id=user_id,  # Usuario que creó la versión
-                            )
-                            logger.info(f"Versión {draft_version.id} enviada automáticamente a revisión (IN_REVIEW)")
-                        except ValueError as e:
-                            # Si falla (ej: ya existe IN_REVIEW), dejar como DRAFT
-                            logger.warning(f"No se pudo enviar versión a revisión automáticamente: {e}")
                     
-                    # Actualizar estado del documento a pending_validation
+                    # Dejar documento en draft para que el creador pueda revisar/corregir antes de enviar
                     update_document_status(
                         session=db_session,
                         document_id=document_id,
-                        status="pending_validation",
+                        status="draft",
                     )
                     
                     db_session.commit()
                 except Exception as e:
-                    # Si falla la creación de versión, al menos actualizar el estado
+                    # Si falla la creación de versión, dejar en draft
                     logger.error(f"Error al crear versión desde run: {e}", exc_info=True)
                     update_document_status(
                         session=db_session,
                         document_id=document_id,
-                        status="pending_validation",
+                        status="draft",
                     )
                     db_session.commit()
             
@@ -1230,6 +1237,30 @@ Responde SOLO con el JSON corregido, sin texto adicional.
         
         # Crear Run y Artifacts en BD (transacción atómica)
         with get_db_session() as session:
+            from datetime import datetime, UTC
+            from process_ai_core.db.models import DocumentVersion, Validation
+            # Bloquear solo si existe IN_REVIEW (no por DRAFT)
+            in_review = get_in_review_version(session, document_id)
+            doc = session.query(Document).filter_by(id=document_id).first()
+            # Si el documento ya está "rejected" pero hay IN_REVIEW, es inconsistencia (ej. rechazo no persistido): reconciliar y seguir
+            if doc and doc.status == "rejected" and in_review:
+                logger.warning(
+                    f"Reconciliando inconsistencia: documento {document_id} está rejected pero versión {in_review.id} sigue IN_REVIEW; marcando como REJECTED para permitir patch."
+                )
+                in_review.version_status = "REJECTED"
+                in_review.rejected_at = datetime.now(UTC)
+                if in_review.validation_id:
+                    val = session.query(Validation).filter_by(id=in_review.validation_id).first()
+                    if val and val.status == "pending":
+                        val.status = "rejected"
+                        val.completed_at = datetime.now(UTC)
+                in_review = None  # permitir seguir con el patch
+            if in_review:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Ya hay una versión pendiente de validación. Aprobá o rechazá esa versión antes de aplicar un nuevo patch."
+                )
+            
             new_run = create_run(
                 session=session,
                 document_id=document_id,
@@ -1260,97 +1291,87 @@ Responde SOLO con el JSON corregido, sin texto adicional.
                     file_path=f"output/{new_run_id}/process.pdf",
                 )
             
-            # Crear versión DRAFT desde el run generado y enviarla automáticamente a revisión
             try:
-                import json
-                import uuid
-                
-                # Leer el contenido generado
+                # Leer el contenido generado del disco
                 json_path = output_dir / "process.json"
                 md_path = output_dir / "process.md"
-                
                 json_content = json_path.read_text(encoding="utf-8")
                 markdown_content = md_path.read_text(encoding="utf-8")
                 
-                # Obtener número de versión siguiente
-                last_version = (
-                    session.query(DocumentVersion)
-                    .filter_by(document_id=document_id)
-                    .order_by(DocumentVersion.version_number.desc())
-                    .first()
-                )
-                version_number = (last_version.version_number + 1) if last_version else 1
-                
-                # Verificar que no haya una versión IN_REVIEW existente
-                existing_in_review = (
-                    session.query(DocumentVersion)
-                    .filter_by(document_id=document_id, version_status="IN_REVIEW")
-                    .first()
-                )
-                
-                if existing_in_review:
-                    # Si ya hay IN_REVIEW, crear solo DRAFT (no enviar a revisión)
-                    logger.info(f"Ya existe versión IN_REVIEW para documento {document_id}. Creando solo DRAFT.")
-                    draft_version = DocumentVersion(
-                        id=str(uuid.uuid4()),
-                        document_id=document_id,
-                        run_id=new_run_id,
-                        version_number=version_number,
-                        version_status="DRAFT",
-                        content_type="generated",
-                        content_json=json_content,
-                        content_markdown=markdown_content,
-                        is_current=False,
-                        created_by=user_id,  # Setear created_by para segregación de funciones
+                # Resolver DRAFT: reutilizar existente o crear uno
+                draft = get_editable_version(session, document_id)
+                draft_was_created = False
+                if draft is None:
+                    # Selección source_version_id: REJECTED más reciente > APPROVED vigente > None
+                    rejected = (
+                        session.query(DocumentVersion)
+                        .filter_by(document_id=document_id, version_status="REJECTED")
+                        .order_by(DocumentVersion.created_at.desc())
+                        .first()
                     )
-                    session.add(draft_version)
-                    session.flush()
-                else:
-                    # Crear versión DRAFT directamente desde el run
-                    draft_version = DocumentVersion(
-                        id=str(uuid.uuid4()),
-                        document_id=document_id,
-                        run_id=new_run_id,
-                        version_number=version_number,
-                        version_status="DRAFT",
-                        content_type="generated",
-                        content_json=json_content,
-                        content_markdown=markdown_content,
-                        is_current=False,
-                        created_by=user_id,  # Setear created_by para segregación de funciones
+                    approved = (
+                        session.query(DocumentVersion)
+                        .filter_by(document_id=document_id, version_status="APPROVED", is_current=True)
+                        .first()
                     )
-                    session.add(draft_version)
-                    session.flush()
-                    
-                    # Enviar automáticamente a revisión (cambia a IN_REVIEW y crea Validation)
-                    try:
-                        updated_version, validation = submit_version_for_review(
-                            session=session,
-                            version_id=draft_version.id,
-                            submitter_id=user_id,  # Usuario que creó la versión
-                        )
-                        logger.info(f"Versión {draft_version.id} enviada automáticamente a revisión (IN_REVIEW)")
-                    except ValueError as e:
-                        # Si falla (ej: ya existe IN_REVIEW), dejar como DRAFT
-                        logger.warning(f"No se pudo enviar versión a revisión automáticamente: {e}")
+                    source_version_id = rejected.id if rejected else (approved.id if approved else None)
+                    draft = get_or_create_draft(
+                        session=session,
+                        document_id=document_id,
+                        source_version_id=source_version_id,
+                        user_id=user_id,
+                    )
+                    draft_was_created = True
                 
-                # Actualizar estado del documento a pending_validation
+                # Aplicar patch al DRAFT (creado o reutilizado)
+                draft.run_id = new_run_id
+                draft.content_json = json_content
+                draft.content_markdown = markdown_content
+                draft.content_type = "ai_patch"
+                session.flush()
+                
+                # Audit log
+                create_audit_log(
+                    session=session,
+                    document_id=document_id,
+                    user_id=user_id,
+                    action="version.draft_created_by_ai_patch" if draft_was_created else "version.draft_updated_by_ai_patch",
+                    entity_type="version",
+                    entity_id=draft.id,
+                    metadata_json=json.dumps({
+                        "run_id": new_run_id,
+                        "draft_version_id": draft.id,
+                        "draft_version_number": draft.version_number,
+                        "source_version_id": draft.supersedes_version_id,
+                        "observations_preview": (observations[:200] + "...") if observations and len(observations) > 200 else (observations or None),
+                    }),
+                )
+                
+                # Dejar documento en draft: el creador envía a revisión cuando esté conforme
                 update_document_status(
                     session=session,
                     document_id=document_id,
-                    status="pending_validation",
+                    status="draft",
                 )
                 
                 session.commit()
+            except HTTPException:
+                session.rollback()
+                raise
             except Exception as e:
-                # Si falla la creación de versión, al menos actualizar el estado
-                logger.error(f"Error al crear versión desde run en patch: {e}", exc_info=True)
-                update_document_status(
-                    session=session,
-                    document_id=document_id,
-                    status="pending_validation",
-                )
-                session.commit()
+                logger.error(f"Error al crear/actualizar versión en patch: {e}", exc_info=True)
+                session.rollback()
+                try:
+                    update_document_status(
+                        session=session,
+                        document_id=document_id,
+                        status="draft",
+                    )
+                    session.commit()
+                except Exception as update_err:
+                    logger.warning(f"No se pudo actualizar estado del documento tras fallo de patch: {update_err}")
+                    session.rollback()
+                raise
             
             logger.info(f"Run {new_run_id} creado exitosamente")
             # Commit se hace automáticamente al salir del with
@@ -1419,12 +1440,13 @@ async def get_document_versions(document_id: str):
                 "version_status": v.version_status,
                 "content_type": v.content_type,
                 "run_id": v.run_id,
+                "validation_id": v.validation_id,
                 "approved_at": v.approved_at.isoformat() if v.approved_at else None,
                 "approved_by": v.approved_by,
                 "rejected_at": v.rejected_at.isoformat() if v.rejected_at else None,
                 "rejected_by": v.rejected_by,
                 "is_current": v.is_current,
-                "created_by": v.created_by,  # Agregar created_by
+                "created_by": v.created_by,
                 "created_at": v.created_at.isoformat(),
             }
             for v in versions
@@ -1605,6 +1627,49 @@ async def submit_version_for_review_endpoint(
                 "status": validation.status,
                 "document_id": validation.document_id,
                 "created_at": validation.created_at.isoformat(),
+            },
+        }
+
+
+@router.post("/{document_id}/versions/{version_id}/cancel-submission")
+async def cancel_submission_endpoint(
+    document_id: str,
+    version_id: str,
+    user_id: str = Body(..., embed=True),
+    workspace_id: str = Body(..., embed=True),
+):
+    """
+    Cancela el envío a revisión y vuelve la versión a borrador.
+    Solo el creador de la versión (quien la envió) puede cancelar.
+    """
+    with get_db_session() as session:
+        from process_ai_core.db.permissions import has_permission
+
+        if not has_permission(session, user_id, workspace_id, "documents.edit"):
+            raise HTTPException(
+                status_code=403,
+                detail="No tiene permisos para editar documentos"
+            )
+        doc = session.query(Document).filter_by(id=document_id).first()
+        if not doc:
+            raise HTTPException(status_code=404, detail="Documento no encontrado")
+        if doc.workspace_id != workspace_id:
+            raise HTTPException(status_code=403, detail="Documento no pertenece a este workspace")
+        try:
+            updated_version = cancel_submission(
+                session=session,
+                document_id=document_id,
+                version_id=version_id,
+                user_id=user_id,
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        return {
+            "message": "Envío cancelado. El documento volvió a borrador.",
+            "version": {
+                "id": updated_version.id,
+                "version_number": updated_version.version_number,
+                "version_status": updated_version.version_status,
             },
         }
 
