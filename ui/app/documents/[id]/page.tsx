@@ -213,15 +213,18 @@ export default function DocumentDetailPage() {
     return () => { cancelled = true }
   }, [inReviewVersionForSubmitter?.created_by])
 
-  // Resolver nombres de usuarios que enviaron a revisión (para historial de validaciones)
-  const validationSubmitterIdsKey = Array.from(new Set(
+  // Resolver nombres de usuarios del historial (quien envió y quien aprobó/rechazó)
+  const validationUserIdsKey = Array.from(new Set(
     validations.flatMap(validation => {
       const v = versions.find(ver => ver.validation_id === validation.id)
-      return v?.created_by ? [v.created_by] : []
+      const ids: string[] = []
+      if (v?.created_by) ids.push(v.created_by)
+      if (validation.validator_user_id) ids.push(validation.validator_user_id)
+      return ids
     })
   )).sort().join(',')
   useEffect(() => {
-    const userIds = validationSubmitterIdsKey ? validationSubmitterIdsKey.split(',') : []
+    const userIds = validationUserIdsKey ? validationUserIdsKey.split(',') : []
     if (userIds.length === 0) return
     let cancelled = false
     const next: Record<string, string> = {}
@@ -240,7 +243,7 @@ export default function DocumentDetailPage() {
       setUserDisplayNames(prev => ({ ...prev, ...next }))
     })
     return () => { cancelled = true }
-  }, [validationSubmitterIdsKey])
+  }, [validationUserIdsKey])
   
   const handleSave = async () => {
     if (!document) return
@@ -1104,8 +1107,16 @@ export default function DocumentDetailPage() {
                           .map((validation, index) => {
                             const versionForValidation = versions.find(v => v.validation_id === validation.id)
                             const submittedBy = versionForValidation?.created_by ?? null
+                            const validatorId = validation.validator_user_id ?? null
                             const isFirstSubmission = index === 0
                             const submitLabel = isFirstSubmission ? 'Enviado' : 'Reenviado para validación'
+                            const isPending = validation.status !== 'approved' && validation.status !== 'rejected'
+                            const eventLabel = isPending
+                              ? submitLabel
+                              : validation.status === 'approved'
+                                ? 'Aprobada'
+                                : 'Rechazada'
+                            const eventActorId = isPending ? (submittedBy ?? validatorId) : validatorId ?? submittedBy
                             return (
                               <div key={validation.id} className="border border-gray-200 rounded-lg p-4">
                                 <div className="flex items-center gap-2 mb-2 flex-wrap">
@@ -1119,9 +1130,9 @@ export default function DocumentDetailPage() {
                                      'Pendiente'}
                                   </span>
                                   <span className="text-xs text-gray-600">
-                                    {submitLabel} el {formatDateTime(validation.created_at)}
-                                    {submittedBy && (
-                                      <> por <span title={submittedBy}>{userDisplayNames[submittedBy] ?? submittedBy}</span></>
+                                    {eventLabel} el {formatDateTime(validation.created_at)}
+                                    {eventActorId && (
+                                      <> por <span title={eventActorId}>{userDisplayNames[eventActorId] ?? eventActorId}</span></>
                                     )}
                                   </span>
                                 </div>
