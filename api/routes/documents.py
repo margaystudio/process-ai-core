@@ -7,8 +7,9 @@ Este endpoint maneja:
 - PUT /api/v1/documents/{document_id}: Actualizar un documento
 """
 
-from fastapi import APIRouter, HTTPException, File, UploadFile, Form, Query, Body, Depends
+from fastapi import APIRouter, HTTPException, File, UploadFile, Form, Query, Body, Depends, BackgroundTasks
 from typing import List, Optional
+import re
 import tempfile
 import shutil
 import json
@@ -30,8 +31,9 @@ from process_ai_core.domain_models import RawAsset
 from process_ai_core.domains.processes.profiles import get_profile
 from process_ai_core.engine import run_process_pipeline
 from process_ai_core.prompt_context import build_context_block
-from process_ai_core.export import export_pdf
+from process_ai_core.export import export_pdf, get_export_content, export_pdf_from_content
 from process_ai_core.ingest import discover_raw_assets
+from fastapi.responses import Response
 
 from ..models.requests import DocumentResponse, DocumentUpdateRequest, ProcessRunResponse
 from api.dependencies import get_current_user_id
@@ -972,6 +974,309 @@ async def update_document_content(
         }
 
 
+_LATEX_ARTIFACT_RE = re.compile(
+    r"\\(?:FloatBarrier|clearpage|newpage|pagebreak|vspace\{[^}]*\}|hspace\{[^}]*\}|noindent|medskip|bigskip|smallskip)",
+    re.IGNORECASE,
+)
+
+
+def _strip_latex_artifacts(text: str) -> str:
+    """Elimina comandos LaTeX que no tienen equivalente HTML y quedarían como texto basura."""
+    return _LATEX_ARTIFACT_RE.sub("", text)
+
+
+def _markdown_to_html(md: str) -> str:
+    """Convierte Markdown a HTML para precarga del editor manual."""
+    # Limpiar artefactos LaTeX antes de convertir (no tienen sentido en HTML)
+    md = _strip_latex_artifacts(md or "")
+    try:
+        import markdown
+        return markdown.markdown(md, extensions=["extra", "nl2br", "tables", "sane_lists"])
+    except Exception:
+        import html as html_mod
+        return "".join(f"<p>{html_mod.escape(line)}</p>" for line in md.splitlines())
+
+
+def _rewrite_img_src_to_absolute(html_content: str, run_id: Optional[str], api_base: str) -> str:
+    """
+    Reescribe rutas de imágenes relativas en HTML a URLs absolutas.
+    - src="assets/..." → {api_base}/api/v1/artifacts/{run_id}/assets/...
+    - src="/api/v1/..." o src="http..." → sin cambios
+    """
+    if not html_content:
+        return html_content
+
+    def replace_src(m: re.Match) -> str:
+        src = m.group(1)
+        if src.startswith("http") or src.startswith("/api/v1/"):
+            return m.group(0)
+        if run_id and (src.startswith("assets/") or src.startswith("./assets/")):
+            clean = src.lstrip("./")
+            return f'src="{api_base}/api/v1/artifacts/{run_id}/{clean}"'
+        return m.group(0)
+
+    return re.sub(r'src="([^"]+)"', replace_src, html_content)
+
+
+_HTML_BLOCK_RE = re.compile(
+    r"<(?:h[1-6]|p|ul|ol|li|strong|em|b|i|table|img|div|span|a|br|hr|blockquote|pre|code)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_valid_html(text: str) -> bool:
+    """
+    Devuelve True si el texto contiene etiquetas HTML de bloque o inline.
+    HTML generado por python-markdown o Tiptap siempre las tiene.
+    Markdown crudo nunca las tiene.
+    """
+    return bool(_HTML_BLOCK_RE.search(text or ""))
+
+
+def _looks_like_markdown(text: str) -> bool:
+    """
+    Devuelve True si el texto NO contiene etiquetas HTML válidas
+    (es decir, probablemente es markdown crudo o texto plano).
+    Se mantiene por compatibilidad; internamente usa _is_valid_html.
+    """
+    return not _is_valid_html(text)
+
+
+@router.get("/{document_id}/editable")
+async def get_editable_content(
+    document_id: str,
+    user_id: str = Depends(get_current_user_id),
+):
+    """
+    Obtiene el contenido editable (HTML) de la versión DRAFT para edición manual.
+    Si no hay DRAFT, se obtiene o crea uno. Si no hay content_html, se genera desde content_markdown.
+    """
+    with get_db_session() as session:
+        doc = session.query(Document).filter_by(id=document_id).first()
+        if not doc:
+            raise HTTPException(status_code=404, detail="Documento no encontrado")
+        if doc.document_type != "process":
+            raise HTTPException(status_code=400, detail="Solo documentos de tipo process soportan edición manual")
+
+        from process_ai_core.db.helpers import check_version_immutable
+        is_immutable, reason = check_version_immutable(session, document_id)
+        if is_immutable:
+            raise HTTPException(status_code=400, detail=reason)
+
+        draft = get_editable_version(session, document_id)
+        if draft is None:
+            draft = get_or_create_draft(
+                session=session,
+                document_id=document_id,
+                source_version_id=None,
+                user_id=user_id,
+            )
+
+        html_content = getattr(draft, "content_html", None) if draft else None
+        # Si content_html parece markdown crudo (guardado por error en versiones anteriores),
+        # descartarlo y regenerar desde content_markdown para no mostrar basura en el editor.
+        if html_content and _looks_like_markdown(html_content):
+            logger.warning(
+                "content_html de versión %s parece markdown crudo; regenerando desde content_markdown",
+                draft.id if draft else "?",
+            )
+            html_content = None
+        if not html_content and draft and draft.content_markdown:
+            # Solo convertir para mostrar en el editor; NO persistir en BD.
+            # La BD se actualiza únicamente cuando el usuario guarda (PUT /editable).
+            html_content = _markdown_to_html(draft.content_markdown)
+        if not html_content:
+            html_content = "<p></p>"
+
+        # Limpiar artefactos LaTeX que puedan haber quedado en content_html de versiones anteriores
+        html_content = _strip_latex_artifacts(html_content)
+
+        # Reescribir rutas relativas de imágenes a URLs absolutas para que el editor las muestre
+        settings = get_settings()
+        api_base = settings.api_base_url.rstrip("/")
+        draft_run_id = getattr(draft, "run_id", None) if draft else None
+        html_content = _rewrite_img_src_to_absolute(html_content, draft_run_id, api_base)
+
+        return {
+            "version_id": draft.id,
+            "version_number": draft.version_number,
+            "html": html_content,
+            "run_id": draft_run_id,
+            "updated_at": draft.created_at.isoformat(),
+        }
+
+
+def _generate_draft_pdf_background(
+    content_html: str,
+    run_id: Optional[str],
+    document_id: str,
+    output_dir: str,
+    api_base: str,
+) -> None:
+    """Genera y guarda draft_preview.pdf en segundo plano. No lanza excepciones."""
+    try:
+        html_for_pdf = _rewrite_img_src_to_absolute(content_html, run_id, api_base)
+        pdf_dir: Optional[Path] = None
+        if run_id:
+            candidate = Path(output_dir) / run_id
+            if candidate.exists():
+                pdf_dir = candidate
+        if pdf_dir is None:
+            pdf_dir = Path(output_dir) / "documents" / document_id
+            pdf_dir.mkdir(parents=True, exist_ok=True)
+        export_pdf_from_content(
+            content=html_for_pdf,
+            format="html",
+            run_dir=pdf_dir,
+            pdf_name="draft_preview.pdf",
+        )
+        logger.info("PDF del borrador guardado en %s/draft_preview.pdf", pdf_dir)
+        tmp_html = pdf_dir / "content.html"
+        if tmp_html.exists():
+            try:
+                tmp_html.unlink()
+            except OSError:
+                pass
+    except Exception as exc:
+        logger.warning("No se pudo guardar el PDF del borrador en background: %s", exc)
+
+
+@router.put("/{document_id}/editable")
+async def save_editable_content(
+    document_id: str,
+    background_tasks: BackgroundTasks,
+    content_html: str = Body(..., embed=True),
+    user_id: str = Depends(get_current_user_id),
+):
+    """
+    Guarda el HTML del editor manual en la versión DRAFT (borrador).
+    """
+    with get_db_session() as session:
+        doc = session.query(Document).filter_by(id=document_id).first()
+        if not doc:
+            raise HTTPException(status_code=404, detail="Documento no encontrado")
+        if doc.document_type != "process":
+            raise HTTPException(status_code=400, detail="Solo documentos de tipo process")
+
+        from process_ai_core.db.helpers import check_version_immutable
+        is_immutable, reason = check_version_immutable(session, document_id)
+        if is_immutable:
+            raise HTTPException(status_code=400, detail=reason)
+
+        draft = get_editable_version(session, document_id)
+        if draft is None:
+            draft = get_or_create_draft(
+                session=session,
+                document_id=document_id,
+                source_version_id=None,
+                user_id=user_id,
+            )
+
+        # Validación defensiva: rechazar si el contenido parece markdown crudo
+        if _looks_like_markdown(content_html):
+            logger.warning(
+                "PUT /editable recibió contenido que parece markdown, no HTML. document_id=%s",
+                document_id,
+            )
+            raise HTTPException(
+                status_code=400,
+                detail="Se esperaba HTML; el contenido parece markdown o texto crudo. Guarda desde el editor visual.",
+            )
+
+        draft.content_html = content_html
+        draft.content_type = "manual_edit"
+        draft_run_id = getattr(draft, "run_id", None)
+        draft_id = draft.id
+        draft_version_number = draft.version_number
+        create_audit_log(
+            session=session,
+            document_id=document_id,
+            user_id=user_id,
+            action="manual_edit_saved",
+            entity_type="version",
+            entity_id=draft_id,
+            metadata_json=json.dumps({"version_number": draft_version_number}),
+        )
+        session.commit()
+        from datetime import datetime, timezone
+        now_iso = datetime.now(timezone.utc).isoformat()
+
+        # Generar PDF en segundo plano para no bloquear la respuesta
+        settings = get_settings()
+        background_tasks.add_task(
+            _generate_draft_pdf_background,
+            content_html=content_html,
+            run_id=draft_run_id,
+            document_id=document_id,
+            output_dir=settings.output_dir,
+            api_base=settings.api_base_url.rstrip("/"),
+        )
+
+        return {
+            "version_id": draft_id,
+            "version_number": draft_version_number,
+            "updated_at": now_iso,
+        }
+
+
+@router.post("/{document_id}/upload-editor-image")
+async def upload_editor_image(
+    document_id: str,
+    file: UploadFile = File(...),
+    user_id: str = Depends(get_current_user_id),
+):
+    """
+    Sube una imagen para el editor manual. Guarda en output/editor-uploads/{document_id}/.
+    Devuelve la URL pública para insertar en el editor.
+    """
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="Solo se permiten archivos de imagen")
+
+    with get_db_session() as session:
+        doc = session.query(Document).filter_by(id=document_id).first()
+        if not doc:
+            raise HTTPException(status_code=404, detail="Documento no encontrado")
+
+    settings = get_settings()
+    uploads_dir = Path(settings.output_dir) / "editor-uploads" / document_id
+    uploads_dir.mkdir(parents=True, exist_ok=True)
+
+    import uuid
+    ext = Path(file.filename or "image").suffix or ".png"
+    if ext.lower() not in (".png", ".jpg", ".jpeg", ".gif", ".webp"):
+        ext = ".png"
+    name = f"{uuid.uuid4().hex}{ext}"
+    path = uploads_dir / name
+
+    try:
+        contents = await file.read()
+        path.write_bytes(contents)
+    except Exception as e:
+        logger.exception("Error guardando imagen del editor")
+        raise HTTPException(status_code=500, detail="Error al guardar la imagen") from e
+
+    url = f"/api/v1/documents/{document_id}/editor-images/{name}"
+    return {"url": url}
+
+
+@router.get("/{document_id}/editor-images/{filename}")
+async def get_editor_image(document_id: str, filename: str):
+    """Sirve una imagen subida por el editor manual."""
+    if ".." in filename or "/" in filename or "\\" in filename:
+        raise HTTPException(status_code=400, detail="Nombre de archivo no válido")
+    settings = get_settings()
+    base = Path(settings.output_dir) / "editor-uploads" / document_id
+    file_path = base / filename
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Imagen no encontrada")
+    try:
+        file_path.resolve().relative_to(base.resolve())
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Acceso denegado")
+    from fastapi.responses import FileResponse
+    return FileResponse(path=str(file_path), filename=filename)
+
+
 @router.post("/{document_id}/patch")
 async def patch_document_with_ai(
     document_id: str,
@@ -1451,6 +1756,130 @@ async def get_document_versions(document_id: str):
             }
             for v in versions
         ]
+
+
+@router.get("/{document_id}/versions/{version_id}/preview-pdf")
+async def get_version_preview_pdf(document_id: str, version_id: str):
+    """
+    Genera y devuelve el PDF de una versión usando la fuente de verdad
+    (content_html si existe, si no content_markdown).
+    Si la versión tiene run_id, usa el mismo directorio del run (con assets/)
+    para generar el PDF igual que el original; si no, usa un temp dir.
+    No modifica process.pdf ni artefactos del run.
+    """
+    settings = get_settings()
+    api_base = settings.api_base_url.rstrip("/")
+    with get_db_session() as session:
+        version = (
+            session.query(DocumentVersion)
+            .filter_by(id=version_id, document_id=document_id)
+            .first()
+        )
+        if not version:
+            raise HTTPException(
+                status_code=404,
+                detail="Versión no encontrada o no pertenece al documento",
+            )
+        try:
+            content, fmt = get_export_content(version)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        version_run_id = version.run_id
+        version_status = version.version_status
+
+    # Servir draft_preview.pdf desde disco si existe.
+    # Aplica a DRAFT, IN_REVIEW y APPROVED: el contenido no cambia al transicionar entre estos estados,
+    # y generar on-demand bloquea el event loop (Pandoc no puede bajar imágenes del mismo servidor).
+    draft_pdf_path: Optional[Path] = None
+    if version_status in ("DRAFT", "IN_REVIEW", "APPROVED"):
+        if version_run_id:
+            candidate = Path(settings.output_dir) / version_run_id / "draft_preview.pdf"
+            if candidate.exists():
+                draft_pdf_path = candidate
+        if draft_pdf_path is None:
+            candidate = Path(settings.output_dir) / "documents" / document_id / "draft_preview.pdf"
+            if candidate.exists():
+                draft_pdf_path = candidate
+
+    if draft_pdf_path is not None:
+        logger.info("Sirviendo draft_preview.pdf desde disco: %s", draft_pdf_path)
+        return Response(
+            content=draft_pdf_path.read_bytes(),
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": 'inline; filename="draft_preview.pdf"',
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0",
+            },
+        )
+
+    # Post-procesar HTML: limpiar artefactos LaTeX y reescribir URLs de imágenes
+    if fmt == "html":
+        content = _strip_latex_artifacts(content)
+        content = _rewrite_img_src_to_absolute(content, version_run_id, api_base)
+
+    # Mismo directorio que el original cuando la versión tiene run_id (assets/, etc.)
+    run_dir = None
+    if version_run_id:
+        run_dir = Path(settings.output_dir) / version_run_id
+        if not run_dir.exists():
+            run_dir = None
+    if run_dir is None:
+        run_dir = Path(tempfile.mkdtemp())
+
+    # Ejecutar Pandoc en un thread pool para no bloquear el event loop.
+    # Si Pandoc corre en el hilo principal (sync), el event loop se congela y
+    # el servidor no puede responder los pedidos de imágenes que hace Pandoc → deadlock.
+    import asyncio
+    import concurrent.futures
+
+    _run_dir_for_cleanup = run_dir
+    _is_temp_dir = not version_run_id
+
+    def _generate_sync() -> bytes:
+        pdf_path = export_pdf_from_content(
+            content=content,
+            format=fmt,
+            run_dir=_run_dir_for_cleanup,
+            pdf_name="preview.pdf",
+        )
+        pdf_bytes = pdf_path.read_bytes()
+        content_file = _run_dir_for_cleanup / ("content.html" if fmt == "html" else "content.md")
+        if content_file.exists():
+            try:
+                content_file.unlink()
+            except OSError:
+                pass
+        if pdf_path.exists():
+            try:
+                pdf_path.unlink()
+            except OSError:
+                pass
+        return pdf_bytes
+
+    try:
+        loop = asyncio.get_event_loop()
+        pdf_bytes = await loop.run_in_executor(None, _generate_sync)
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": "inline; filename=\"preview.pdf\"",
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0",
+            },
+        )
+    except (FileNotFoundError, RuntimeError) as e:
+        logger.warning("Error generando PDF de versión: %s", e)
+        raise HTTPException(
+            status_code=500,
+            detail=f"No se pudo generar el PDF: {e}",
+        ) from e
+    finally:
+        if _is_temp_dir and _run_dir_for_cleanup:
+            shutil.rmtree(_run_dir_for_cleanup, ignore_errors=True)
 
 
 @router.get("/{document_id}/current-version")

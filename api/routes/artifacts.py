@@ -15,14 +15,15 @@ from process_ai_core.config import get_settings
 router = APIRouter(prefix="/api/v1/artifacts", tags=["artifacts"])
 
 
-@router.get("/{run_id}/{filename}")
+@router.get("/{run_id}/{filename:path}")
 async def get_artifact(run_id: str, filename: str, download: bool = False):
     """
-    Sirve un artefacto generado (JSON, Markdown o PDF).
+    Sirve un artefacto generado (JSON, Markdown, PDF o imágenes/assets).
 
     Args:
         run_id: ID de la corrida
-        filename: Nombre del archivo (process.json, process.md, process.pdf)
+        filename: Ruta relativa del archivo dentro del directorio del run
+                  (puede incluir subdirectorios, p.ej. assets/frames_vid1/step01_1.png)
         download: Si es True, fuerza la descarga del archivo (default: False, se abre inline)
 
     Returns:
@@ -46,6 +47,12 @@ async def get_artifact(run_id: str, filename: str, download: bool = False):
         ".json": "application/json",
         ".md": "text/markdown",
         ".pdf": "application/pdf",
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".gif": "image/gif",
+        ".webp": "image/webp",
+        ".svg": "image/svg+xml",
     }
     content_type = content_type_map.get(artifact_path.suffix, "application/octet-stream")
 

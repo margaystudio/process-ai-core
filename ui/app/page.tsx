@@ -39,14 +39,14 @@ export default function Home() {
         console.log('Verificando sesión de Supabase...')
         const supabase = createClient()
         
-        // Agregar timeout para evitar que se cuelgue
+        // Agregar timeout para evitar que se cuelgue (6s, igual que useUserId/useUserValidation)
         const timeoutId = setTimeout(() => {
-          console.error('Timeout verificando autenticación (5 segundos)')
+          console.error('Timeout verificando autenticación (6 segundos)')
           if (isMounted) {
             setAuthLoading(false)
             router.push('/login')
           }
-        }, 5000)
+        }, 6000)
         
         try {
           const { data: { session }, error } = await supabase.auth.getSession()

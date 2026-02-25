@@ -4,18 +4,16 @@ import { useState, useEffect } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import {
   getDocument,
-  getDocumentRuns,
-  getCurrentDocumentVersion,
   listValidations,
   patchDocumentWithAI,
-  updateDocumentContent,
   createDocumentRun,
   Document,
   Validation,
 } from '@/lib/api'
+import { useUserId } from '@/hooks/useUserId'
 import CorrectionOptionCard from '@/components/documents/CorrectionOptionCard'
 import AIPatchForm from '@/components/documents/AIPatchForm'
-import ManualEditForm from '@/components/documents/ManualEditForm'
+import ManualEditPanel from '@/components/documents/ManualEditPanel'
 import RegenerateForm from '@/components/documents/RegenerateForm'
 import DocumentPreview from '@/components/documents/DocumentPreview'
 import { formatDate } from '@/utils/dateFormat'
@@ -26,6 +24,7 @@ export default function CorrectDocumentPage() {
   const router = useRouter()
   const params = useParams()
   const documentId = params.id as string
+  const userId = useUserId()
 
   const [document, setDocument] = useState<Document | null>(null)
   const [validations, setValidations] = useState<Validation[]>([])
@@ -80,19 +79,6 @@ export default function CorrectDocumentPage() {
     }
   }
 
-  const handleManualEdit = async (contentJson: string) => {
-    if (!document) return
-
-    setProcessing(true)
-    try {
-      await updateDocumentContent(document.id, contentJson)
-      router.push(`/documents/${document.id}`)
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Error al guardar cambios')
-    } finally {
-      setProcessing(false)
-    }
-  }
 
   const handleRegenerate = async (formData: FormData) => {
     if (!document) return
@@ -195,13 +181,13 @@ export default function CorrectDocumentPage() {
 
                 <CorrectionOptionCard
                   title="✏️ Edición Manual"
-                  description="Edita directamente el JSON del documento"
+                  description="Editor visual tipo Word: texto, listas, imágenes y tablas"
                   idealFor={[
-                    'Cambios estructurales',
-                    'Control total del contenido',
-                    'Correcciones complejas',
+                    'Cambios de redacción',
+                    'Agregar o quitar secciones',
+                    'Insertar imágenes y enlaces',
                   ]}
-                  note="Requiere conocimiento técnico"
+                  note="Guardado como borrador y envío a validación"
                   onClick={() => setSelectedOption('manual-edit')}
                 />
 
@@ -230,11 +216,12 @@ export default function CorrectDocumentPage() {
             )}
 
             {selectedOption === 'manual-edit' && (
-              <ManualEditForm
+              <ManualEditPanel
                 documentId={document.id}
-                onSave={handleManualEdit}
+                workspaceId={document.workspace_id}
+                userId={userId}
                 onCancel={() => setSelectedOption(null)}
-                processing={processing}
+                onSubmitForReview={() => router.push(`/documents/${document.id}`)}
               />
             )}
 

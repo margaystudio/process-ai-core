@@ -13,7 +13,7 @@ export default function LoadingOverlay() {
         {/* Logo del margay girando */}
         <div className="relative">
           <img
-            src="/margay-logo.png"
+            src="/margay-spiner.png"
             alt="Loading..."
             className="h-16 w-16 object-contain animate-spin"
             onError={(e) => {

@@ -32,7 +32,7 @@ export default function WorkspacePage() {
   const canCreateDocuments = canEditWorkspace
   
   // Hook para manejar visualización de PDFs
-  const { openPdf, ModalComponent } = usePdfViewer()
+  const { openLatestPdf, ModalComponent } = usePdfViewer()
 
   // Cargar documentos
   useEffect(() => {
@@ -278,7 +278,7 @@ export default function WorkspacePage() {
                         onView={() => {
                           window.location.href = `/documents/${doc.id}`
                         }}
-                        onViewPdf={() => openPdf(doc)}
+                        onViewPdf={() => openLatestPdf(doc)}
                         onStatusClick={(status) => setStatusFilter(status)}
                         showActions={true}
                         primaryAction={primaryAction}

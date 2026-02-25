@@ -24,7 +24,7 @@ export default function ViewPage() {
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null)
   
   // Hook para manejar visualización de PDFs
-  const { openPdf, ModalComponent } = usePdfViewer()
+  const { openLatestPdf, ModalComponent } = usePdfViewer()
 
   useEffect(() => {
     async function loadDocuments() {
@@ -169,7 +169,7 @@ export default function ViewPage() {
                         key={doc.id}
                         document={doc}
                         onView={() => handleView(doc)}
-                        onViewPdf={() => openPdf(doc)}
+                        onViewPdf={() => openLatestPdf(doc)}
                         showActions={true}
                       />
                     ))}

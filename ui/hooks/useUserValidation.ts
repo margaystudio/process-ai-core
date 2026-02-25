@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
+const SUPABASE_TIMEOUT_MS = 6000
+
 interface UserValidationState {
   isValid: boolean | null  // null = loading, true = válido, false = inválido
   hasWorkspaces: boolean | null
@@ -45,7 +47,30 @@ export function useUserValidation(): UserValidationState {
 
         console.log('[useUserValidation] Obteniendo sesión de Supabase...')
         const supabase = createClient()
-        const { data: { session } } = await supabase.auth.getSession()
+        const getSessionWithTimeout = () =>
+          Promise.race([
+            supabase.auth.getSession(),
+            new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new Error('SupabaseTimeout')), SUPABASE_TIMEOUT_MS)
+            ),
+          ])
+        let session
+        try {
+          const result = await getSessionWithTimeout()
+          session = result.data?.session
+        } catch (sessionErr) {
+          if (sessionErr instanceof Error && sessionErr.message === 'SupabaseTimeout') {
+            console.error('[useUserValidation] Timeout conectando con Supabase (6s)')
+            setState({
+              isValid: false,
+              hasWorkspaces: false,
+              error: 'No se pudo conectar con el servicio de autenticación. Revisá tu conexión o el estado del proyecto.',
+              localUserId: null,
+            })
+            return
+          }
+          throw sessionErr
+        }
         console.log('[useUserValidation] Sesión obtenida:', session ? 'Sí' : 'No')
 
         if (!session?.user) {

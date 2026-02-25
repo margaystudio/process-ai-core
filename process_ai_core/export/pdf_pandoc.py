@@ -36,6 +36,26 @@ Notas sobre imágenes
 
 """
 
+# Header LaTeX compartido: imágenes, colores, tipografía y espaciado
+_PANDOC_HEADER_TEX = r"""
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{xcolor}
+\graphicspath{{./}}
+\setkeys{Gin}{width=0.9\textwidth,height=0.9\textheight,keepaspectratio}
+\usepackage{placeins}
+\FloatBarrier
+% Mejorar legibilidad: espaciado entre párrafos y listas
+\usepackage{parskip}
+\usepackage{enumitem}
+\setlist{leftmargin=*, itemsep=0.25em}
+% Títulos más claros
+\usepackage{titlesec}
+\titleformat{\section}{\normalfont\Large\bfseries}{\thesection}{1em}{}
+\titleformat{\subsection}{\normalfont\large\bfseries}{\thesubsection}{1em}{}
+"""
+
+
 @dataclass
 class PdfPandocExporter:
     """
@@ -97,32 +117,10 @@ class PdfPandocExporter:
             raise FileNotFoundError(f"No existe el markdown: {md_path}")
 
         out_pdf = run_dir / pdf_name
-
-        # ✅ SIEMPRE regenerar header (evita que quede uno viejo sin graphicx/float)
-        # `graphicx` => soporte de imágenes
-        # `float`    => soporte figure[H] (si usás raw_tex para fijar posición)
-        # `xcolor`   => soporte de colores (útil para tablas y texto)
-        # Configuración para mejorar el renderizado de imágenes
         header_tex = run_dir / "pandoc_header.tex"
-        header_content = """\\usepackage{graphicx}
-\\usepackage{float}
-\\usepackage{xcolor}
-% Configuración para imágenes: permitir rutas relativas y mejorar calidad
-\\graphicspath{{./}}
-% Configuración para que las imágenes se ajusten al ancho de página manteniendo aspecto
-\\setkeys{Gin}{width=0.9\\textwidth,height=0.9\\textheight,keepaspectratio}
-% Evitar que las imágenes floten - mantenerlas en su posición
-\\usepackage{placeins}
-\\FloatBarrier
-"""
-        header_tex.write_text(header_content, encoding="utf-8")
+        header_tex.write_text(_PANDOC_HEADER_TEX, encoding="utf-8")
 
-        # ✅ DEBUG (útil mientras estabilizás el pipeline)
-        print(f"🧾 Pandoc header: {header_tex.resolve()}")
-        print("🧾 Header content:\n" + header_tex.read_text(encoding="utf-8"))
-
-        # Importante: correr pandoc con cwd=run_dir para que resuelva assets/...
-        # Nota: se pasa `md_path.name` (no el path completo) suponiendo que el .md está en run_dir.
+        # Variables para mejor tipografía y márgenes
         cmd = [
             "pandoc",
             str(md_path.name),
@@ -133,10 +131,12 @@ class PdfPandocExporter:
             "--pdf-engine=xelatex",
             "--include-in-header",
             str(header_tex.name),
-            # Mejorar renderizado de imágenes
-            "--wrap=none",  # No envolver líneas (preserva formato)
-            # Permitir rutas relativas para imágenes
-            "--resource-path=.",  # Buscar recursos (imágenes) en el directorio actual
+            "-V", "fontsize=11pt",
+            "-V", "geometry:margin=2.5cm",
+            "-V", "papersize=a4",
+            "-V", "colorlinks=true",
+            "--wrap=none",
+            "--resource-path=.",
         ]
 
         # ✅ DEBUG (útil mientras estabilizás el pipeline)
@@ -167,4 +167,60 @@ class PdfPandocExporter:
                 msg += f"\nSTDOUT:\n{stdout}"
             raise RuntimeError(msg) from e
 
+        return out_pdf
+
+    def export_from_html(
+        self, run_dir: Path, html_path: Path, pdf_name: str = "documento.pdf"
+    ) -> Path:
+        """
+        Genera un PDF desde un archivo HTML usando Pandoc.
+
+        Mismo header LaTeX y cwd que export() para consistencia.
+        Usa --from=html para que Pandoc tome el HTML como entrada.
+        """
+        run_dir = Path(run_dir)
+        html_path = Path(html_path)
+        if not html_path.exists():
+            raise FileNotFoundError(f"No existe el HTML: {html_path}")
+        out_pdf = run_dir / pdf_name
+        header_tex = run_dir / "pandoc_header.tex"
+        header_tex.write_text(_PANDOC_HEADER_TEX, encoding="utf-8")
+        cmd = [
+            "pandoc",
+            str(html_path.name),
+            "-o",
+            str(out_pdf.name),
+            "--standalone",
+            "--from=html",
+            "--pdf-engine=xelatex",
+            "--include-in-header",
+            str(header_tex.name),
+            "-V", "fontsize=11pt",
+            "-V", "geometry:margin=2.5cm",
+            "-V", "papersize=a4",
+            "-V", "colorlinks=true",
+            "--wrap=none",
+            "--resource-path=.",
+        ]
+        try:
+            subprocess.run(
+                cmd,
+                cwd=str(run_dir),
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        except FileNotFoundError as e:
+            raise RuntimeError(
+                "No se encontró 'pandoc' en el PATH. Instalalo (brew install pandoc) y reintentá."
+            ) from e
+        except subprocess.CalledProcessError as e:
+            stderr = (e.stderr or "").strip()
+            stdout = (e.stdout or "").strip()
+            msg = "Falló pandoc al generar el PDF desde HTML."
+            if stderr:
+                msg += f"\nSTDERR:\n{stderr}"
+            if stdout:
+                msg += f"\nSTDOUT:\n{stdout}"
+            raise RuntimeError(msg) from e
         return out_pdf

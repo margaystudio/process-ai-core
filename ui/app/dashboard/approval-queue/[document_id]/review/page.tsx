@@ -8,6 +8,8 @@ import { useUserId } from '@/hooks/useUserId'
 import {
   getDocument,
   getDocumentRuns,
+  getDocumentVersions,
+  getVersionPreviewPdfUrl,
   approveDocument,
   rejectDocument,
   Document,
@@ -39,38 +41,34 @@ export default function DocumentReviewPage() {
         setLoading(true)
         setError(null)
         
-        const [doc, runs] = await Promise.all([
+        const [doc, runs, versions] = await Promise.all([
           getDocument(documentId),
           getDocumentRuns(documentId),
+          getDocumentVersions(documentId),
         ])
         
         setDocument(doc)
         
-        // Cargar PDF como blob para evitar cache del navegador
-        if (runs.length > 0 && runs[0].artifacts.pdf) {
-          const relativeUrl = runs[0].artifacts.pdf
-          const absoluteUrl = relativeUrl.startsWith('http') 
-            ? relativeUrl 
-            : `${API_URL}${relativeUrl}`
-          
-          // Agregar timestamp para evitar cache
-          const urlWithCacheBust = `${absoluteUrl}?t=${Date.now()}`
-          
-          // Cargar como blob y crear URL local
+        // PDF desde la versión en revisión (fuente de verdad: content_html o content_markdown)
+        const inReviewVersion = versions?.find((v: { version_status: string }) => v.version_status === 'IN_REVIEW')
+        const pdfSourceUrl = inReviewVersion
+          ? getVersionPreviewPdfUrl(documentId, inReviewVersion.id)
+          : runs.length > 0 && runs[0].artifacts.pdf
+            ? (runs[0].artifacts.pdf.startsWith('http') ? runs[0].artifacts.pdf : `${API_URL}${runs[0].artifacts.pdf}`)
+            : null
+        
+        if (pdfSourceUrl) {
+          const urlWithCacheBust = `${pdfSourceUrl}${pdfSourceUrl.includes('?') ? '&' : '?'}t=${Date.now()}`
           try {
-            const response = await fetch(urlWithCacheBust, {
-              cache: 'no-store', // Forzar no cache
-            })
+            const response = await fetch(urlWithCacheBust, { cache: 'no-store' })
             if (response.ok) {
               const blob = await response.blob()
               blobUrl = URL.createObjectURL(blob)
               setPdfUrl(blobUrl)
             } else {
-              // Si falla el blob, usar URL directa con cache bust
               setPdfUrl(urlWithCacheBust)
             }
           } catch (fetchErr) {
-            // Si falla, usar URL directa con cache bust
             setPdfUrl(urlWithCacheBust)
           }
         }

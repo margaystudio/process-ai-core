@@ -136,8 +136,15 @@ export async function createProcessRun(
 export async function createRecipeRun(
   formData: FormData
 ): Promise<RunResponse> {
+  const { getAccessToken } = await import('@/lib/api-auth')
+  const token = await getAccessToken()
+  const headers: HeadersInit = {}
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`
+  }
   const response = await fetch(`${API_URL}/api/v1/recipe-runs`, {
     method: 'POST',
+    headers,
     body: formData,
   });
 
@@ -857,6 +864,14 @@ export interface DocumentVersion {
 }
 
 /**
+ * URL del PDF de una versión (fuente de verdad: content_html si existe, si no content_markdown).
+ * Usar para "Ver PDF" del documento/versión actual; no modifica artefactos del run.
+ */
+export function getVersionPreviewPdfUrl(documentId: string, versionId: string): string {
+  return `${API_URL}/api/v1/documents/${documentId}/versions/${versionId}/preview-pdf`;
+}
+
+/**
  * Obtiene todas las versiones de un documento.
  */
 export async function getDocumentVersions(documentId: string): Promise<DocumentVersion[]> {
@@ -954,6 +969,77 @@ export async function updateDocumentContent(
   }
 
   return response.json();
+}
+
+/**
+ * Obtiene el contenido editable (HTML) de la versión DRAFT para edición manual Tiptap.
+ */
+export async function getEditableContent(documentId: string): Promise<{
+  version_id: string;
+  version_number: number;
+  html: string;
+  updated_at: string;
+}> {
+  const { getAccessToken } = await import('@/lib/api-auth');
+  const token = await getAccessToken();
+  const headers: HeadersInit = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const response = await fetch(`${API_URL}/api/v1/documents/${documentId}/editable`, { headers });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
+    throw new Error(error.detail || `HTTP ${response.status}`);
+  }
+  return response.json();
+}
+
+/**
+ * Guarda el HTML del editor manual (borrador).
+ */
+export async function saveEditableContent(
+  documentId: string,
+  contentHtml: string
+): Promise<{ version_id: string; version_number: number; updated_at: string }> {
+  const { getAccessToken } = await import('@/lib/api-auth');
+  const token = await getAccessToken();
+  const headers: HeadersInit = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const response = await fetch(`${API_URL}/api/v1/documents/${documentId}/editable`, {
+    method: 'PUT',
+    headers,
+    body: JSON.stringify({ content_html: contentHtml }),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
+    throw new Error(error.detail || `HTTP ${response.status}`);
+  }
+  return response.json();
+}
+
+/**
+ * Sube una imagen para el editor manual. Devuelve la URL para insertar (base + path).
+ */
+export async function uploadEditorImage(documentId: string, file: File): Promise<{ url: string }> {
+  const { getAccessToken } = await import('@/lib/api-auth');
+  const token = await getAccessToken();
+  const headers: HeadersInit = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const response = await fetch(`${API_URL}/api/v1/documents/${documentId}/upload-editor-image`, {
+    method: 'POST',
+    headers,
+    body: formData,
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error al subir la imagen' }));
+    throw new Error(error.detail || `HTTP ${response.status}`);
+  }
+  const data = await response.json();
+  return { url: `${API_URL}${data.url}` };
 }
 
 /**

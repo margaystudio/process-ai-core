@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { getArtifactUrl } from '@/lib/api'
+import { getArtifactUrl, getVersionPreviewPdfUrl } from '@/lib/api'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
@@ -11,6 +11,8 @@ interface ArtifactViewerModalProps {
   runId: string
   filename: string
   type: 'json' | 'markdown' | 'pdf'
+  /** Cuando está definido, para type 'pdf' se usa esta URL (PDF del borrador actual) en lugar del artifact del run. */
+  versionPreviewPdf?: { documentId: string; versionId: string } | null
 }
 
 export default function ArtifactViewerModal({
@@ -19,6 +21,7 @@ export default function ArtifactViewerModal({
   runId,
   filename,
   type,
+  versionPreviewPdf,
 }: ArtifactViewerModalProps) {
   const [content, setContent] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -38,27 +41,38 @@ export default function ArtifactViewerModal({
         setLoading(true)
         setError(null)
 
-        const artifactUrl = getArtifactUrl(runId, filename)
-        const absoluteUrl = artifactUrl.startsWith('http') 
-          ? artifactUrl 
-          : `${API_URL}${artifactUrl}`
+        let absoluteUrl: string
+        if (type === 'pdf' && versionPreviewPdf) {
+          absoluteUrl = getVersionPreviewPdfUrl(versionPreviewPdf.documentId, versionPreviewPdf.versionId)
+        } else {
+          const artifactUrl = getArtifactUrl(runId, filename)
+          absoluteUrl = artifactUrl.startsWith('http') ? artifactUrl : `${API_URL}${artifactUrl}`
+        }
 
         if (type === 'pdf') {
-          // Para PDF, cargar como blob para evitar cache
-          const urlWithCacheBust = `${absoluteUrl}?t=${Date.now()}`
+          const urlWithCacheBust = `${absoluteUrl}${absoluteUrl.includes('?') ? '&' : '?'}t=${Date.now()}`
           try {
-            const response = await fetch(urlWithCacheBust, {
-              cache: 'no-store',
-            })
+            const response = await fetch(urlWithCacheBust, { cache: 'no-store', credentials: 'include' })
+            const contentType = response.headers.get('content-type') || ''
             if (response.ok) {
               const blob = await response.blob()
-              const blobUrl = URL.createObjectURL(blob)
-              setPdfUrl(blobUrl)
+              const isPdfType = blob.type === 'application/pdf' || contentType.includes('application/pdf')
+              const isPdfBytes = blob.size >= 5 && (await blob.slice(0, 5).text()) === '%PDF-'
+              if (isPdfType && isPdfBytes) {
+                const blobUrl = URL.createObjectURL(blob)
+                setPdfUrl(blobUrl)
+              } else if (!isPdfBytes && blob.size < 10000) {
+                const text = await blob.text()
+                setError(text.slice(0, 200) || 'La respuesta no es un PDF válido.')
+              } else {
+                setError('La respuesta no es un PDF válido. No se pudo generar el documento.')
+              }
             } else {
-              setPdfUrl(urlWithCacheBust)
+              const text = await response.text().catch(() => '')
+              setError(text || `Error ${response.status} al cargar el PDF`)
             }
           } catch (fetchErr) {
-            setPdfUrl(urlWithCacheBust)
+            setError(fetchErr instanceof Error ? fetchErr.message : 'Error al cargar el PDF')
           }
         } else {
           // Para JSON y Markdown, cargar como texto
@@ -84,7 +98,7 @@ export default function ArtifactViewerModal({
         URL.revokeObjectURL(pdfUrl)
       }
     }
-  }, [isOpen, runId, filename, type])
+  }, [isOpen, runId, filename, type, versionPreviewPdf?.documentId, versionPreviewPdf?.versionId])
 
   if (!isOpen) return null
 

@@ -21,9 +21,9 @@ import {
   approveDocumentValidation,
   rejectDocumentValidation,
   patchDocumentWithAI,
-  updateDocumentContent,
   getDocumentAuditLog,
   getDocumentVersions,
+  getVersionPreviewPdfUrl,
   cancelDocumentSubmission,
   submitVersionForReview,
   getUser,
@@ -38,8 +38,9 @@ import FileList from '@/components/processes/FileList'
 import { usePdfViewer } from '@/hooks/usePdfViewer'
 import { FileItemData } from '@/components/processes/FileItem'
 import { formatDateTime } from '@/utils/dateFormat'
-import { useCanApproveDocuments, useCanRejectDocuments } from '@/hooks/useHasPermission'
+import { useCanApproveDocuments, useCanRejectDocuments, useHasPermission } from '@/hooks/useHasPermission'
 import { useUserId } from '@/hooks/useUserId'
+import ManualEditPanel from '@/components/documents/ManualEditPanel'
 import {
   getDocumentRole,
   canApprove,
@@ -50,6 +51,27 @@ import {
   canSubmitForReview,
   type DocumentStatus,
 } from '@/lib/documentPermissions'
+
+/** Mapea acciones del audit log del backend a etiquetas en español para la UI. */
+function actionToLabel(action: string): string {
+  const map: Record<string, string> = {
+    updated: 'Actualizado',
+    validated: 'Validado',
+    approved: 'Aprobado',
+    rejected: 'Rechazado',
+    'version.draft_reused': 'Borrador reutilizado',
+    'version.draft_created': 'Borrador creado',
+    'version.draft_updated': 'Borrador actualizado',
+    'version.draft_updated_by_ai_patch': 'Borrador actualizado (patch IA)',
+    'version.draft_created_by_ai_patch': 'Borrador creado (patch IA)',
+    'version.submitted': 'Enviado a revisión',
+    'version.submission_cancelled': 'Envío cancelado',
+    'version.approved': 'Versión aprobada',
+    'version.rejected': 'Versión rechazada',
+    'manual_edit_saved': 'Edición manual guardada',
+  }
+  return map[action] ?? action
+}
 
 export default function DocumentDetailPage() {
   const params = useParams()
@@ -65,6 +87,7 @@ export default function DocumentDetailPage() {
   const userId = useUserId()
   const { hasPermission: hasApprovePermission, loading: loadingApprove } = useCanApproveDocuments()
   const { hasPermission: hasRejectPermission, loading: loadingReject } = useCanRejectDocuments()
+  const { hasPermission: hasDocumentEditPermission } = useHasPermission('documents.edit')
   
   const [document, setDocument] = useState<Document | null>(null)
   const [loading, setLoading] = useState(true)
@@ -95,10 +118,9 @@ export default function DocumentDetailPage() {
   // Correction options
   const [showCorrectionOptions, setShowCorrectionOptions] = useState(false)
   const [correctionType, setCorrectionType] = useState<'manual' | 'ai_patch' | null>(null)
-  const [manualEditJson, setManualEditJson] = useState('')
+  const [savedDraftBanner, setSavedDraftBanner] = useState(false)
   const [aiPatchObservations, setAiPatchObservations] = useState('')
   const [isPatching, setIsPatching] = useState(false)
-  const [isUpdatingContent, setIsUpdatingContent] = useState(false)
   
   // History and audit log
   const [showHistory, setShowHistory] = useState(false)
@@ -108,7 +130,7 @@ export default function DocumentDetailPage() {
   const [userDisplayNames, setUserDisplayNames] = useState<Record<string, string>>({})
   
   // Hook para manejar visualización de artifacts
-  const { openArtifactFromRun, ModalComponent } = usePdfViewer()
+  const { openArtifactFromRun, openVersionPreviewPdf, ModalComponent } = usePdfViewer()
   
   // Delete state
   const [isDeleting, setIsDeleting] = useState(false)
@@ -451,34 +473,6 @@ export default function DocumentDetailPage() {
     }
   }
   
-  const handleManualEdit = async () => {
-    if (!manualEditJson.trim()) {
-      setError('Debes proporcionar el JSON editado')
-      return
-    }
-    
-    await withLoading(async () => {
-      try {
-        setIsUpdatingContent(true)
-        setError(null)
-        
-        await updateDocumentContent(documentId, manualEditJson)
-        
-        // Reload document
-        const updatedDoc = await getDocument(documentId)
-        setDocument(updatedDoc)
-        setStatus(updatedDoc.status)
-        setShowCorrectionOptions(false)
-        setCorrectionType(null)
-        setManualEditJson('')
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Error al actualizar contenido')
-      } finally {
-        setIsUpdatingContent(false)
-      }
-    })
-  }
-  
   const handleDelete = async () => {
     if (!document) return
     
@@ -585,7 +579,9 @@ export default function DocumentDetailPage() {
   const allowCancelSubmission = canCancelSubmission(documentRole, docStatus)
   const allowEditMetadata = canEditMetadata(documentRole, docStatus)
   const allowNewVersion = canCreateNewVersion(docStatus)
-  const allowSubmitForReview = canSubmitForReview(documentRole, docStatus)
+  const allowSubmitForReview =
+    canSubmitForReview(documentRole, docStatus) ||
+    (docStatus === 'draft' && Boolean(draftVersion) && hasDocumentEditPermission)
   
   // Mostrar panel si hay versión IN_REVIEW, el usuario tiene permisos Y puede validar (no es el creador)
   const showValidationPanel = isPendingValidation && hasInReviewVersion && (hasApprovePermission || hasRejectPermission) && canValidate
@@ -646,6 +642,15 @@ export default function DocumentDetailPage() {
   return (
     <div className="p-8">
       <div className="max-w-6xl mx-auto">
+
+        {/* Banner de borrador guardado */}
+        {savedDraftBanner && (
+          <div className="mb-4 flex items-center gap-3 px-5 py-3 bg-green-600 text-white rounded-lg shadow-lg text-sm font-medium animate-pulse">
+            <span className="text-lg">✅</span>
+            <span>Borrador guardado. Ya podés usar <strong>Ver PDF</strong> para ver los cambios o <strong>Enviar a revisión</strong>.</span>
+          </div>
+        )}
+
         <div className="mb-6">
           <button
             onClick={() => router.back()}
@@ -933,17 +938,10 @@ export default function DocumentDetailPage() {
                           <h3 className="text-lg font-semibold text-gray-900 mb-4">Vista Previa del Documento</h3>
                           
                           {(() => {
-                            // Buscar el run más reciente con PDF
+                            // PDF desde la versión en revisión (fuente de verdad: content_html o content_markdown)
                             const inReviewVersion = versions.find(v => v.version_status === 'IN_REVIEW')
-                            const runWithPdf = inReviewVersion?.run_id 
-                              ? runs.find(r => r.run_id === inReviewVersion.run_id && r.artifacts.pdf)
-                              : runs.find(r => r.artifacts.pdf)
-                            
-                            if (runWithPdf?.artifacts.pdf) {
-                              const pdfUrl = runWithPdf.artifacts.pdf.startsWith('http')
-                                ? runWithPdf.artifacts.pdf
-                                : `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}${runWithPdf.artifacts.pdf}`
-                              
+                            if (inReviewVersion) {
+                              const pdfUrl = getVersionPreviewPdfUrl(documentId, inReviewVersion.id)
                               return (
                                 <div className="border border-gray-200 rounded-lg overflow-hidden">
                                   <iframe
@@ -954,7 +952,6 @@ export default function DocumentDetailPage() {
                                 </div>
                               )
                             }
-                            
                             return (
                               <div className="h-96 flex items-center justify-center bg-gray-50 rounded">
                                 <p className="text-gray-500">No hay PDF disponible para este documento</p>
@@ -1222,37 +1219,34 @@ export default function DocumentDetailPage() {
                         </div>
                       )}
                       
-                      {correctionType === 'manual' && (
-                        <div className="p-4 bg-white rounded-lg border border-gray-200">
-                          <label className="block text-sm font-medium text-gray-700 mb-2">
-                            JSON Editado
-                          </label>
-                          <textarea
-                            value={manualEditJson}
-                            onChange={(e) => setManualEditJson(e.target.value)}
-                            rows={12}
-                            className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono text-sm mb-3"
-                            placeholder="Pega aquí el JSON del documento editado..."
-                          />
-                          <div className="flex gap-3">
-                            <button
-                              onClick={handleManualEdit}
-                              disabled={isUpdatingContent || !manualEditJson.trim()}
-                              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
-                            >
-                              {isUpdatingContent ? 'Guardando...' : 'Guardar Edición Manual'}
-                            </button>
-                            <button
-                              onClick={() => {
-                                setCorrectionType(null)
-                                setManualEditJson('')
-                              }}
-                              className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 text-sm font-medium"
-                            >
-                              Cancelar
-                            </button>
-                          </div>
-                        </div>
+                      {correctionType === 'manual' && document && (
+                        <ManualEditPanel
+                          documentId={document.id}
+                          workspaceId={document.workspace_id}
+                          userId={userId}
+                          onCancel={() => setCorrectionType(null)}
+                          onSaved={async () => {
+                            // Refrescar versiones para que content_type='manual_edit' quede actualizado
+                            const docVersions = await getDocumentVersions(documentId)
+                            setVersions(docVersions)
+                            // Colapsar editor y mostrar banner de éxito
+                            setCorrectionType(null)
+                            setShowCorrectionOptions(false)
+                            setSavedDraftBanner(true)
+                            setTimeout(() => setSavedDraftBanner(false), 4000)
+                          }}
+                          onSubmitForReview={async () => {
+                            setCorrectionType(null)
+                            setShowCorrectionOptions(false)
+                            const [docVersions, updatedDoc] = await Promise.all([
+                              getDocumentVersions(documentId),
+                              getDocument(documentId),
+                            ])
+                            setVersions(docVersions)
+                            setDocument(updatedDoc)
+                            setStatus(updatedDoc.status)
+                          }}
+                        />
                       )}
                     </div>
                   )}
@@ -1357,8 +1351,18 @@ export default function DocumentDetailPage() {
                           {run.artifacts.pdf && (
                             <button
                               onClick={() => {
-                                const filename = run.artifacts.pdf!.split('/').pop() || 'process.pdf'
-                                openArtifactFromRun(run.run_id, filename, 'pdf')
+                                // Buscar la versión más relevante para este run que tenga contenido editado.
+                                // Prioridad: APPROVED > IN_REVIEW > DRAFT con edición manual.
+                                const relevantVersion =
+                                  versions.find((v) => v.version_status === 'APPROVED' && v.run_id === run.run_id) ||
+                                  versions.find((v) => v.version_status === 'IN_REVIEW' && v.run_id === run.run_id) ||
+                                  versions.find((v) => v.version_status === 'DRAFT' && v.run_id === run.run_id && v.content_type === 'manual_edit')
+                                if (relevantVersion) {
+                                  openVersionPreviewPdf(documentId, relevantVersion.id)
+                                } else {
+                                  const filename = run.artifacts.pdf!.split('/').pop() || 'process.pdf'
+                                  openArtifactFromRun(run.run_id, filename, 'pdf')
+                                }
                               }}
                               className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm font-medium inline-flex items-center gap-2"
                             >
@@ -1531,12 +1535,22 @@ export default function DocumentDetailPage() {
                 
                 {showHistory && (
                   <div className="space-y-6">
-                    {/* Versiones */}
-                    {versions.length > 0 && (
+                    {/* Versiones Aprobadas */}
+                    {(() => {
+                      const approvedVersions = versions.filter(v => v.version_status === 'APPROVED')
+                      if (approvedVersions.length === 0) {
+                        return (
+                          <div>
+                            <h3 className="text-lg font-medium text-gray-900 mb-3">Versiones Aprobadas</h3>
+                            <p className="text-sm text-gray-500">No hay versiones aprobadas.</p>
+                          </div>
+                        )
+                      }
+                      return (
                       <div>
                         <h3 className="text-lg font-medium text-gray-900 mb-3">Versiones Aprobadas</h3>
                         <div className="space-y-3">
-                          {versions.map((version) => (
+                          {approvedVersions.map((version) => (
                             <div
                               key={version.id}
                               className={`border rounded-lg p-4 ${
@@ -1582,7 +1596,8 @@ export default function DocumentDetailPage() {
                           ))}
                         </div>
                       </div>
-                    )}
+                      )
+                    })()}
                     
                     {/* Audit Log */}
                     {auditLog.length > 0 && (
@@ -1598,7 +1613,7 @@ export default function DocumentDetailPage() {
                                 <div className="flex-1">
                                   <div className="flex items-center gap-2 mb-1">
                                     <span className="font-medium text-gray-900">
-                                      {entry.action}
+                                      {actionToLabel(entry.action)}
                                     </span>
                                     <span className="text-xs text-gray-500">
                                       {entry.entity_type}

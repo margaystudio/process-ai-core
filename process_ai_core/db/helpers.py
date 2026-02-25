@@ -764,9 +764,10 @@ def get_or_create_draft(
         content_markdown = source_version.content_markdown
         content_type = source_version.content_type
         supersedes_version_id = source_version_id
+        content_html = getattr(source_version, "content_html", None)
     
     else:
-        # Buscar explícitamente APPROVED vigente (version_status='APPROVED' e is_current=True)
+        # Buscar APPROVED vigente; si no hay, REJECTED más reciente (tras rechazo el usuario espera seguir editando ese contenido)
         approved_vigente = (
             session.query(DocumentVersion)
             .filter_by(
@@ -776,14 +777,28 @@ def get_or_create_draft(
             )
             .first()
         )
-        
         if approved_vigente:
-            # Clonar APPROVED vigente
             content_json = approved_vigente.content_json
             content_markdown = approved_vigente.content_markdown
             content_type = approved_vigente.content_type
             supersedes_version_id = approved_vigente.id
-    
+            content_html = getattr(approved_vigente, "content_html", None)
+        else:
+            rejected = (
+                session.query(DocumentVersion)
+                .filter_by(document_id=document_id, version_status="REJECTED")
+                .order_by(DocumentVersion.created_at.desc())
+                .first()
+            )
+            if rejected:
+                content_json = rejected.content_json
+                content_markdown = rejected.content_markdown
+                content_type = rejected.content_type
+                supersedes_version_id = rejected.id
+                content_html = getattr(rejected, "content_html", None)
+            else:
+                content_html = None
+
     # Crear nueva versión DRAFT
     draft_version = DocumentVersion(
         id=str(uuid.uuid4()),
@@ -795,6 +810,7 @@ def get_or_create_draft(
         content_type=content_type,
         content_json=content_json,
         content_markdown=content_markdown,
+        content_html=content_html,
         approved_at=None,
         approved_by=None,
         validation_id=None,
@@ -1260,6 +1276,9 @@ def check_version_immutable(
     
     NO bloquea por versión APPROVED vigente (se puede crear DRAFT desde ella).
     Solo bloquea si hay una versión IN_REVIEW.
+    Si el documento ya está "rejected" pero existe una versión IN_REVIEW (inconsistencia
+    típica tras un rechazo no bien persistido), reconcilia marcando esa versión como
+    REJECTED y permite editar.
     
     Args:
         session: Sesión de base de datos
@@ -1268,18 +1287,34 @@ def check_version_immutable(
     Returns:
         Tupla (is_immutable, reason) donde reason explica por qué es inmutable
     """
-    from process_ai_core.db.models import DocumentVersion
-    
-    # Solo bloquear si hay versión IN_REVIEW
+    from process_ai_core.db.models import DocumentVersion, Document, Validation
+
     in_review = (
         session.query(DocumentVersion)
         .filter_by(document_id=document_id, version_status="IN_REVIEW")
         .first()
     )
-    if in_review:
-        return True, f"El documento tiene una versión IN_REVIEW (v{in_review.version_number}) que no puede editarse. Espere a que se apruebe o rechace."
-    
-    return False, None
+    if not in_review:
+        return False, None
+
+    doc = session.query(Document).filter_by(id=document_id).first()
+    if doc and doc.status == "rejected":
+        # Inconsistencia: documento rechazado pero la versión sigue IN_REVIEW. Reconciliar.
+        logger.warning(
+            "Reconciliando: documento %s está rejected pero versión %s sigue IN_REVIEW; marcando como REJECTED para permitir edición.",
+            document_id, in_review.id,
+        )
+        in_review.version_status = "REJECTED"
+        in_review.rejected_at = datetime.now(UTC)
+        if in_review.validation_id:
+            val = session.query(Validation).filter_by(id=in_review.validation_id).first()
+            if val and val.status == "pending":
+                val.status = "rejected"
+                val.completed_at = datetime.now(UTC)
+        session.flush()
+        return False, None
+
+    return True, f"El documento tiene una versión IN_REVIEW (v{in_review.version_number}) que no puede editarse. Espere a que se apruebe o rechace."
 
 
 def get_editable_version(
@@ -1409,17 +1444,18 @@ def update_document_status(
     
     old_status = document.status
     document.status = status
-    
-    # Crear audit log
-    create_audit_log(
-        session=session,
-        document_id=document_id,
-        action="updated",
-        changes_json=json.dumps({
-            "status": {"old": old_status, "new": status}
-        }),
-    )
-    
+
+    # Solo registrar en auditoría cuando el estado realmente cambia (evita "updated" draft→draft al crear)
+    if old_status != status:
+        create_audit_log(
+            session=session,
+            document_id=document_id,
+            action="updated",
+            changes_json=json.dumps({
+                "status": {"old": old_status, "new": status}
+            }),
+        )
+
     return document
 
 

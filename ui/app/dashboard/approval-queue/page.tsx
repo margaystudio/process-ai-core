@@ -25,7 +25,7 @@ export default function ApprovalQueuePage() {
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null)
   
   // Hook para manejar visualización de PDFs
-  const { openPdf, ModalComponent } = usePdfViewer()
+  const { openLatestPdf, ModalComponent } = usePdfViewer()
 
   const userId = useUserId()
 
@@ -184,7 +184,7 @@ export default function ApprovalQueuePage() {
                         key={doc.id}
                         document={doc}
                         onReview={() => handleReview(doc)}
-                        onViewPdf={() => openPdf(doc)}
+                        onViewPdf={() => openLatestPdf(doc)}
                         showActions={true}
                       />
                     ))}

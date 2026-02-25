@@ -87,10 +87,13 @@ class Settings:
     # I/O
     input_dir: str = "input"
     output_dir: str = "output"
-    
+
     # Rutas relativas para assets (desde output_dir)
     assets_dir: str = "assets"  # output/assets/
     evidence_dir: str = "evidence"  # output/assets/evidence/
+
+    # URL base de la API (para construir URLs absolutas en HTML/PDF)
+    api_base_url: str = "http://localhost:8000"
 
 
 @lru_cache
@@ -122,6 +125,7 @@ def get_settings() -> Settings:
     """
     return Settings(
         openai_api_key=os.getenv("OPENAI_API_KEY", ""),
+        api_base_url=os.getenv("API_BASE_URL", "http://localhost:8000"),
         openai_model_text=os.getenv(
             "OPENAI_MODEL_TEXT",
             "gpt-4.1-mini"

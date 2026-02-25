@@ -25,7 +25,7 @@ export default function ToReviewPage() {
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null)
   
   // Hook para manejar visualización de PDFs
-  const { openPdf, ModalComponent } = usePdfViewer()
+  const { openLatestPdf, ModalComponent } = usePdfViewer()
 
   const userId = useUserId()
 
@@ -184,7 +184,7 @@ export default function ToReviewPage() {
                         key={doc.id}
                         document={doc}
                         onCorrect={() => handleCorrect(doc)}
-                        onViewPdf={() => openPdf(doc)}
+                        onViewPdf={() => openLatestPdf(doc)}
                         showActions={true}
                       />
                     ))}

@@ -497,6 +497,7 @@ class DocumentVersion(Base):
     # Contenido del documento
     content_json: Mapped[str] = mapped_column(Text, nullable=False)  # JSON del ProcessDocument
     content_markdown: Mapped[str] = mapped_column(Text, nullable=False)  # Markdown renderizado
+    content_html: Mapped[str | None] = mapped_column(Text, nullable=True)  # HTML para edición manual (Tiptap)
     
     # Aprobación (nullable para DRAFT y REJECTED)
     approved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

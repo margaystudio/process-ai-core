@@ -2,10 +2,13 @@
 
 import { useEffect, useState } from 'react'
 
+const SUPABASE_TIMEOUT_MS = 6000
+
 /**
  * Hook para obtener el ID del usuario actual desde Supabase Auth.
  * 
  * Si Supabase no está configurado, retorna null y permite usar localStorage como fallback.
+ * Si Supabase no responde en 6s, usa localStorage como fallback.
  * 
  * @returns ID del usuario local (de la DB) o null si no está autenticado
  */
@@ -29,8 +32,16 @@ export function useUserId(): string | null {
       try {
         const { createClient } = await import('@/lib/supabase/client')
         const supabase = createClient()
-        
-        const { data: { session } } = await supabase.auth.getSession()
+
+        const getSessionWithTimeout = () =>
+          Promise.race([
+            supabase.auth.getSession(),
+            new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new Error('SupabaseTimeout')), SUPABASE_TIMEOUT_MS)
+            ),
+          ])
+
+        const { data: { session } } = await getSessionWithTimeout()
         
         if (session?.user) {
           // El userId local se obtiene después de sincronizar con el backend
@@ -40,9 +51,9 @@ export function useUserId(): string | null {
             setUserId(storedUserId)
           } else {
             // Si no hay userId local guardado, intentar obtenerlo del backend
-            // usando el token de Supabase
+            // usando el token de Supabase (ya tenemos session del primer getSession)
             try {
-              const token = (await supabase.auth.getSession()).data.session?.access_token
+              const token = session.access_token
               if (token) {
                 const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/auth/user`, {
                   headers: {
@@ -104,9 +115,13 @@ export function useUserId(): string | null {
           window.removeEventListener('localStorageChange', handleCustomStorageChange as EventListener)
         }
       } catch (err) {
-        // Si hay error creando el cliente, usar localStorage como fallback
-        console.warn('Error inicializando Supabase, usando localStorage:', err)
-        const storedUserId = localStorage.getItem('userId')
+        // Timeout o error: usar localStorage como fallback
+        if (err instanceof Error && err.message === 'SupabaseTimeout') {
+          console.warn('[useUserId] Timeout conectando con Supabase (6s), usando localStorage')
+        } else {
+          console.warn('Error inicializando Supabase, usando localStorage:', err)
+        }
+        const storedUserId = localStorage.getItem('local_user_id') ?? localStorage.getItem('userId')
         setUserId(storedUserId)
       }
     }
