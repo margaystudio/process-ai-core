@@ -1129,6 +1129,7 @@ def _generate_draft_pdf_background(
             format="html",
             run_dir=pdf_dir,
             pdf_name="draft_preview.pdf",
+            base_url=api_base,
         )
         logger.info("PDF del borrador guardado en %s/draft_preview.pdf", pdf_dir)
         tmp_html = pdf_dir / "content.html"
@@ -1843,6 +1844,7 @@ async def get_version_preview_pdf(document_id: str, version_id: str):
             format=fmt,
             run_dir=_run_dir_for_cleanup,
             pdf_name="preview.pdf",
+            base_url=api_base if fmt == "html" else None,
         )
         pdf_bytes = pdf_path.read_bytes()
         content_file = _run_dir_for_cleanup / ("content.html" if fmt == "html" else "content.md")
