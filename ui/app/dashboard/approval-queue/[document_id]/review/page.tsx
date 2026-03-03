@@ -2,16 +2,14 @@
 
 import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { useWorkspace } from '@/contexts/WorkspaceContext'
 import { useLoading } from '@/contexts/LoadingContext'
-import { useUserId } from '@/hooks/useUserId'
 import {
   getDocument,
   getDocumentRuns,
   getDocumentVersions,
   getVersionPreviewPdfUrl,
-  approveDocument,
-  rejectDocument,
+  approveDocumentValidation,
+  rejectDocumentValidation,
   Document,
 } from '@/lib/api'
 
@@ -21,7 +19,6 @@ export default function DocumentReviewPage() {
   const params = useParams()
   const router = useRouter()
   const documentId = params.document_id as string
-  const { selectedWorkspaceId } = useWorkspace()
   const { withLoading } = useLoading()
   
   const [document, setDocument] = useState<Document | null>(null)
@@ -30,8 +27,6 @@ export default function DocumentReviewPage() {
   const [error, setError] = useState<string | null>(null)
   const [observations, setObservations] = useState('')
   const [processing, setProcessing] = useState(false)
-
-  const userId = useUserId()
 
   useEffect(() => {
     let blobUrl: string | null = null
@@ -92,12 +87,6 @@ export default function DocumentReviewPage() {
   }, [documentId])
 
   const handleApprove = async () => {
-    if (!userId || !selectedWorkspaceId) {
-      setError('Usuario no autenticado')
-      return
-    }
-
-    // Diálogo de confirmación
     const confirmed = window.confirm(
       `¿Estás seguro de que deseas aprobar el documento "${document?.name}"?\n\n` +
       `Esta acción marcará el documento como aprobado y estará disponible para su uso.`
@@ -110,8 +99,7 @@ export default function DocumentReviewPage() {
     await withLoading(async () => {
       setProcessing(true)
       try {
-        await approveDocument(documentId, userId, selectedWorkspaceId)
-        // Redirigir a la cola de aprobación
+        await approveDocumentValidation(documentId, observations || undefined)
         router.push('/dashboard/approval-queue')
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Error al aprobar documento')
@@ -121,17 +109,11 @@ export default function DocumentReviewPage() {
   }
 
   const handleReject = async () => {
-    if (!userId || !selectedWorkspaceId) {
-      setError('Usuario no autenticado')
-      return
-    }
-
     if (!observations.trim()) {
       setError('Debes proporcionar observaciones al rechazar el documento')
       return
     }
 
-    // Diálogo de confirmación
     const confirmed = window.confirm(
       `¿Estás seguro de que deseas rechazar el documento "${document?.name}"?\n\n` +
       `Observaciones: ${observations}\n\n` +
@@ -145,8 +127,7 @@ export default function DocumentReviewPage() {
     await withLoading(async () => {
       setProcessing(true)
       try {
-        await rejectDocument(documentId, observations, userId, selectedWorkspaceId)
-        // Redirigir a la cola de aprobación
+        await rejectDocumentValidation(documentId, observations)
         router.push('/dashboard/approval-queue')
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Error al rechazar documento')

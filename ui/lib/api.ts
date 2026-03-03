@@ -1229,74 +1229,12 @@ export async function listApprovedDocuments(
 // ============================================================
 
 /**
- * Aprueba un documento directamente.
- */
-export async function approveDocument(
-  documentId: string,
-  userId: string,
-  workspaceId: string
-): Promise<{ message: string; validation_id: string; version_id: string | null }> {
-  const response = await fetch(
-    `${API_URL}/api/v1/documents/${documentId}/approve`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        user_id: userId,
-        workspace_id: workspaceId,
-      }),
-    }
-  );
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
-    throw new Error(error.detail || `HTTP ${response.status}`);
-  }
-
-  return response.json();
-}
-
-/**
  * Elimina un documento.
  */
 export async function deleteDocument(documentId: string): Promise<{ message: string; deleted_runs: number }> {
   const response = await fetch(`${API_URL}/api/v1/documents/${documentId}`, {
     method: 'DELETE',
   });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
-    throw new Error(error.detail || `HTTP ${response.status}`);
-  }
-
-  return response.json();
-}
-
-/**
- * Rechaza un documento directamente con observaciones.
- */
-export async function rejectDocument(
-  documentId: string,
-  observations: string,
-  userId: string,
-  workspaceId: string
-): Promise<{ message: string; validation_id: string }> {
-  const response = await fetch(
-    `${API_URL}/api/v1/documents/${documentId}/reject`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        observations,
-        user_id: userId,
-        workspace_id: workspaceId,
-      }),
-    }
-  );
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));

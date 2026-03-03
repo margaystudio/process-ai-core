@@ -512,56 +512,6 @@ def create_validation(
     return validation
 
 
-def approve_validation(
-    session: Session,
-    validation_id: str,
-    user_id: str | None = None,
-) -> Validation:
-    """
-    Aprueba una validación.
-    
-    Args:
-        session: Sesión de base de datos
-        validation_id: ID de la validación
-        user_id: ID del usuario que aprueba (opcional)
-    
-    Returns:
-        Validation aprobada
-    """
-    validation = session.query(Validation).filter_by(id=validation_id).first()
-    if not validation:
-        raise ValueError(f"Validación {validation_id} no encontrada")
-    
-    validation.status = "approved"
-    validation.completed_at = datetime.now(UTC)
-    
-    # Actualizar estado del documento
-    document = session.query(Document).filter_by(id=validation.document_id).first()
-    if document:
-        document.status = "approved"
-    
-    # Si hay un run asociado, marcarlo como aprobado
-    if validation.run_id:
-        run = session.query(Run).filter_by(id=validation.run_id).first()
-        if run:
-            run.is_approved = True
-            run.validation_id = validation_id
-    
-    # Crear audit log
-    create_audit_log(
-        session=session,
-        document_id=validation.document_id,
-        run_id=validation.run_id,
-        user_id=user_id,
-        action="approved",
-        entity_type="validation",
-        entity_id=validation_id,
-        metadata_json=json.dumps({"status": "approved"}),
-    )
-    
-    return validation
-
-
 def reject_validation(
     session: Session,
     validation_id: str,
@@ -1388,6 +1338,7 @@ def create_document_version(
         document_id=document_id,
         run_id=run_id,
         version_number=version_number,
+        version_status="APPROVED",
         content_type=content_type,
         content_json=content_json,
         content_markdown=content_markdown,
