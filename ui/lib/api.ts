@@ -1230,18 +1230,23 @@ export async function listApprovedDocuments(
 
 /**
  * Elimina un documento.
+ * Requiere permiso documents.delete en el workspace del documento.
  */
 export async function deleteDocument(documentId: string): Promise<{ message: string; deleted_runs: number }> {
+  const { getAuthHeaders } = await import('@/lib/api-auth')
+  const headers = await getAuthHeaders({})
+
   const response = await fetch(`${API_URL}/api/v1/documents/${documentId}`, {
     method: 'DELETE',
-  });
+    headers,
+  })
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
-    throw new Error(error.detail || `HTTP ${response.status}`);
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }))
+    throw new Error(error.detail || `HTTP ${response.status}`)
   }
 
-  return response.json();
+  return response.json()
 }
 
 // ============================================================================
