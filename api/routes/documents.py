@@ -354,9 +354,14 @@ async def update_document(document_id: str, request: DocumentUpdateRequest):
 
 
 @router.delete("/{document_id}")
-async def delete_document_endpoint(document_id: str):
+async def delete_document_endpoint(
+    document_id: str,
+    user_id: str = Depends(get_current_user_id),
+):
     """
     Elimina un documento y todos sus datos asociados.
+    
+    Requiere el permiso documents.delete en el workspace del documento.
     
     Elimina:
     - El documento
@@ -373,6 +378,8 @@ async def delete_document_endpoint(document_id: str):
         Mensaje de confirmación
     
     Raises:
+        401: Si no hay token de autenticación
+        403: Si el usuario no tiene permiso documents.delete
         404: Si el documento no existe
         500: Error interno del servidor
     """
@@ -380,6 +387,7 @@ async def delete_document_endpoint(document_id: str):
     from pathlib import Path
     from process_ai_core.config import get_settings
     from process_ai_core.db.models import Run
+    from process_ai_core.db.permissions import has_permission
     
     with get_db_session() as session:
         # Verificar que el documento existe
@@ -388,6 +396,13 @@ async def delete_document_endpoint(document_id: str):
             raise HTTPException(
                 status_code=404,
                 detail=f"Documento {document_id} no encontrado"
+            )
+        
+        # Verificar permiso documents.delete en el workspace del documento
+        if not has_permission(session, user_id, doc.workspace_id, "documents.delete"):
+            raise HTTPException(
+                status_code=403,
+                detail="No tiene permisos para eliminar documentos en este workspace"
             )
         
         # Obtener runs antes de eliminar para limpiar archivos físicos

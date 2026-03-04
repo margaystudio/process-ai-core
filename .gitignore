@@ -12,3 +12,4 @@ output/
 var/
 archivos/
 data/*.sqlite
+data/process_ai_core.sqlite
