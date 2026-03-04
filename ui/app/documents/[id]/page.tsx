@@ -88,6 +88,7 @@ export default function DocumentDetailPage() {
   const { hasPermission: hasApprovePermission, loading: loadingApprove } = useCanApproveDocuments()
   const { hasPermission: hasRejectPermission, loading: loadingReject } = useCanRejectDocuments()
   const { hasPermission: hasDocumentEditPermission } = useHasPermission('documents.edit')
+  const { hasPermission: hasDocumentDeletePermission } = useHasPermission('documents.delete')
   
   const [document, setDocument] = useState<Document | null>(null)
   const [loading, setLoading] = useState(true)
@@ -681,13 +682,15 @@ export default function DocumentDetailPage() {
                   {isSubmittingForReview ? 'Enviando...' : 'Enviar a revisión'}
                 </button>
               )}
-              <button
-                onClick={handleDelete}
-                disabled={isDeleting}
-                className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isDeleting ? 'Eliminando...' : 'Eliminar'}
-              </button>
+              {hasDocumentDeletePermission && (
+                <button
+                  onClick={handleDelete}
+                  disabled={isDeleting}
+                  className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isDeleting ? 'Eliminando...' : 'Eliminar'}
+                </button>
+              )}
             </div>
             )}
           </div>
