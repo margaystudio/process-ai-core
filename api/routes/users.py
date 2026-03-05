@@ -122,11 +122,15 @@ async def get_user(user_id: str):
         # Obtener memberships con roles
         memberships = session.query(WorkspaceMembership).filter_by(user_id=user_id).all()
         
+        _phone_verified_at = getattr(user, "phone_verified_at", None)
         return {
             "id": user.id,
             "email": user.email,
             "name": user.name,
             "created_at": user.created_at.isoformat(),
+            "phone_e164": getattr(user, "phone_e164", None),
+            "phone_verified": getattr(user, "phone_verified", False),
+            "phone_verified_at": _phone_verified_at.isoformat() if _phone_verified_at else None,
             "workspaces": [
                 {
                     "workspace_id": m.workspace_id,
@@ -365,7 +369,8 @@ async def check_user_permission(
 
 class UpdateUserProfileRequest(BaseModel):
     """Request para actualizar perfil de usuario."""
-    name: str
+    name: str | None = None
+    phone_e164: str | None = None
 
 
 @router.put("/{user_id}")
@@ -376,11 +381,11 @@ async def update_user_profile(
     session: Session = Depends(get_db),
 ):
     """
-    Actualiza el perfil de un usuario (nombre).
+    Actualiza el perfil de un usuario (nombre, teléfono).
     
     Args:
         user_id: ID del usuario (debe coincidir con el usuario autenticado)
-        request: Datos a actualizar (name: nombre completo del usuario)
+        request: Datos a actualizar (name, phone_e164 opcionales)
         authenticated_user_id: ID del usuario autenticado (del token JWT)
     
     Returns:
@@ -390,7 +395,6 @@ async def update_user_profile(
         403: Si el user_id de la URL no coincide con el usuario autenticado
         404: Si el usuario no existe
     """
-    # Verificar que el usuario autenticado coincida con el user_id de la URL
     if user_id != authenticated_user_id:
         raise HTTPException(
             status_code=403,
@@ -404,17 +408,23 @@ async def update_user_profile(
             detail=f"Usuario {user_id} no encontrado"
         )
     
-    # Actualizar nombre
-    user.name = request.name
     from datetime import datetime, UTC
+    if request.name is not None:
+        user.name = request.name
+    if request.phone_e164 is not None:
+        user.phone_e164 = request.phone_e164.strip() or None
     user.updated_at = datetime.now(UTC)
     
     session.commit()
     
+    _pv_at = getattr(user, "phone_verified_at", None)
     return {
         "id": user.id,
         "email": user.email,
         "name": user.name,
         "updated_at": user.updated_at.isoformat(),
+        "phone_e164": getattr(user, "phone_e164", None),
+        "phone_verified": getattr(user, "phone_verified", False),
+        "phone_verified_at": _pv_at.isoformat() if _pv_at else None,
     }
 

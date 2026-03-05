@@ -5,6 +5,8 @@ import { usePathname, useRouter } from 'next/navigation'
 import { useState, useRef, useEffect } from 'react'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
 import { useUser } from '@/hooks/useUser'
+import { useUserId } from '@/hooks/useUserId'
+import { getUser } from '@/lib/api'
 import { createClient } from '@/lib/supabase/client'
 
 export default function Header() {
@@ -12,9 +14,43 @@ export default function Header() {
   const router = useRouter()
   const { workspaces, selectedWorkspaceId, setSelectedWorkspaceId, selectedWorkspace } = useWorkspace()
   const user = useUser()
+  const userId = useUserId()
+  const [profileName, setProfileName] = useState<string | null>(null)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const userMenuRef = useRef<HTMLDivElement>(null)
+
+  const displayName = profileName ?? user?.name ?? user?.email ?? 'Usuario'
+
+  useEffect(() => {
+    if (!userId) {
+      setProfileName(null)
+      return
+    }
+    let cancelled = false
+    getUser(userId)
+      .then((profile) => {
+        if (!cancelled && profile.name?.trim()) setProfileName(profile.name.trim())
+      })
+      .catch(() => {
+        if (!cancelled) setProfileName(null)
+      })
+    return () => { cancelled = true }
+  }, [userId])
+
+  useEffect(() => {
+    const onProfileUpdated = () => {
+      if (userId) {
+        getUser(userId)
+          .then((profile) => {
+            if (profile.name?.trim()) setProfileName(profile.name.trim())
+          })
+          .catch(() => setProfileName(null))
+      }
+    }
+    window.addEventListener('profileUpdated', onProfileUpdated)
+    return () => window.removeEventListener('profileUpdated', onProfileUpdated)
+  }, [userId])
 
   // Rutas públicas donde no se muestra el usuario ni la navegación completa
   const isPublicRoute = pathname?.startsWith('/login') || pathname?.startsWith('/auth')
@@ -55,14 +91,14 @@ export default function Header() {
     }
   }
 
-  // Obtener iniciales del usuario para avatar
+  // Obtener iniciales del usuario para avatar (usa displayName = perfil backend > Supabase)
   const getUserInitials = () => {
-    if (user?.name) {
-      const parts = user.name.split(' ')
+    if (displayName && displayName !== 'Usuario') {
+      const parts = displayName.split(' ')
       if (parts.length >= 2) {
         return `${parts[0][0]}${parts[1][0]}`.toUpperCase()
       }
-      return user.name.substring(0, 2).toUpperCase()
+      return displayName.substring(0, 2).toUpperCase()
     }
     if (user?.email) {
       return user.email.substring(0, 2).toUpperCase()
@@ -196,7 +232,7 @@ export default function Header() {
                   {user.avatarUrl ? (
                     <img
                       src={user.avatarUrl}
-                      alt={user.name || user.email || 'Usuario'}
+                      alt={displayName}
                       className="h-8 w-8 rounded-full"
                     />
                   ) : (
@@ -205,7 +241,7 @@ export default function Header() {
                     </div>
                   )}
                   <span className="text-sm font-medium text-gray-700 hidden lg:block">
-                    {user.name || user.email || 'Usuario'}
+                    {displayName}
                   </span>
                   <svg
                     className={`h-4 w-4 text-gray-500 transition-transform ${userMenuOpen ? 'rotate-180' : ''}`}
@@ -226,23 +262,19 @@ export default function Header() {
                     <div className="py-1">
                       <div className="px-4 py-3 border-b border-gray-200">
                         <p className="text-sm font-medium text-gray-900">
-                          {user.name || 'Usuario'}
+                          {displayName}
                         </p>
                         <p className="text-sm text-gray-500 truncate">
                           {user.email}
                         </p>
                       </div>
-                      {/* Mi perfil - disabled con tooltip */}
-                      <button
-                        disabled
-                        className="w-full text-left px-4 py-2 text-sm text-gray-400 cursor-not-allowed transition-colors relative group"
-                        title="Próximamente"
+                      <Link
+                        href="/profile"
+                        onClick={() => setUserMenuOpen(false)}
+                        className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors"
                       >
                         Mi perfil
-                        <span className="absolute left-full ml-2 top-1/2 -translate-y-1/2 hidden group-hover:block z-10 bg-gray-900 text-white text-xs rounded px-2 py-1 whitespace-nowrap pointer-events-none">
-                          Próximamente
-                        </span>
-                      </button>
+                      </Link>
                       <button
                         onClick={handleSignOut}
                         className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors"
@@ -355,7 +387,7 @@ export default function Header() {
                     {user.avatarUrl ? (
                       <img
                         src={user.avatarUrl}
-                        alt={user.name || user.email || 'Usuario'}
+                        alt={displayName}
                         className="h-10 w-10 rounded-full"
                       />
                     ) : (
@@ -365,13 +397,20 @@ export default function Header() {
                     )}
                     <div>
                       <p className="text-sm font-medium text-gray-900">
-                        {user.name || 'Usuario'}
+                        {displayName}
                       </p>
                       <p className="text-xs text-gray-500 truncate">
                         {user.email}
                       </p>
                     </div>
                   </div>
+                  <Link
+                    href="/profile"
+                    onClick={() => setMobileMenuOpen(false)}
+                    className="block w-full px-4 py-2 text-sm text-left text-gray-700 hover:bg-gray-100 rounded-md transition-colors"
+                  >
+                    Mi perfil
+                  </Link>
                   <button
                     onClick={handleSignOut}
                     className="w-full px-4 py-2 text-sm text-left text-gray-700 hover:bg-gray-100 rounded-md transition-colors"

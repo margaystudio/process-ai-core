@@ -226,6 +226,11 @@ class User(Base):
     # Metadata del usuario (preferencias, etc.)
     metadata_json: Mapped[str] = mapped_column(Text, default="{}")
 
+    # Teléfono (E.164) y verificación
+    phone_e164: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
+    phone_verified: Mapped[bool] = mapped_column(default=False)
+    phone_verified_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
