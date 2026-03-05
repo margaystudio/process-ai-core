@@ -81,6 +81,7 @@ export default function DocumentDetailPage() {
   const [showCancelSubmitConfirm, setShowCancelSubmitConfirm] = useState(false)
   const [showApproveConfirm, setShowApproveConfirm] = useState(false)
   const [showRejectConfirm, setShowRejectConfirm] = useState(false)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [isCancelling, setIsCancelling] = useState(false)
   const [isSubmittingForReview, setIsSubmittingForReview] = useState(false)
   const { withLoading } = useLoading()
@@ -88,7 +89,7 @@ export default function DocumentDetailPage() {
   const { hasPermission: hasApprovePermission, loading: loadingApprove } = useCanApproveDocuments()
   const { hasPermission: hasRejectPermission, loading: loadingReject } = useCanRejectDocuments()
   const { hasPermission: hasDocumentEditPermission } = useHasPermission('documents.edit')
-  const { hasPermission: hasDocumentDeletePermission } = useHasPermission('documents.delete')
+  const { hasPermission: hasDocumentDeletePermission, loading: loadingDeletePermission } = useHasPermission('documents.delete')
   
   const [document, setDocument] = useState<Document | null>(null)
   const [loading, setLoading] = useState(true)
@@ -682,9 +683,9 @@ export default function DocumentDetailPage() {
                   {isSubmittingForReview ? 'Enviando...' : 'Enviar a revisión'}
                 </button>
               )}
-              {hasDocumentDeletePermission && (
+              {!loadingDeletePermission && hasDocumentDeletePermission && (
                 <button
-                  onClick={handleDelete}
+                  onClick={() => setShowDeleteConfirm(true)}
                   disabled={isDeleting}
                   className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
@@ -1460,6 +1461,36 @@ export default function DocumentDetailPage() {
                         className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50"
                       >
                         {isValidating ? 'Aprobando...' : 'Aprobar'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Modal: Confirmar eliminación */}
+              {showDeleteConfirm && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true" aria-labelledby="delete-dialog-title">
+                  <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
+                    <h3 id="delete-dialog-title" className="text-lg font-medium text-gray-900 mb-2">Eliminar documento</h3>
+                    <p className="text-gray-700 mb-6">
+                      ¿Estás seguro de que deseas eliminar el documento &quot;{document?.name}&quot;?
+                      Esta acción no se puede deshacer y eliminará el documento, todas sus versiones y todos los archivos generados.
+                    </p>
+                    <div className="flex gap-3 justify-end">
+                      <button
+                        type="button"
+                        onClick={() => setShowDeleteConfirm(false)}
+                        className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleDelete}
+                        disabled={isDeleting}
+                        className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50"
+                      >
+                        {isDeleting ? 'Eliminando...' : 'Eliminar'}
                       </button>
                     </div>
                   </div>

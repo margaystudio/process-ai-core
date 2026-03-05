@@ -539,9 +539,15 @@ export async function getDocumentRuns(documentId: string): Promise<Array<{
 
 /**
  * Obtiene un documento por ID.
+ * Requiere autenticación y permiso documents.view en el workspace.
  */
 export async function getDocument(documentId: string): Promise<Document> {
-  const response = await fetch(`${API_URL}/api/v1/documents/${documentId}`);
+  const { getAccessToken } = await import('@/lib/api-auth');
+  const token = await getAccessToken();
+  const headers: HeadersInit = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const response = await fetch(`${API_URL}/api/v1/documents/${documentId}`, { headers });
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
@@ -1233,8 +1239,10 @@ export async function listApprovedDocuments(
  * Requiere permiso documents.delete en el workspace del documento.
  */
 export async function deleteDocument(documentId: string): Promise<{ message: string; deleted_runs: number }> {
-  const { getAuthHeaders } = await import('@/lib/api-auth')
-  const headers = await getAuthHeaders({})
+  const { getAccessToken } = await import('@/lib/api-auth')
+  const token = await getAccessToken()
+  const headers: HeadersInit = {}
+  if (token) headers['Authorization'] = `Bearer ${token}`
 
   const response = await fetch(`${API_URL}/api/v1/documents/${documentId}`, {
     method: 'DELETE',

@@ -37,6 +37,7 @@ from fastapi.responses import Response
 
 from ..models.requests import DocumentResponse, DocumentUpdateRequest, ProcessRunResponse
 from api.dependencies import get_current_user_id
+from process_ai_core.db.permissions import has_permission
 
 router = APIRouter(prefix="/api/v1/documents", tags=["documents"])
 
@@ -210,9 +211,14 @@ async def list_documents(
 
 
 @router.get("/{document_id}", response_model=DocumentResponse)
-async def get_document(document_id: str):
+async def get_document(
+    document_id: str,
+    user_id: str = Depends(get_current_user_id),
+):
     """
     Obtiene un documento por su ID.
+
+    Requiere autenticación y permiso documents.view en el workspace del documento.
 
     Args:
         document_id: ID del documento
@@ -221,6 +227,8 @@ async def get_document(document_id: str):
         DocumentResponse
 
     Raises:
+        401: Si no hay token de autenticación
+        403: Si el usuario no tiene permiso documents.view
         404: Si el documento no existe
     """
     with get_db_session() as session:
@@ -230,6 +238,13 @@ async def get_document(document_id: str):
             raise HTTPException(
                 status_code=404,
                 detail=f"Documento {document_id} no encontrado"
+            )
+
+        # Verificar permiso documents.view en el workspace del documento
+        if not has_permission(session, user_id, doc.workspace_id, "documents.view"):
+            raise HTTPException(
+                status_code=403,
+                detail="No tiene permisos para ver este documento"
             )
 
         # Si es un Process, obtener los campos específicos
@@ -371,6 +386,14 @@ async def delete_document_endpoint(
     - Todos los audit logs asociados
     - Todas las versiones asociadas
     
+    Política de códigos de respuesta:
+    - 404: El documento no existe.
+    - 403: El documento existe pero el usuario no tiene permiso documents.delete
+      en el workspace.
+    Se distingue entre ambos para permitir mensajes de error claros al usuario.
+    Si se prefiriera no revelar existencia del recurso, se podría devolver 404
+    en ambos casos (comprobando permiso antes de existencia).
+    
     Args:
         document_id: ID del documento a eliminar
     
@@ -383,12 +406,6 @@ async def delete_document_endpoint(
         404: Si el documento no existe
         500: Error interno del servidor
     """
-    import shutil
-    from pathlib import Path
-    from process_ai_core.config import get_settings
-    from process_ai_core.db.models import Run
-    from process_ai_core.db.permissions import has_permission
-    
     with get_db_session() as session:
         # Verificar que el documento existe
         doc = session.query(Document).filter_by(id=document_id).first()
@@ -413,8 +430,9 @@ async def delete_document_endpoint(
             # Eliminar el documento y todos sus datos asociados
             delete_document(session, document_id)
             
-            # Limpiar archivos físicos de los runs
+            # Limpiar archivos físicos de los runs (después del delete en BD, antes del commit)
             settings = get_settings()
+            failed_run_dirs: List[str] = []
             for run_id in run_ids:
                 run_dir = Path(settings.output_dir) / run_id
                 if run_dir.exists():
@@ -422,13 +440,17 @@ async def delete_document_endpoint(
                         shutil.rmtree(run_dir)
                     except Exception as e:
                         logger.warning(f"No se pudo eliminar directorio {run_dir}: {e}")
+                        failed_run_dirs.append(run_id)
             
             session.commit()
             
-            return {
+            response: dict = {
                 "message": f"Documento {document_id} eliminado exitosamente",
                 "deleted_runs": len(run_ids),
             }
+            if failed_run_dirs:
+                response["failed_run_dirs"] = failed_run_dirs
+            return response
         
         except ValueError as e:
             session.rollback()
