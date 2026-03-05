@@ -1838,7 +1838,7 @@ async def get_version_preview_pdf(document_id: str, version_id: str):
     # Mismo directorio que el original cuando la versión tiene run_id (assets/, etc.)
     run_dir = None
     if version_run_id:
-        run_dir = Path(settings.output_dir) / version_run_id
+        run_dir = (Path(settings.output_dir) / version_run_id).resolve()
         if not run_dir.exists():
             run_dir = None
     if run_dir is None:
@@ -1888,7 +1888,7 @@ async def get_version_preview_pdf(document_id: str, version_id: str):
                 "Expires": "0",
             },
         )
-    except (FileNotFoundError, RuntimeError) as e:
+    except (FileNotFoundError, OSError, RuntimeError) as e:
         logger.warning("Error generando PDF de versión: %s", e)
         raise HTTPException(
             status_code=500,

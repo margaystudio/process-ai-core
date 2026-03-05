@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { getArtifactUrl, getVersionPreviewPdfUrl } from '@/lib/api'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
@@ -27,14 +27,21 @@ export default function ArtifactViewerModal({
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [pdfUrl, setPdfUrl] = useState<string | null>(null)
+  const blobUrlRef = useRef<string | null>(null)
 
   useEffect(() => {
     if (!isOpen) {
       setContent(null)
       setPdfUrl(null)
       setError(null)
+      if (blobUrlRef.current) {
+        URL.revokeObjectURL(blobUrlRef.current)
+        blobUrlRef.current = null
+      }
       return
     }
+
+    const abortController = new AbortController()
 
     async function loadContent() {
       try {
@@ -52,7 +59,12 @@ export default function ArtifactViewerModal({
         if (type === 'pdf') {
           const urlWithCacheBust = `${absoluteUrl}${absoluteUrl.includes('?') ? '&' : '?'}t=${Date.now()}`
           try {
-            const response = await fetch(urlWithCacheBust, { cache: 'no-store', credentials: 'include' })
+            const response = await fetch(urlWithCacheBust, {
+              cache: 'no-store',
+              credentials: 'include',
+              signal: abortController.signal,
+            })
+
             const contentType = response.headers.get('content-type') || ''
             if (response.ok) {
               const blob = await response.blob()
@@ -60,6 +72,7 @@ export default function ArtifactViewerModal({
               const isPdfBytes = blob.size >= 5 && (await blob.slice(0, 5).text()) === '%PDF-'
               if (isPdfType && isPdfBytes) {
                 const blobUrl = URL.createObjectURL(blob)
+                blobUrlRef.current = blobUrl
                 setPdfUrl(blobUrl)
               } else if (!isPdfBytes && blob.size < 10000) {
                 const text = await blob.text()
@@ -72,11 +85,11 @@ export default function ArtifactViewerModal({
               setError(text || `Error ${response.status} al cargar el PDF`)
             }
           } catch (fetchErr) {
+            if ((fetchErr as Error).name === 'AbortError') return
             setError(fetchErr instanceof Error ? fetchErr.message : 'Error al cargar el PDF')
           }
         } else {
-          // Para JSON y Markdown, cargar como texto
-          const response = await fetch(absoluteUrl)
+          const response = await fetch(absoluteUrl, { signal: abortController.signal })
           if (!response.ok) {
             throw new Error(`Error al cargar ${filename}`)
           }
@@ -84,6 +97,7 @@ export default function ArtifactViewerModal({
           setContent(text)
         }
       } catch (err) {
+        if ((err as Error).name === 'AbortError') return
         setError(err instanceof Error ? err.message : 'Error al cargar el archivo')
       } finally {
         setLoading(false)
@@ -92,10 +106,11 @@ export default function ArtifactViewerModal({
 
     loadContent()
 
-    // Cleanup: revocar blob URL cuando el componente se desmonte
     return () => {
-      if (pdfUrl && pdfUrl.startsWith('blob:')) {
-        URL.revokeObjectURL(pdfUrl)
+      abortController.abort()
+      if (blobUrlRef.current) {
+        URL.revokeObjectURL(blobUrlRef.current)
+        blobUrlRef.current = null
       }
     }
   }, [isOpen, runId, filename, type, versionPreviewPdf?.documentId, versionPreviewPdf?.versionId])
