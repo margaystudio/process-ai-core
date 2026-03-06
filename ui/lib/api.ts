@@ -307,7 +307,12 @@ export interface UserProfile {
  * Obtiene un usuario por ID (nombre, email, teléfono, etc. para mostrar en UI).
  */
 export async function getUser(userId: string): Promise<UserProfile> {
-  const response = await fetch(`${API_URL}/api/v1/users/${userId}`);
+  const { getAccessToken } = await import('@/lib/api-auth');
+  const token = await getAccessToken();
+  const headers: HeadersInit = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const response = await fetch(`${API_URL}/api/v1/users/${userId}`, { headers });
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
     throw new Error(error.detail || `HTTP ${response.status}`);

@@ -168,12 +168,24 @@ export default function ProfilePage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!userId) return
+    if (!name.trim()) {
+      setError('El nombre es obligatorio')
+      return
+    }
+    if (!phoneNumber) {
+      setError('El número de teléfono es obligatorio')
+      return
+    }
+    if (phoneNumber.length < 6) {
+      setError('El número de teléfono es demasiado corto (mínimo 6 dígitos)')
+      return
+    }
     await withLoading(async () => {
       try {
         setSaving(true)
         setError(null)
         const updated = await updateMyProfile(userId, {
-          name: name.trim() || undefined,
+          name: name.trim(),
           phone_e164: fullPhoneE164 || null,
         })
         setProfile(updated)
@@ -364,15 +376,16 @@ export default function ProfilePage() {
                 <p className="mt-1 text-xs text-gray-500">
                   Primero elegí el país, luego el número sin el 0 ni la característica.
                 </p>
-                {(fullPhoneE164 || profile?.phone_e164) && (
+                {(phoneNumber.length >= 6 || profile?.phone_e164) && (
                   <div className="mt-3">
                     <button
                       type="button"
+                      disabled={phoneNumber.length < 6}
                       onClick={() => {
                         const num = fullPhoneE164 || profile?.phone_e164 || ''
                         setVerificationMessage(`Se envió un código de verificación al número: ${num}`)
                       }}
-                      className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
+                      className={`px-4 py-2 border rounded-md text-sm font-medium ${phoneNumber.length < 6 ? 'border-gray-200 text-gray-400 cursor-not-allowed' : 'border-gray-300 text-gray-700 hover:bg-gray-50'}`}
                     >
                       Verificar
                     </button>

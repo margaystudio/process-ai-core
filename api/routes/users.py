@@ -8,10 +8,14 @@ Este endpoint maneja:
 - POST /api/v1/users/{user_id}/workspaces/{workspace_id}/membership: Agregar usuario a workspace con rol
 """
 
+import re
+
 from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+
+E164_REGEX = re.compile(r"^\+[1-9]\d{6,14}$")
 
 from process_ai_core.db.database import get_db_session
 from process_ai_core.db.models import User, Workspace, WorkspaceMembership
@@ -98,19 +102,30 @@ async def list_users():
 
 
 @router.get("/{user_id}")
-async def get_user(user_id: str):
+async def get_user(
+    user_id: str,
+    authenticated_user_id: str = Depends(get_current_user_id),
+):
     """
     Obtiene un usuario por su ID.
     
     Args:
         user_id: ID del usuario
+        authenticated_user_id: ID del usuario autenticado (del token JWT)
     
     Returns:
         Datos del usuario
     
     Raises:
+        403: Si el user_id no coincide con el usuario autenticado
         404: Si el usuario no existe
     """
+    if user_id != authenticated_user_id:
+        raise HTTPException(
+            status_code=403,
+            detail="You can only view your own profile"
+        )
+
     with get_db_session() as session:
         user = session.query(User).filter_by(id=user_id).first()
         if not user:
@@ -401,6 +416,20 @@ async def update_user_profile(
             detail="You can only update your own profile"
         )
     
+    if request.name is None and request.phone_e164 is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Debe enviar al menos un campo a actualizar (name o phone_e164)"
+        )
+
+    if request.phone_e164 is not None:
+        cleaned = request.phone_e164.strip()
+        if cleaned and not E164_REGEX.match(cleaned):
+            raise HTTPException(
+                status_code=400,
+                detail="El número de teléfono no es válido. Verificá el código de país y que tenga entre 7 y 15 dígitos."
+            )
+
     user = session.query(User).filter_by(id=user_id).first()
     if not user:
         raise HTTPException(
