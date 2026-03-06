@@ -1490,6 +1490,10 @@ def delete_document(
     session.query(Validation).filter_by(document_id=document_id).delete(synchronize_session=False)
     session.flush()
     
+    # Antes de borrar document_versions: quitar la FK documents.approved_version_id
+    document.approved_version_id = None
+    session.flush()
+    
     # 7. Document Versions
     session.query(DocumentVersion).filter_by(document_id=document_id).delete(synchronize_session=False)
     session.flush()
