@@ -69,7 +69,10 @@ function checkPermissionByRole(role: string | null, permissionName: string): boo
     return true
   }
 
-  // Mapeo específico por rol
+  // Mapeo específico por rol (alineado con seed_permissions.py).
+  // IMPORTANTE: documents.delete y otros permisos destructivos NO están en creator/viewer.
+  // Solo owner/admin/superadmin los tienen implícito. Si se añadieran aquí por error,
+  // el fallback expondría el botón Eliminar a roles que no deberían tenerlo.
   const rolePermissions: Record<string, string[]> = {
     approver: [
       'documents.view',

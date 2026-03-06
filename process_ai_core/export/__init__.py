@@ -24,9 +24,8 @@ def export_pdf_from_content(
     """
     Genera PDF desde contenido en memoria (HTML o Markdown).
 
-    - HTML → WeasyPrint: renderiza tablas e imágenes como un browser,
-      preservando el layout del editor Tiptap.
-    - Markdown → Pandoc + XeLaTeX: flujo original para documentos generados por IA.
+    - HTML → WeasyPrint: renderiza tablas e imágenes como un browser.
+    - Markdown → Pandoc + wkhtmltopdf/xelatex.
 
     Args:
         content: String con el contenido a exportar.
@@ -36,20 +35,20 @@ def export_pdf_from_content(
         base_url: URL base para resolver imágenes remotas en WeasyPrint
                   (ej. "http://localhost:8000"). Opcional.
     """
-    run_dir = Path(run_dir)
+    run_dir = Path(run_dir).resolve()
     run_dir.mkdir(parents=True, exist_ok=True)
 
     if format == "html":
-        # WeasyPrint: fidelidad visual total (tablas, imágenes, CSS)
         exporter = PdfWeasyprintExporter(base_url=base_url)
         output_path = run_dir / pdf_name
-        return exporter.export_from_html_string(
+        result = exporter.export_from_html_string(
             html_content=content,
             output_path=output_path,
         )
+        return result.resolve()
     else:
-        # Pandoc + XeLaTeX: pipeline original para Markdown
         md_path = run_dir / "content.md"
         md_path.write_text(content, encoding="utf-8")
         exporter = PdfPandocExporter()
-        return exporter.export(run_dir=run_dir, md_path=md_path, pdf_name=pdf_name)
+        result = exporter.export(run_dir=run_dir, md_path=md_path, pdf_name=pdf_name)
+        return result.resolve()
