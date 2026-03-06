@@ -158,16 +158,23 @@ async def list_documents_to_review(
 async def list_documents(
     workspace_id: Optional[str] = Query(None, description="ID del workspace"),
     folder_id: Optional[str] = Query(None, description="ID de la carpeta (opcional)"),
-    document_type: str = Query("process", description="Tipo de documento")
+    document_type: str = Query("process", description="Tipo de documento"),
+    status: Optional[str] = Query(None, description="Filtrar por estado (draft|pending_validation|approved|rejected|archived)"),
+    user_id: str = Depends(get_current_user_id),
 ):
     """
     Lista documentos de un workspace.
+
+    Requiere autenticación. Si el usuario tiene rol "viewer", solo se devuelven
+    documentos con status "approved", independientemente del parámetro status.
 
     Args:
         workspace_id: ID del workspace (query parameter, requerido)
         folder_id: ID de la carpeta (query parameter, opcional - si se especifica, solo documentos de esa carpeta)
                    Si es "null" (string), devuelve solo documentos sin carpeta
         document_type: Tipo de documento (query parameter, default: "process")
+        status: Filtrar por estado (query parameter, opcional)
+        user_id: ID del usuario autenticado (desde token JWT)
 
     Returns:
         Lista de DocumentResponse
@@ -179,6 +186,19 @@ async def list_documents(
         )
     
     with get_db_session() as session:
+        # Verificar permiso documents.view en el workspace
+        if not has_permission(session, user_id, workspace_id, "documents.view"):
+            raise HTTPException(
+                status_code=403,
+                detail="No tiene permisos para ver documentos en este workspace"
+            )
+
+        # Si el usuario es viewer, forzar status=approved por seguridad
+        from process_ai_core.db.permissions import get_user_role
+        user_role = get_user_role(session, user_id, workspace_id)
+        if user_role and user_role.name == "viewer":
+            status = "approved"
+
         query = session.query(Document).filter_by(
             workspace_id=workspace_id,
             document_type=document_type
@@ -186,12 +206,12 @@ async def list_documents(
         
         if folder_id:
             if folder_id.lower() == "null":
-                # Devolver solo documentos sin carpeta
                 query = query.filter(Document.folder_id.is_(None))
             else:
-                # Devolver documentos de esa carpeta específica
                 query = query.filter_by(folder_id=folder_id)
-        # Si folder_id no se especifica, devolver todos los documentos del workspace
+        
+        if status:
+            query = query.filter(Document.status == status)
         
         documents = query.order_by(Document.created_at.desc()).all()
         
@@ -245,6 +265,15 @@ async def get_document(
             raise HTTPException(
                 status_code=403,
                 detail="No tiene permisos para ver este documento"
+            )
+
+        # Si el usuario es viewer, solo puede ver documentos aprobados
+        from process_ai_core.db.permissions import get_user_role
+        user_role = get_user_role(session, user_id, doc.workspace_id)
+        if user_role and user_role.name == "viewer" and doc.status != "approved":
+            raise HTTPException(
+                status_code=403,
+                detail="Solo puede ver documentos aprobados"
             )
 
         # Si es un Process, obtener los campos específicos

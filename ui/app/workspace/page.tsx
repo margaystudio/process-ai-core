@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
 import { listDocuments, Document } from '@/lib/api'
 import FolderTree from '@/components/processes/FolderTree'
@@ -10,9 +11,12 @@ import StatusFilterChips from '@/components/documents/StatusFilterChips'
 import { usePdfViewer } from '@/hooks/usePdfViewer'
 import { useDocumentFilter } from '@/hooks/useDocumentFilter'
 import { useCanApproveDocuments, useCanRejectDocuments, useCanEditWorkspace } from '@/hooks/useHasPermission'
+import { useUserRole } from '@/hooks/useUserRole'
 
 export default function WorkspacePage() {
   const { selectedWorkspaceId, selectedWorkspace } = useWorkspace()
+  const { role, loading: roleLoading } = useUserRole()
+  const router = useRouter()
   const [documents, setDocuments] = useState<Document[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -34,8 +38,17 @@ export default function WorkspacePage() {
   // Hook para manejar visualización de PDFs
   const { openLatestPdf, ModalComponent } = usePdfViewer()
 
-  // Cargar documentos
+  // Redirigir viewers a su página dedicada
   useEffect(() => {
+    if (!roleLoading && role === 'viewer') {
+      router.replace('/dashboard/view')
+    }
+  }, [role, roleLoading, router])
+
+  // Cargar documentos (no cargar si es viewer, será redirigido)
+  useEffect(() => {
+    if (role === 'viewer') return
+
     async function loadDocuments() {
       if (!selectedWorkspaceId) {
         setLoading(false)
@@ -60,10 +73,15 @@ export default function WorkspacePage() {
     }
 
     loadDocuments()
-  }, [selectedWorkspaceId, selectedFolderId])
+  }, [selectedWorkspaceId, selectedFolderId, role])
 
   // Filtrar documentos por búsqueda, carpeta y estado
   const filteredDocuments = useDocumentFilter(documents, searchQuery, selectedFolderId, statusFilter)
+
+  // Early return para viewers (después de todos los hooks)
+  if (!roleLoading && role === 'viewer') {
+    return null
+  }
   
   // Ordenar documentos por prioridad de estado (solo UI, sin afectar API)
   // Orden: Pendiente de validación > Borrador > Rechazado > Aprobado > Otros

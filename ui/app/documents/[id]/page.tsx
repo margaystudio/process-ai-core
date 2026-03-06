@@ -51,6 +51,7 @@ import {
   canSubmitForReview,
   type DocumentStatus,
 } from '@/lib/documentPermissions'
+import { useUserRole } from '@/hooks/useUserRole'
 
 /** Mapea acciones del audit log del backend a etiquetas en español para la UI. */
 function actionToLabel(action: string): string {
@@ -88,6 +89,7 @@ export default function DocumentDetailPage() {
   const userId = useUserId()
   const { hasPermission: hasApprovePermission, loading: loadingApprove } = useCanApproveDocuments()
   const { hasPermission: hasRejectPermission, loading: loadingReject } = useCanRejectDocuments()
+  const { role: userRoleName } = useUserRole()
   const { hasPermission: hasDocumentEditPermission } = useHasPermission('documents.edit')
   const { hasPermission: hasDocumentDeletePermission, loading: loadingDeletePermission } = useHasPermission('documents.delete')
   
@@ -636,6 +638,26 @@ export default function DocumentDetailPage() {
   
   if (!document) {
     return null
+  }
+
+  if (userRoleName === 'viewer' && document.status !== 'approved') {
+    return (
+      <div className="p-8">
+        <div className="max-w-4xl mx-auto">
+          <div className="bg-red-50 border border-red-200 rounded-lg p-6">
+            <p className="text-red-800">
+              No tienes permisos para ver este documento. Solo puedes consultar documentos aprobados.
+            </p>
+            <button
+              onClick={() => router.push('/dashboard/view')}
+              className="mt-4 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 font-medium"
+            >
+              Volver a documentos aprobados
+            </button>
+          </div>
+        </div>
+      </div>
+    )
   }
   
   return (
