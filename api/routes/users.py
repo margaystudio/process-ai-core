@@ -8,10 +8,14 @@ Este endpoint maneja:
 - POST /api/v1/users/{user_id}/workspaces/{workspace_id}/membership: Agregar usuario a workspace con rol
 """
 
+import re
+
 from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+
+E164_REGEX = re.compile(r"^\+[1-9]\d{6,14}$")
 
 from process_ai_core.db.database import get_db_session
 from process_ai_core.db.models import User, Workspace, WorkspaceMembership
@@ -98,19 +102,30 @@ async def list_users():
 
 
 @router.get("/{user_id}")
-async def get_user(user_id: str):
+async def get_user(
+    user_id: str,
+    authenticated_user_id: str = Depends(get_current_user_id),
+):
     """
     Obtiene un usuario por su ID.
     
     Args:
         user_id: ID del usuario
+        authenticated_user_id: ID del usuario autenticado (del token JWT)
     
     Returns:
         Datos del usuario
     
     Raises:
+        403: Si el user_id no coincide con el usuario autenticado
         404: Si el usuario no existe
     """
+    if user_id != authenticated_user_id:
+        raise HTTPException(
+            status_code=403,
+            detail="You can only view your own profile"
+        )
+
     with get_db_session() as session:
         user = session.query(User).filter_by(id=user_id).first()
         if not user:
@@ -122,11 +137,15 @@ async def get_user(user_id: str):
         # Obtener memberships con roles
         memberships = session.query(WorkspaceMembership).filter_by(user_id=user_id).all()
         
+        _phone_verified_at = getattr(user, "phone_verified_at", None)
         return {
             "id": user.id,
             "email": user.email,
             "name": user.name,
             "created_at": user.created_at.isoformat(),
+            "phone_e164": getattr(user, "phone_e164", None),
+            "phone_verified": getattr(user, "phone_verified", False),
+            "phone_verified_at": _phone_verified_at.isoformat() if _phone_verified_at else None,
             "workspaces": [
                 {
                     "workspace_id": m.workspace_id,
@@ -365,7 +384,8 @@ async def check_user_permission(
 
 class UpdateUserProfileRequest(BaseModel):
     """Request para actualizar perfil de usuario."""
-    name: str
+    name: str | None = None
+    phone_e164: str | None = None
 
 
 @router.put("/{user_id}")
@@ -376,11 +396,11 @@ async def update_user_profile(
     session: Session = Depends(get_db),
 ):
     """
-    Actualiza el perfil de un usuario (nombre).
+    Actualiza el perfil de un usuario (nombre, teléfono).
     
     Args:
         user_id: ID del usuario (debe coincidir con el usuario autenticado)
-        request: Datos a actualizar (name: nombre completo del usuario)
+        request: Datos a actualizar (name, phone_e164 opcionales)
         authenticated_user_id: ID del usuario autenticado (del token JWT)
     
     Returns:
@@ -390,13 +410,26 @@ async def update_user_profile(
         403: Si el user_id de la URL no coincide con el usuario autenticado
         404: Si el usuario no existe
     """
-    # Verificar que el usuario autenticado coincida con el user_id de la URL
     if user_id != authenticated_user_id:
         raise HTTPException(
             status_code=403,
             detail="You can only update your own profile"
         )
     
+    if request.name is None and request.phone_e164 is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Debe enviar al menos un campo a actualizar (name o phone_e164)"
+        )
+
+    if request.phone_e164 is not None:
+        cleaned = request.phone_e164.strip()
+        if cleaned and not E164_REGEX.match(cleaned):
+            raise HTTPException(
+                status_code=400,
+                detail="El número de teléfono no es válido. Verificá el código de país y que tenga entre 7 y 15 dígitos."
+            )
+
     user = session.query(User).filter_by(id=user_id).first()
     if not user:
         raise HTTPException(
@@ -404,17 +437,23 @@ async def update_user_profile(
             detail=f"Usuario {user_id} no encontrado"
         )
     
-    # Actualizar nombre
-    user.name = request.name
     from datetime import datetime, UTC
+    if request.name is not None:
+        user.name = request.name
+    if request.phone_e164 is not None:
+        user.phone_e164 = request.phone_e164.strip() or None
     user.updated_at = datetime.now(UTC)
     
     session.commit()
     
+    _pv_at = getattr(user, "phone_verified_at", None)
     return {
         "id": user.id,
         "email": user.email,
         "name": user.name,
         "updated_at": user.updated_at.isoformat(),
+        "phone_e164": getattr(user, "phone_e164", None),
+        "phone_verified": getattr(user, "phone_verified", False),
+        "phone_verified_at": _pv_at.isoformat() if _pv_at else None,
     }
 

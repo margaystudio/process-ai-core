@@ -293,11 +293,26 @@ export async function getUserWorkspaces(userId: string): Promise<WorkspaceRespon
   return data
 }
 
+/** Perfil de usuario (incluye teléfono y verificación). */
+export interface UserProfile {
+  id: string;
+  email: string;
+  name: string | null;
+  phone_e164?: string | null;
+  phone_verified?: boolean;
+  phone_verified_at?: string | null;
+}
+
 /**
- * Obtiene un usuario por ID (nombre, email, etc. para mostrar en UI).
+ * Obtiene un usuario por ID (nombre, email, teléfono, etc. para mostrar en UI).
  */
-export async function getUser(userId: string): Promise<{ id: string; email: string; name: string | null }> {
-  const response = await fetch(`${API_URL}/api/v1/users/${userId}`);
+export async function getUser(userId: string): Promise<UserProfile> {
+  const { getAccessToken } = await import('@/lib/api-auth');
+  const token = await getAccessToken();
+  const headers: HeadersInit = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const response = await fetch(`${API_URL}/api/v1/users/${userId}`, { headers });
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
     throw new Error(error.detail || `HTTP ${response.status}`);
@@ -307,6 +322,41 @@ export async function getUser(userId: string): Promise<{ id: string; email: stri
     id: data.id,
     email: data.email ?? '',
     name: data.name ?? null,
+    phone_e164: data.phone_e164 ?? null,
+    phone_verified: data.phone_verified ?? false,
+    phone_verified_at: data.phone_verified_at ?? null,
+  };
+}
+
+/**
+ * Actualiza el perfil del usuario actual (nombre y/o teléfono). Requiere autenticación.
+ */
+export async function updateMyProfile(
+  userId: string,
+  data: { name?: string; phone_e164?: string | null }
+): Promise<UserProfile> {
+  const { getAccessToken } = await import('@/lib/api-auth');
+  const token = await getAccessToken();
+  const headers: HeadersInit = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const response = await fetch(`${API_URL}/api/v1/users/${userId}`, {
+    method: 'PUT',
+    headers,
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
+    throw new Error(error.detail || `HTTP ${response.status}`);
+  }
+  const res = await response.json();
+  return {
+    id: res.id,
+    email: res.email ?? '',
+    name: res.name ?? null,
+    phone_e164: res.phone_e164 ?? null,
+    phone_verified: res.phone_verified ?? false,
+    phone_verified_at: res.phone_verified_at ?? null,
   };
 }
 
