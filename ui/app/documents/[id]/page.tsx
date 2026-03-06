@@ -477,11 +477,8 @@ export default function DocumentDetailPage() {
   
   const handleDelete = async () => {
     if (!document) return
-    
-    if (!confirm(`¿Estás seguro de que deseas eliminar el documento "${document.name}"?\n\nEsta acción no se puede deshacer y eliminará:\n- El documento\n- Todas sus versiones\n- Todos los archivos generados`)) {
-      return
-    }
-    
+
+    setShowDeleteConfirm(false)
     await withLoading(async () => {
       try {
         setIsDeleting(true)
