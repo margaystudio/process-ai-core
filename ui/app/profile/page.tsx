@@ -87,6 +87,7 @@ export default function ProfilePage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [successMessage, setSuccessMessage] = useState<string | null>(null)
 
   const [name, setName] = useState('')
   const [phonePrefix, setPhonePrefix] = useState('+598')
@@ -168,27 +169,43 @@ export default function ProfilePage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!userId) return
-    if (!name.trim()) {
+
+    const trimmedName = name.trim()
+    const newPhone = fullPhoneE164 || null
+    const savedName = profile?.name ?? ''
+    const savedPhone = profile?.phone_e164 ?? null
+
+    const nameChanged = trimmedName !== savedName
+    const phoneChanged = newPhone !== savedPhone
+
+    if (!nameChanged && !phoneChanged) {
+      setError('No hay cambios para guardar')
+      return
+    }
+
+    if (nameChanged && !trimmedName) {
       setError('El nombre es obligatorio')
       return
     }
-    if (!phoneNumber) {
-      setError('El número de teléfono es obligatorio')
-      return
-    }
-    if (phoneNumber.length < 6) {
+
+    if (phoneChanged && phoneNumber && phoneNumber.length < 6) {
       setError('El número de teléfono es demasiado corto (mínimo 6 dígitos)')
       return
     }
+
+    const payload: { name?: string; phone_e164?: string | null } = {}
+    if (nameChanged) payload.name = trimmedName
+    if (phoneChanged) payload.phone_e164 = newPhone
+
     await withLoading(async () => {
       try {
         setSaving(true)
         setError(null)
-        const updated = await updateMyProfile(userId, {
-          name: name.trim(),
-          phone_e164: fullPhoneE164 || null,
-        })
+        setSuccessMessage(null)
+        const updated = await updateMyProfile(userId, payload)
         setProfile(updated)
+        setSuccessMessage('Datos guardados correctamente')
+        setTimeout(() => setSuccessMessage(null), 3000)
         if (typeof window !== 'undefined') {
           window.dispatchEvent(new CustomEvent('profileUpdated'))
         }
@@ -239,6 +256,12 @@ export default function ProfilePage() {
         {error && (
           <div className="mb-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative" role="alert">
             <span className="block sm:inline">{error}</span>
+          </div>
+        )}
+
+        {successMessage && (
+          <div className="mb-4 bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded relative" role="status">
+            <span className="block sm:inline">{successMessage}</span>
           </div>
         )}
 
