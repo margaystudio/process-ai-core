@@ -546,16 +546,25 @@ export async function deleteFolder(folderId: string, moveDocumentsTo?: string): 
 
 /**
  * Lista documentos de un workspace.
+ * Requiere autenticación. El backend filtra por rol (viewers solo ven aprobados).
  */
-export async function listDocuments(workspaceId: string, folderId?: string, documentType: string = 'process'): Promise<Document[]> {
+export async function listDocuments(workspaceId: string, folderId?: string, documentType: string = 'process', status?: string): Promise<Document[]> {
+  const { getAccessToken } = await import('@/lib/api-auth');
+  const token = await getAccessToken();
+  const headers: HeadersInit = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
   const url = new URL(`${API_URL}/api/v1/documents`);
   url.searchParams.append('workspace_id', workspaceId);
   url.searchParams.append('document_type', documentType);
   if (folderId) {
     url.searchParams.append('folder_id', folderId);
   }
+  if (status) {
+    url.searchParams.append('status', status);
+  }
 
-  const response = await fetch(url.toString());
+  const response = await fetch(url.toString(), { headers });
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
@@ -1253,31 +1262,13 @@ export async function listDocumentsToReview(
 
 /**
  * Lista documentos aprobados (para viewers).
+ * Filtra en el servidor con status=approved.
  */
 export async function listApprovedDocuments(
   workspaceId: string,
   folderId?: string
 ): Promise<Document[]> {
-  const params = new URLSearchParams({
-    workspace_id: workspaceId,
-    document_type: 'process',
-  });
-  if (folderId) {
-    params.append('folder_id', folderId);
-  }
-
-  const response = await fetch(
-    `${API_URL}/api/v1/documents?${params.toString()}`
-  );
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
-    throw new Error(error.detail || `HTTP ${response.status}`);
-  }
-
-  const allDocs = await response.json();
-  // Filtrar solo aprobados
-  return allDocs.filter((doc: Document) => doc.status === 'approved');
+  return listDocuments(workspaceId, folderId, 'process', 'approved');
 }
 
 // ============================================================
