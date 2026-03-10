@@ -86,8 +86,15 @@ process_ai_core/
 
 ## 📥 Inputs soportados
 
+### Actualizacion 2026-03-10
+- Se agrego soporte de carga para documentos `.pdf` y `.docx` dentro de `text_files`.
+- Se permitio cargar `.doc`, pero el procesamiento devuelve error guiado para migrar a `.docx` o PDF.
+- Se ampliaron formatos de audio aceptados en UI para incluir `.webm` y `.ogg`.
+- Se agregaron dependencias `pypdf` y `python-docx` para extraccion de texto.
+
 ### Audio (`input/audio/`)
-- `.m4a`, `.mp3`, `.wav`
+- `.m4a`, `.mp3`, `.wav`, `.ogg`, `.opus`, `.aac` (motor)
+- `.webm`, `.ogg` (adicional en validacion UI)
 - Se transcribe completo
 
 ### Video (`input/video/`)
@@ -101,7 +108,9 @@ process_ai_core/
 - No se asignan manualmente a pasos
 
 ### Texto (`input/text/`)
-- Notas, procedimientos previos
+- `.txt`, `.md`, `.pdf`, `.docx`
+- `.doc` se permite en carga, pero no se procesa; convertir a `.docx` o exportar a PDF
+- Notas y procedimientos previos
 
 ---
 
@@ -111,7 +120,7 @@ Para cada tipo de asset:
 - **audio**: transcripción simple
 - **video**: audio → pasos → frames → selección
 - **image**: evidencia visual
-- **text**: lectura directa
+- **text**: lectura directa en `.txt`/`.md`, extraccion de texto en `.pdf` y `.docx`
 
 ---
 

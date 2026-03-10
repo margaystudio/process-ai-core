@@ -592,7 +592,7 @@ async def create_document_run(
         audio_files: Archivos de audio nuevos (opcional)
         video_files: Archivos de video nuevos (opcional)
         image_files: Archivos de imagen nuevos (opcional)
-        text_files: Archivos de texto nuevos (opcional)
+        text_files: Archivos de texto nuevos (opcional; .txt, .md, .pdf, .doc, .docx)
         revision_notes: Instrucciones de revisión para el LLM (opcional, ej: "Corregir errores gramaticales")
         reuse_previous_files: Si True, reutiliza archivos del último run (automático si hay revision_notes sin archivos)
     

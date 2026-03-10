@@ -130,6 +130,37 @@ def _ffmpeg_extract_audio(video_path: Path, out_audio: Path) -> None:
     subprocess.run(cmd, check=True, capture_output=True, text=True)
 
 
+def _extract_text_from_document(path: Path) -> str:
+    """
+    Extrae texto de un archivo de documento según su extensión.
+    Soporta: .txt, .md (UTF-8), .pdf (pypdf), .docx (python-docx).
+    .doc (Word binario) no está soportado; usar .docx.
+    """
+    ext = path.suffix.lower()
+    if ext in (".txt", ".md"):
+        return path.read_text(encoding="utf-8")
+    if ext == ".pdf":
+        from pypdf import PdfReader
+        reader = PdfReader(path)
+        parts = []
+        for page in reader.pages:
+            text = page.extract_text()
+            if text:
+                parts.append(text)
+        return "\n\n".join(parts)
+    if ext == ".docx":
+        from docx import Document as DocxDocument
+        doc = DocxDocument(path)
+        parts = [p.text for p in doc.paragraphs if p.text.strip()]
+        return "\n\n".join(parts)
+    if ext == ".doc":
+        raise ValueError(
+            "El formato .doc (Word antiguo) no está soportado. "
+            "Guardá el archivo como .docx (Word actual) o exportá a PDF."
+        )
+    return path.read_text(encoding="utf-8", errors="replace")
+
+
 def _ffmpeg_frame_at_time(video_path: Path, t_s: float, out_img: Path) -> None:
     """
     Extrae un frame de un video en un timestamp específico.
@@ -288,13 +319,13 @@ def enrich_assets(
             continue
 
         # ----------------------------
-        # TEXT
+        # TEXT (incluye .txt, .md, .pdf, .docx)
         # ----------------------------
         if a.kind == "text":
             text_path = Path(path)
             if not text_path.exists():
                 raise FileNotFoundError(f"No se encontró el archivo de texto: {text_path}")
-            extracted = text_path.read_text(encoding="utf-8")
+            extracted = _extract_text_from_document(text_path)
             enriched.append(
                 EnrichedAsset(
                     id=a.id,

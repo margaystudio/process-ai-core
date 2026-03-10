@@ -9,7 +9,7 @@ export type FileType = 'audio' | 'video' | 'image' | 'text'
 
 const EXTENSIONS_BY_TYPE: Record<FileType, string[]> = {
   audio: ['.m4a', '.mp3', '.wav'],
-  text: ['.txt', '.md'],
+  text: ['.txt', '.md', '.pdf', '.doc', '.docx'],
   image: ['.png', '.jpg', '.jpeg', '.webp'],
   video: ['.mp4', '.mov', '.mkv'],
 }

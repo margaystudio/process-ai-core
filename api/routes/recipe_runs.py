@@ -44,7 +44,7 @@ async def create_recipe_run(
         audio_files: Archivos de audio (.m4a, .mp3, .wav, .ogg, .opus, .aac - incluye audios de WhatsApp)
         video_files: Archivos de video (.mp4, .mov, .mkv)
         image_files: Archivos de imagen (.png, .jpg, .jpeg, .webp)
-        text_files: Archivos de texto (.txt, .md)
+        text_files: Archivos de texto (.txt, .md, .pdf, .doc, .docx)
 
     Returns:
         RecipeRunResponse con run_id, status y paths a artefactos generados
