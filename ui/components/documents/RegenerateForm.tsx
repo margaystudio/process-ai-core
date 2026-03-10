@@ -128,7 +128,7 @@ export default function RegenerateForm({
               <input
                 type="file"
                 multiple
-                accept=".txt,.md,.pdf,.doc,.docx"
+                accept=".txt,.md,.pdf,.docx"
                 onChange={(e) => handleFileChange(e, setTextFiles)}
                 disabled={processing}
                 className="w-full text-sm"

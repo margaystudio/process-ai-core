@@ -45,7 +45,7 @@ Crea una nueva corrida del pipeline de documentación.
 - `audio_files[]` (file[], opcional): Archivos de audio (.m4a, .mp3, .wav)
 - `video_files[]` (file[], opcional): Archivos de video (.mp4, .mov, .mkv)
 - `image_files[]` (file[], opcional): Archivos de imagen (.png, .jpg, .jpeg, .webp)
-- `text_files[]` (file[], opcional): Archivos de texto (.txt, .md, .pdf, .doc, .docx)
+- `text_files[]` (file[], opcional): Archivos de texto (.txt, .md, .pdf, .docx)
 
 **Response:**
 

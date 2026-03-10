@@ -22,6 +22,13 @@ from ..models.requests import RecipeMode, RecipeRunResponse
 
 router = APIRouter(prefix="/api/v1/recipe-runs", tags=["recipe-runs"])
 
+ALLOWED_EXTENSIONS = {
+    "audio": {".m4a", ".mp3", ".wav", ".ogg", ".opus", ".aac"},
+    "video": {".mp4", ".mov", ".mkv"},
+    "image": {".png", ".jpg", ".jpeg", ".webp"},
+    "text": {".txt", ".md", ".pdf", ".docx"},
+}
+
 
 @router.post("", response_model=RecipeRunResponse)
 async def create_recipe_run(
@@ -44,7 +51,7 @@ async def create_recipe_run(
         audio_files: Archivos de audio (.m4a, .mp3, .wav, .ogg, .opus, .aac - incluye audios de WhatsApp)
         video_files: Archivos de video (.mp4, .mov, .mkv)
         image_files: Archivos de imagen (.png, .jpg, .jpeg, .webp)
-        text_files: Archivos de texto (.txt, .md, .pdf, .doc, .docx)
+        text_files: Archivos de texto (.txt, .md, .pdf, .docx)
 
     Returns:
         RecipeRunResponse con run_id, status y paths a artefactos generados
@@ -75,11 +82,21 @@ async def create_recipe_run(
                 return
 
             for upload_file in files:
+                ext = Path(upload_file.filename).suffix.lower() if upload_file.filename else ""
+                allowed = ALLOWED_EXTENSIONS[kind]
+                if ext not in allowed:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=(
+                            f"Extensión no permitida para {kind}: '{ext or '(sin extensión)'}'. "
+                            f"Permitidas: {', '.join(sorted(allowed))}"
+                        ),
+                    )
+
                 counters[kind] += 1
                 asset_id = f"{prefix}{counters[kind]}"
 
                 # Guardar archivo en temp_dir
-                ext = Path(upload_file.filename).suffix if upload_file.filename else ""
                 temp_path = temp_dir / f"{asset_id}{ext}"
 
                 # Leer contenido y guardar

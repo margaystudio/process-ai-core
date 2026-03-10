@@ -36,7 +36,7 @@ describe('fileMatchesType', () => {
     expect(fileMatchesType(makeFile('a.md'), 'text')).toBe(true)
     expect(fileMatchesType(makeFile('a.pdf'), 'text')).toBe(true)
     expect(fileMatchesType(makeFile('a.docx'), 'text')).toBe(true)
-    expect(fileMatchesType(makeFile('a.doc'), 'text')).toBe(true)
+    expect(fileMatchesType(makeFile('a.doc'), 'text')).toBe(false)
   })
   it('accepts image extensions for type image', () => {
     expect(fileMatchesType(makeFile('a.png'), 'image')).toBe(true)

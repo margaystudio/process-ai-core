@@ -13,7 +13,7 @@ export type { FileType } from '@/lib/fileUploadValidation'
 
 const TYPE_OPTIONS: { value: FileType; label: string; extensions: string[] }[] = [
   { value: 'audio', label: 'Audio', extensions: ['.m4a', '.mp3', '.wav'] },
-  { value: 'text', label: 'Documento', extensions: ['.txt', '.md', '.pdf', '.doc', '.docx'] },
+  { value: 'text', label: 'Documento', extensions: ['.txt', '.md', '.pdf', '.docx'] },
   { value: 'image', label: 'Imagen', extensions: ['.png', '.jpg', '.jpeg', '.webp'] },
   { value: 'video', label: 'Otro', extensions: ['.mp4', '.mov', '.mkv'] },
 ]
