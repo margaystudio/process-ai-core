@@ -185,7 +185,6 @@ def update_folder(
     path: str | None = None,
     parent_id: str | None = None,
     sort_order: int | None = None,
-    inherits_permissions: bool | None = None,
     metadata: Dict[str, Any] | None = None,
 ) -> Folder:
     """
@@ -231,8 +230,6 @@ def update_folder(
         folder.parent_id = parent_id
     if sort_order is not None:
         folder.sort_order = sort_order
-    if inherits_permissions is not None:
-        folder.inherits_permissions = inherits_permissions
     if metadata is not None:
         # Mergear metadata existente con la nueva
         existing_meta = json.loads(folder.metadata_json) if folder.metadata_json else {}

@@ -20,8 +20,7 @@ from process_ai_core.db.helpers import (
     get_subscription_plan_by_name,
     add_user_to_workspace_helper,
 )
-from process_ai_core.db.models import Workspace, WorkspaceMembership, User, Role
-from process_ai_core.db.models import UserOperationalRole
+from process_ai_core.db.models import Workspace
 from ..dependencies import get_current_user_id, require_superadmin
 from ..models.requests import WorkspaceCreateRequest, WorkspaceResponse
 
@@ -177,42 +176,6 @@ async def list_workspaces():
             )
             for w in workspaces
         ]
-
-
-@router.get("/{workspace_id}/members")
-async def get_workspace_members(
-    workspace_id: str,
-    user_id: str = Depends(get_current_user_id),
-    session: Session = Depends(get_db),
-):
-    """
-    Lista los miembros del workspace (memberships) con usuario, rol de sistema y roles operativos.
-    Requiere ser miembro del workspace (owner/admin para gestión).
-    """
-    from process_ai_core.db.permissions import get_user_role
-    role = get_user_role(session, user_id, workspace_id)
-    if not role:
-        raise HTTPException(status_code=403, detail="No eres miembro de este workspace")
-    workspace = session.query(Workspace).filter_by(id=workspace_id).first()
-    if not workspace:
-        raise HTTPException(status_code=404, detail="Workspace no encontrado")
-    memberships = session.query(WorkspaceMembership).filter_by(workspace_id=workspace_id).all()
-    out = []
-    for m in memberships:
-        user = session.query(User).filter_by(id=m.user_id).first()
-        role_obj = session.query(Role).filter_by(id=m.role_id).first() if m.role_id else None
-        role_name = role_obj.name if role_obj else (m.role or "")
-        op_roles = session.query(UserOperationalRole).filter_by(workspace_membership_id=m.id).all()
-        op_role_ids = [r.operational_role_id for r in op_roles]
-        out.append({
-            "membership_id": m.id,
-            "user_id": m.user_id,
-            "email": user.email if user else "",
-            "name": user.name if user else "",
-            "role": role_name,
-            "operational_role_ids": op_role_ids,
-        })
-    return {"workspace_id": workspace_id, "members": out}
 
 
 @router.get("/{workspace_id}", response_model=WorkspaceResponse)
