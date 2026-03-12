@@ -65,15 +65,17 @@ async def create_process_run(
     from process_ai_core.db.permissions import has_permission
     
     with get_db_session() as session:
-        # Verificar que el usuario tiene permiso para crear documentos
-        # Nota: user_id debería venir del request, por ahora lo omitimos
-        # TODO: Agregar user_id al request cuando tengamos autenticación
-        # if not has_permission(session, user_id, workspace_id, "documents.create"):
-        #     raise HTTPException(
-        #         status_code=403,
-        #         detail="No tiene permisos para crear documentos"
-        #     )
-        pass  # Temporalmente sin verificación hasta tener user_id en el request
+        if not has_permission(session, user_id, workspace_id, "documents.create"):
+            raise HTTPException(
+                status_code=403,
+                detail="No tiene permisos para crear documentos"
+            )
+        from process_ai_core.db.permissions import can_create_in_folder
+        if not can_create_in_folder(session, user_id, workspace_id, folder_id):
+            raise HTTPException(
+                status_code=403,
+                detail="No tiene acceso para crear documentos en esta carpeta"
+            )
 
     # Validar que haya al menos un archivo
     total_files = (

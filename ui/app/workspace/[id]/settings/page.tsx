@@ -12,6 +12,18 @@ import {
   listWorkspaceInvitations,
   InvitationResponse,
   createWorkspaceInvitation,
+  listOperationalRoles,
+  createOperationalRole,
+  deleteOperationalRole,
+  getWorkspaceMembers,
+  assignOperationalRolesToMembership,
+  listFolders,
+  getFolderPermissions,
+  updateFolderPermissions,
+  OperationalRoleResponse,
+  WorkspaceMember,
+  Folder,
+  FolderPermissionsResponse,
 } from '@/lib/api'
 import { useLoading } from '@/contexts/LoadingContext'
 import { useUserId } from '@/hooks/useUserId'
@@ -35,7 +47,7 @@ export default function WorkspaceSettingsPage() {
   // Superadmin tiene acceso a la configuración de cualquier workspace
   const hasAccess = isSuperadmin || canEditWorkspace
 
-  const [activeTab, setActiveTab] = useState<'general' | 'users' | 'subscription' | 'limits'>('general')
+  const [activeTab, setActiveTab] = useState<'general' | 'users' | 'subscription' | 'limits' | 'roles' | 'folders'>('general')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -52,11 +64,61 @@ export default function WorkspaceSettingsPage() {
   const [inviteMessage, setInviteMessage] = useState('')
   const [lastInvitationUrl, setLastInvitationUrl] = useState<string | null>(null)
 
+  // Roles operativos
+  const [operationalRoles, setOperationalRoles] = useState<OperationalRoleResponse[]>([])
+  const [members, setMembers] = useState<WorkspaceMember[]>([])
+  const [newRoleName, setNewRoleName] = useState('')
+  const [newRoleDescription, setNewRoleDescription] = useState('')
+  const [editingMemberId, setEditingMemberId] = useState<string | null>(null)
+  const [memberRoleIds, setMemberRoleIds] = useState<string[]>([])
+
+  // Carpetas y permisos
+  const [folders, setFolders] = useState<Folder[]>([])
+  const [folderPermissionsModal, setFolderPermissionsModal] = useState<{ folder: Folder; perms: FolderPermissionsResponse } | null>(null)
+  const [folderPermsInherit, setFolderPermsInherit] = useState(true)
+  const [folderPermsRoleIds, setFolderPermsRoleIds] = useState<string[]>([])
+
   useEffect(() => {
     if (workspaceId) {
       loadData()
     }
   }, [workspaceId])
+
+  useEffect(() => {
+    if (workspaceId && (activeTab === 'users' || activeTab === 'roles' || activeTab === 'folders')) {
+      loadOperationalRolesAndMembers()
+    }
+  }, [workspaceId, activeTab])
+
+  useEffect(() => {
+    if (workspaceId && activeTab === 'folders') {
+      listFolders(workspaceId).then(setFolders).catch(() => setFolders([]))
+    }
+  }, [workspaceId, activeTab])
+
+  const openFolderPermissions = async (folder: Folder) => {
+    try {
+      const perms = await getFolderPermissions(folder.id)
+      setFolderPermissionsModal({ folder, perms })
+      setFolderPermsInherit(perms.inherits_permissions)
+      setFolderPermsRoleIds(perms.operational_role_ids || [])
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error al cargar permisos')
+    }
+  }
+
+  const saveFolderPermissions = async () => {
+    if (!folderPermissionsModal) return
+    try {
+      await updateFolderPermissions(folderPermissionsModal.folder.id, {
+        inherits_permissions: folderPermsInherit,
+        operational_role_ids: folderPermsInherit ? undefined : folderPermsRoleIds,
+      })
+      setFolderPermissionsModal(null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error al guardar permisos')
+    }
+  }
 
   const loadData = async () => {
     if (!workspaceId) return
@@ -83,6 +145,20 @@ export default function WorkspaceSettingsPage() {
         setLoading(false)
       }
     })
+  }
+
+  const loadOperationalRolesAndMembers = async () => {
+    if (!workspaceId) return
+    try {
+      const [rolesData, membersData] = await Promise.all([
+        listOperationalRoles(workspaceId),
+        getWorkspaceMembers(workspaceId),
+      ])
+      setOperationalRoles(rolesData)
+      setMembers(membersData.members || [])
+    } catch (err) {
+      console.error('Error cargando roles operativos o miembros:', err)
+    }
   }
 
   const loadInvitations = async () => {
@@ -149,6 +225,42 @@ export default function WorkspaceSettingsPage() {
     })
   }
 
+  const handleCreateRole = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!workspaceId || !newRoleName.trim()) return
+    await withLoading(async () => {
+      try {
+        await createOperationalRole(workspaceId, {
+          name: newRoleName.trim(),
+          description: newRoleDescription.trim() || undefined,
+        })
+        setNewRoleName('')
+        setNewRoleDescription('')
+        await loadOperationalRolesAndMembers()
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Error al crear rol')
+      }
+    })
+  }
+
+  const handleSaveMemberRoles = async () => {
+    if (!editingMemberId) return
+    await withLoading(async () => {
+      try {
+        await assignOperationalRolesToMembership(editingMemberId, memberRoleIds)
+        setEditingMemberId(null)
+        await loadOperationalRolesAndMembers()
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Error al guardar roles')
+      }
+    })
+  }
+
+  const openMemberEdit = (member: WorkspaceMember) => {
+    setEditingMemberId(member.membership_id)
+    setMemberRoleIds([...member.operational_role_ids])
+  }
+
   if (!workspaceId) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -209,6 +321,8 @@ export default function WorkspaceSettingsPage() {
               {[
                 { id: 'general', label: 'General' },
                 { id: 'users', label: 'Usuarios' },
+                { id: 'roles', label: 'Roles operativos' },
+                { id: 'folders', label: 'Carpetas' },
                 { id: 'subscription', label: 'Suscripción' },
                 { id: 'limits', label: 'Límites y Uso' },
               ].map((tab) => (
@@ -233,6 +347,159 @@ export default function WorkspaceSettingsPage() {
               <div>
                 <h2 className="text-xl font-semibold mb-4">Configuración General</h2>
                 <p className="text-gray-600">Configuración general del espacio de trabajo (próximamente)</p>
+              </div>
+            )}
+
+            {/* Roles operativos Tab */}
+            {activeTab === 'roles' && (
+              <div>
+                <h2 className="text-xl font-semibold mb-4">Roles operativos</h2>
+                <p className="text-gray-600 text-sm mb-4">
+                  Los roles operativos definen en qué carpetas puede actuar cada usuario (ej: Pistero, Cajero). Creá los roles y asignálos a usuarios y a carpetas.
+                </p>
+                <form onSubmit={handleCreateRole} className="flex flex-wrap gap-3 items-end mb-6">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Nombre del rol</label>
+                    <input
+                      type="text"
+                      value={newRoleName}
+                      onChange={(e) => setNewRoleName(e.target.value)}
+                      placeholder="ej: Pistero"
+                      className="px-3 py-2 border border-gray-300 rounded-md text-sm w-48"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Descripción (opcional)</label>
+                    <input
+                      type="text"
+                      value={newRoleDescription}
+                      onChange={(e) => setNewRoleDescription(e.target.value)}
+                      placeholder="Breve descripción"
+                      className="px-3 py-2 border border-gray-300 rounded-md text-sm w-56"
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={!newRoleName.trim()}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-medium rounded-md"
+                  >
+                    Crear rol
+                  </button>
+                </form>
+                <div className="space-y-2">
+                  {operationalRoles.length === 0 && <p className="text-gray-500">No hay roles operativos. Creá uno arriba.</p>}
+                  {operationalRoles.map((role) => (
+                    <div
+                      key={role.id}
+                      className="flex items-center justify-between py-2 px-3 bg-gray-50 rounded-md"
+                    >
+                      <div>
+                        <span className="font-medium">{role.name}</span>
+                        {role.description && <span className="text-gray-500 text-sm ml-2">— {role.description}</span>}
+                      </div>
+                      <button
+                        onClick={async () => {
+                          if (!confirm('¿Eliminar este rol operativo? Se quitará de todos los usuarios y carpetas.')) return
+                          try {
+                            await deleteOperationalRole(role.id)
+                            await loadOperationalRolesAndMembers()
+                          } catch (err) {
+                            setError(err instanceof Error ? err.message : 'Error al eliminar')
+                          }
+                        }}
+                        className="text-red-600 hover:text-red-800 text-sm"
+                      >
+                        Eliminar
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <p className="mt-6 text-sm text-gray-500">
+                  Para asignar estos roles a usuarios, andá a la pestaña <button type="button" onClick={() => setActiveTab('users')} className="text-blue-600 hover:underline">Usuarios</button> y usá &quot;Asignar roles operativos&quot; en cada miembro.
+                </p>
+              </div>
+            )}
+
+            {/* Carpetas / Permisos por carpeta */}
+            {activeTab === 'folders' && (
+              <div>
+                <h2 className="text-xl font-semibold mb-4">Acceso por carpeta</h2>
+                <p className="text-gray-600 text-sm mb-4">
+                  Definí qué roles operativos pueden acceder a cada carpeta. Si una carpeta hereda del padre, usa los mismos permisos que la carpeta padre.
+                </p>
+                {folders.length === 0 ? (
+                  <p className="text-gray-500">No hay carpetas en este workspace.</p>
+                ) : (
+                  <ul className="space-y-2">
+                    {folders.map((folder) => (
+                      <li key={folder.id} className="flex items-center justify-between py-2 px-3 bg-gray-50 rounded-md">
+                        <span className="font-medium">{folder.name}</span>
+                        <button
+                          onClick={() => openFolderPermissions(folder)}
+                          className="px-3 py-1.5 text-sm bg-blue-100 hover:bg-blue-200 text-blue-800 rounded-md"
+                        >
+                          Permisos
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+
+            {/* Modal permisos de carpeta */}
+            {folderPermissionsModal && (
+              <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+                  <h3 className="text-lg font-semibold mb-2">Permisos: {folderPermissionsModal.folder.name}</h3>
+                  <label className="flex items-center gap-2 mb-4">
+                    <input
+                      type="checkbox"
+                      checked={folderPermsInherit}
+                      onChange={(e) => setFolderPermsInherit(e.target.checked)}
+                      className="rounded border-gray-300"
+                    />
+                    <span className="text-sm">Heredar permisos del padre</span>
+                  </label>
+                  {!folderPermsInherit && (
+                    <div className="mb-4">
+                      <p className="text-sm font-medium text-gray-700 mb-2">Roles con acceso a esta carpeta</p>
+                      <div className="flex flex-wrap gap-2">
+                        {operationalRoles.filter((r) => r.is_active).map((role) => (
+                          <label key={role.id} className="inline-flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={folderPermsRoleIds.includes(role.id)}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setFolderPermsRoleIds((prev) => [...prev, role.id])
+                                } else {
+                                  setFolderPermsRoleIds((prev) => prev.filter((id) => id !== role.id))
+                                }
+                              }}
+                              className="rounded border-gray-300"
+                            />
+                            <span className="text-sm">{role.name}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  <div className="flex justify-end gap-2 mt-4">
+                    <button
+                      onClick={() => setFolderPermissionsModal(null)}
+                      className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-md text-sm"
+                    >
+                      Cerrar
+                    </button>
+                    <button
+                      onClick={saveFolderPermissions}
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm"
+                    >
+                      Guardar
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
 
@@ -392,6 +659,73 @@ export default function WorkspaceSettingsPage() {
                             </div>
                           </div>
                         ))}
+                    </div>
+                  )}
+
+                  <h3 className="text-lg font-medium mt-6">Miembros del workspace</h3>
+                  {members.length === 0 ? (
+                    <p className="text-gray-500">Cargando miembros...</p>
+                  ) : (
+                    <div className="divide-y divide-gray-200">
+                      {members.map((member) => (
+                        <div key={member.membership_id} className="py-4 flex items-center justify-between gap-4">
+                          <div>
+                            <p className="font-medium">{member.name || member.email}</p>
+                            <p className="text-sm text-gray-500">
+                              {member.email} • Rol: {member.role}
+                              {member.operational_role_ids?.length
+                                ? ` • Roles operativos: ${member.operational_role_ids.length}`
+                                : ''}
+                            </p>
+                          </div>
+                          {canManageUsers && (
+                            <button
+                              onClick={() => openMemberEdit(member)}
+                              className="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded-md"
+                            >
+                              {editingMemberId === member.membership_id ? 'Editando...' : 'Asignar roles operativos'}
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {editingMemberId && (
+                    <div className="mt-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
+                      <p className="text-sm font-medium mb-3">Seleccionar roles operativos para este usuario</p>
+                      <div className="flex flex-wrap gap-3">
+                        {operationalRoles.filter((r) => r.is_active).map((role) => (
+                          <label key={role.id} className="inline-flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={memberRoleIds.includes(role.id)}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setMemberRoleIds((prev) => [...prev, role.id])
+                                } else {
+                                  setMemberRoleIds((prev) => prev.filter((id) => id !== role.id))
+                                }
+                              }}
+                              className="rounded border-gray-300"
+                            />
+                            <span className="text-sm">{role.name}</span>
+                          </label>
+                        ))}
+                      </div>
+                      <div className="mt-3 flex gap-2">
+                        <button
+                          onClick={handleSaveMemberRoles}
+                          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-md"
+                        >
+                          Guardar
+                        </button>
+                        <button
+                          onClick={() => setEditingMemberId(null)}
+                          className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-sm rounded-md"
+                        >
+                          Cancelar
+                        </button>
+                      </div>
                     </div>
                   )}
 
