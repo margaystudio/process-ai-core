@@ -8,7 +8,7 @@ export const MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024 // 25 MB
 export type FileType = 'audio' | 'video' | 'image' | 'text'
 
 const EXTENSIONS_BY_TYPE: Record<FileType, string[]> = {
-  audio: ['.m4a', '.mp3', '.wav'],
+  audio: ['.m4a', '.mp3', '.wav', '.webm', '.ogg'],
   text: ['.txt', '.md'],
   image: ['.png', '.jpg', '.jpeg', '.webp'],
   video: ['.mp4', '.mov', '.mkv'],

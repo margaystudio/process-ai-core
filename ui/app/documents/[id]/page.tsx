@@ -1378,12 +1378,12 @@ export default function DocumentDetailPage() {
                           {run.artifacts.pdf && (
                             <button
                               onClick={() => {
-                                // Buscar la versión más relevante para este run que tenga contenido editado.
-                                // Prioridad: APPROVED > IN_REVIEW > DRAFT con edición manual.
+                                // Buscar la versión más relevante para este run que tenga el contenido más reciente.
+                                // Prioridad: DRAFT con edición manual > IN_REVIEW > APPROVED.
                                 const relevantVersion =
-                                  versions.find((v) => v.version_status === 'APPROVED' && v.run_id === run.run_id) ||
+                                  versions.find((v) => v.version_status === 'DRAFT' && v.run_id === run.run_id && v.content_type === 'manual_edit') ||
                                   versions.find((v) => v.version_status === 'IN_REVIEW' && v.run_id === run.run_id) ||
-                                  versions.find((v) => v.version_status === 'DRAFT' && v.run_id === run.run_id && v.content_type === 'manual_edit')
+                                  versions.find((v) => v.version_status === 'APPROVED' && v.run_id === run.run_id)
                                 if (relevantVersion) {
                                   openVersionPreviewPdf(documentId, relevantVersion.id)
                                 } else {

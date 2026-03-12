@@ -27,12 +27,14 @@ export default function ArtifactViewerModal({
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [pdfUrl, setPdfUrl] = useState<string | null>(null)
+  const [pdfZoom, setPdfZoom] = useState(100)
   const blobUrlRef = useRef<string | null>(null)
 
   useEffect(() => {
     if (!isOpen) {
       setContent(null)
       setPdfUrl(null)
+      setPdfZoom(100)
       setError(null)
       if (blobUrlRef.current) {
         URL.revokeObjectURL(blobUrlRef.current)
@@ -74,6 +76,7 @@ export default function ArtifactViewerModal({
                 const blobUrl = URL.createObjectURL(blob)
                 blobUrlRef.current = blobUrl
                 setPdfUrl(blobUrl)
+                setPdfZoom(100)
               } else if (!isPdfBytes && blob.size < 10000) {
                 const text = await blob.text()
                 setError(text.slice(0, 200) || 'La respuesta no es un PDF válido.')
@@ -116,6 +119,14 @@ export default function ArtifactViewerModal({
   }, [isOpen, runId, filename, type, versionPreviewPdf?.documentId, versionPreviewPdf?.versionId])
 
   if (!isOpen) return null
+
+  const pdfViewerSrc = pdfUrl
+    ? `${pdfUrl}#toolbar=1&navpanes=0&statusbar=0&messages=0&zoom=${pdfZoom}`
+    : null
+
+  const handleZoomIn = () => setPdfZoom((z) => Math.min(300, z + 10))
+  const handleZoomOut = () => setPdfZoom((z) => Math.max(50, z - 10))
+  const handleZoomReset = () => setPdfZoom(100)
 
   const getTitle = () => {
     switch (type) {
@@ -169,8 +180,51 @@ export default function ArtifactViewerModal({
               </div>
             ) : type === 'pdf' && pdfUrl ? (
               <div className="border border-gray-200 rounded-lg overflow-hidden">
+                <div className="flex items-center justify-between gap-3 p-3 border-b border-gray-200 bg-gray-50">
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleZoomOut}
+                      className="px-3 py-1.5 text-sm border border-gray-300 rounded-md hover:bg-gray-100"
+                    >
+                      -
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleZoomReset}
+                      className="px-3 py-1.5 text-sm border border-gray-300 rounded-md hover:bg-gray-100"
+                    >
+                      {pdfZoom}%
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleZoomIn}
+                      className="px-3 py-1.5 text-sm border border-gray-300 rounded-md hover:bg-gray-100"
+                    >
+                      +
+                    </button>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <a
+                      href={pdfUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="px-3 py-1.5 text-sm border border-gray-300 rounded-md hover:bg-gray-100"
+                    >
+                      Abrir en pestaña
+                    </a>
+                    <a
+                      href={pdfUrl}
+                      download={filename || 'preview.pdf'}
+                      className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                    >
+                      Descargar
+                    </a>
+                  </div>
+                </div>
                 <iframe
-                  src={`${pdfUrl}#toolbar=0`}
+                  src={pdfViewerSrc ?? undefined}
                   className="w-full h-[600px]"
                   title="Preview del PDF"
                 />
