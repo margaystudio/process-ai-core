@@ -179,4 +179,5 @@ class DocumentResponse(BaseModel):
     name: str = Field(..., description="Nombre del documento")
     description: str = Field(..., description="Descripción")
     status: str = Field(..., description="Estado: draft|active|archived")
+    metadata: Optional[dict] = Field(default=None, description="Metadata adicional del documento")
     created_at: str = Field(..., description="Fecha de creación")
