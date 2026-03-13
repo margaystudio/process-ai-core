@@ -33,6 +33,7 @@ from process_ai_core.engine import run_process_pipeline
 from process_ai_core.prompt_context import build_context_block
 from process_ai_core.export import export_pdf, get_export_content, export_pdf_from_content
 from process_ai_core.ingest import discover_raw_assets
+from process_ai_core.upload_validation import ALLOWED_UPLOAD_EXTENSIONS
 from fastapi.responses import Response
 
 from ..models.requests import DocumentResponse, DocumentUpdateRequest, ProcessRunResponse
@@ -40,14 +41,6 @@ from api.dependencies import get_current_user_id
 from process_ai_core.db.permissions import has_permission
 
 router = APIRouter(prefix="/api/v1/documents", tags=["documents"])
-
-ALLOWED_UPLOAD_EXTENSIONS = {
-    "audio": {".m4a", ".mp3", ".wav", ".ogg", ".opus", ".aac"},
-    "video": {".mp4", ".mov", ".mkv"},
-    "image": {".png", ".jpg", ".jpeg", ".webp"},
-    "text": {".txt", ".md", ".pdf", ".docx"},
-}
-
 
 @router.get("/pending-approval", response_model=list[DocumentResponse])
 async def list_documents_pending_approval(

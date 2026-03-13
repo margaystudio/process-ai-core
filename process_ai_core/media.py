@@ -158,7 +158,9 @@ def _extract_text_from_document(path: Path) -> str:
             "El formato .doc (Word antiguo) no está soportado. "
             "Guardá el archivo como .docx (Word actual) o exportá a PDF."
         )
-    return path.read_text(encoding="utf-8", errors="replace")
+    raise ValueError(
+        f"Extensión de documento no soportada para extracción de texto: {ext or '(sin extensión)'}"
+    )
 
 
 def _ffmpeg_frame_at_time(video_path: Path, t_s: float, out_img: Path) -> None:

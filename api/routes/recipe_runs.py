@@ -17,18 +17,11 @@ from process_ai_core.config import get_settings
 from process_ai_core.domain_models import RawAsset
 from process_ai_core.domains.recipes.profiles import get_profile
 from process_ai_core.engine import run_recipe_pipeline
+from process_ai_core.upload_validation import ALLOWED_UPLOAD_EXTENSIONS
 
 from ..models.requests import RecipeMode, RecipeRunResponse
 
 router = APIRouter(prefix="/api/v1/recipe-runs", tags=["recipe-runs"])
-
-ALLOWED_EXTENSIONS = {
-    "audio": {".m4a", ".mp3", ".wav", ".ogg", ".opus", ".aac"},
-    "video": {".mp4", ".mov", ".mkv"},
-    "image": {".png", ".jpg", ".jpeg", ".webp"},
-    "text": {".txt", ".md", ".pdf", ".docx"},
-}
-
 
 @router.post("", response_model=RecipeRunResponse)
 async def create_recipe_run(
@@ -83,7 +76,7 @@ async def create_recipe_run(
 
             for upload_file in files:
                 ext = Path(upload_file.filename).suffix.lower() if upload_file.filename else ""
-                allowed = ALLOWED_EXTENSIONS[kind]
+                allowed = ALLOWED_UPLOAD_EXTENSIONS[kind]
                 if ext not in allowed:
                     raise HTTPException(
                         status_code=400,

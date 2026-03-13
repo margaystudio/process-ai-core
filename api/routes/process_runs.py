@@ -19,18 +19,11 @@ from api.dependencies import get_current_user_id
 from process_ai_core.document_profiles import get_profile
 from process_ai_core.domain_models import RawAsset
 from process_ai_core.engine import run_process_pipeline
+from process_ai_core.upload_validation import ALLOWED_UPLOAD_EXTENSIONS
 
 from ..models.requests import ProcessMode, ProcessRunResponse
 
 router = APIRouter(prefix="/api/v1/process-runs", tags=["process-runs"])
-
-ALLOWED_EXTENSIONS = {
-    "audio": {".m4a", ".mp3", ".wav", ".ogg", ".opus", ".aac"},
-    "video": {".mp4", ".mov", ".mkv"},
-    "image": {".png", ".jpg", ".jpeg", ".webp"},
-    "text": {".txt", ".md", ".pdf", ".docx"},
-}
-
 
 @router.post("", response_model=ProcessRunResponse)
 async def create_process_run(
@@ -120,7 +113,7 @@ async def create_process_run(
 
             for upload_file in files:
                 ext = Path(upload_file.filename).suffix.lower() if upload_file.filename else ""
-                allowed = ALLOWED_EXTENSIONS[kind]
+                allowed = ALLOWED_UPLOAD_EXTENSIONS[kind]
                 if ext not in allowed:
                     raise HTTPException(
                         status_code=400,
