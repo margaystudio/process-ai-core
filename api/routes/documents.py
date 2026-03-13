@@ -12,6 +12,7 @@ from typing import List, Optional
 import re
 import tempfile
 import shutil
+import subprocess
 import json
 import logging
 from pathlib import Path
@@ -1200,6 +1201,15 @@ def _generate_draft_pdf_background(
         if pdf_dir is None:
             pdf_dir = Path(output_dir) / "documents" / document_id
             pdf_dir.mkdir(parents=True, exist_ok=True)
+
+        # Evita servir un PDF viejo si esta generación falla.
+        stale_pdf = pdf_dir / "draft_preview.pdf"
+        if stale_pdf.exists():
+            try:
+                stale_pdf.unlink()
+            except OSError:
+                pass
+
         export_pdf_from_content(
             content=html_for_pdf,
             format="html",
@@ -1863,12 +1873,55 @@ async def get_version_preview_pdf(document_id: str, version_id: str):
             raise HTTPException(status_code=400, detail=str(e)) from e
         version_run_id = version.run_id
         version_status = version.version_status
+        markdown_fallback = getattr(version, "content_markdown", None)
 
-    # Servir draft_preview.pdf desde disco si existe.
-    # Aplica a DRAFT, IN_REVIEW y APPROVED: el contenido no cambia al transicionar entre estos estados,
-    # y generar on-demand bloquea el event loop (Pandoc no puede bajar imágenes del mismo servidor).
+    def _is_weasyprint_system_dependency_error(exc: Exception) -> bool:
+        msg = str(exc).lower()
+        markers = (
+            "libgobject-2.0-0",
+            "cannot load library",
+            "ctypes.util.find_library",
+            "weasyprint",
+        )
+        return any(marker in msg for marker in markers)
+
+    def _convert_html_to_markdown_with_pandoc(html_content: str) -> str:
+        """Convierte HTML a Markdown usando Pandoc para fallback de PDF en Windows."""
+        with tempfile.TemporaryDirectory() as tmp_dir_str:
+            tmp_dir = Path(tmp_dir_str)
+            in_html = tmp_dir / "content.html"
+            out_md = tmp_dir / "content.md"
+            in_html.write_text(html_content, encoding="utf-8")
+
+            cmd = [
+                "pandoc",
+                in_html.name,
+                "--from=html",
+                "--to=gfm-raw_html",
+                "--wrap=none",
+                "-o",
+                out_md.name,
+            ]
+            result = subprocess.run(
+                cmd,
+                cwd=str(tmp_dir),
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            if not out_md.exists():
+                stderr = (result.stderr or "").strip()
+                raise RuntimeError(f"Pandoc no generó Markdown desde HTML. STDERR: {stderr[:500]}")
+            md = out_md.read_text(encoding="utf-8")
+            if not md.strip():
+                raise RuntimeError("Pandoc devolvió Markdown vacío al convertir HTML")
+            return md
+
+    # Servir draft_preview.pdf desde disco solo para estados estables.
+    # En DRAFT puede quedar desactualizado después de editar si la generación en background falla,
+    # por eso en DRAFT preferimos regenerar on-demand.
     draft_pdf_path: Optional[Path] = None
-    if version_status in ("DRAFT", "IN_REVIEW", "APPROVED"):
+    if version_status in ("IN_REVIEW", "APPROVED"):
         if version_run_id:
             candidate = Path(settings.output_dir) / version_run_id / "draft_preview.pdf"
             if candidate.exists():
@@ -1915,15 +1968,53 @@ async def get_version_preview_pdf(document_id: str, version_id: str):
     _is_temp_dir = not version_run_id
 
     def _generate_sync() -> bytes:
-        pdf_path = export_pdf_from_content(
-            content=content,
-            format=fmt,
-            run_dir=_run_dir_for_cleanup,
-            pdf_name="preview.pdf",
-            base_url=api_base if fmt == "html" else None,
-        )
+        selected_content = content
+        selected_format = fmt
+
+        try:
+            pdf_path = export_pdf_from_content(
+                content=selected_content,
+                format=selected_format,
+                run_dir=_run_dir_for_cleanup,
+                pdf_name="preview.pdf",
+                base_url=api_base if selected_format == "html" else None,
+            )
+        except Exception as export_exc:
+            can_fallback = bool(markdown_fallback and str(markdown_fallback).strip())
+            if selected_format == "html" and _is_weasyprint_system_dependency_error(export_exc):
+                converted_markdown: Optional[str] = None
+                try:
+                    converted_markdown = _convert_html_to_markdown_with_pandoc(selected_content)
+                    logger.warning(
+                        "WeasyPrint no disponible; reintentando PDF con HTML convertido a Markdown (Pandoc) para versión %s",
+                        version_id,
+                    )
+                except Exception as conversion_exc:
+                    logger.warning(
+                        "Fallback HTML->Markdown con Pandoc falló; usando content_markdown almacenado para versión %s: %s",
+                        version_id,
+                        conversion_exc,
+                    )
+
+                if converted_markdown:
+                    selected_content = converted_markdown
+                elif can_fallback:
+                    selected_content = str(markdown_fallback)
+                else:
+                    raise
+                selected_format = "markdown"
+                pdf_path = export_pdf_from_content(
+                    content=selected_content,
+                    format=selected_format,
+                    run_dir=_run_dir_for_cleanup,
+                    pdf_name="preview.pdf",
+                    base_url=None,
+                )
+            else:
+                raise
+
         pdf_bytes = pdf_path.read_bytes()
-        content_file = _run_dir_for_cleanup / ("content.html" if fmt == "html" else "content.md")
+        content_file = _run_dir_for_cleanup / ("content.html" if selected_format == "html" else "content.md")
         if content_file.exists():
             try:
                 content_file.unlink()

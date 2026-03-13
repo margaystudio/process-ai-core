@@ -60,16 +60,18 @@ export function usePdfViewer(): UsePdfViewerReturn {
 
   /**
    * Abre el PDF más actualizado:
-   * - Si hay versión IN_REVIEW o DRAFT con edición manual → usa preview-pdf (tiene el contenido editado)
-   * - Si no → fallback al process.pdf del run original
+   * - Si hay DRAFT con edición manual → usa preview-pdf (tiene el contenido editado)
+   * - Si no, IN_REVIEW/APPROVED → usa preview-pdf de esa versión
+   * - Si no hay versiones → fallback al process.pdf del run original
    */
   const openLatestPdf = async (document: Document) => {
     try {
       const versions = await getDocumentVersions(document.id)
-      // Prioridad: APPROVED > IN_REVIEW > DRAFT (la versión más "final" con posibles ediciones manuales)
+      // Prioridad: DRAFT manual_edit > IN_REVIEW > APPROVED.
       const relevant =
-        versions.find((v) => v.version_status === 'APPROVED') ||
+        versions.find((v) => v.version_status === 'DRAFT' && v.content_type === 'manual_edit') ||
         versions.find((v) => v.version_status === 'IN_REVIEW') ||
+        versions.find((v) => v.version_status === 'APPROVED') ||
         versions.find((v) => v.version_status === 'DRAFT')
       if (relevant) {
         setViewerModal({
