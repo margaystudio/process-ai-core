@@ -73,6 +73,7 @@ export interface Document {
   name: string;
   description: string;
   status: string;
+  metadata?: Record<string, any>;
   created_at: string;
 }
 

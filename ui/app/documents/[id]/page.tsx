@@ -640,6 +640,10 @@ export default function DocumentDetailPage() {
     return null
   }
 
+  const openQuestions = typeof document.metadata?.preguntas_abiertas === 'string'
+    ? document.metadata.preguntas_abiertas.trim()
+    : ''
+
   if (userRoleName === 'viewer' && document.status !== 'approved') {
     return (
       <div className="p-8">
@@ -909,6 +913,17 @@ export default function DocumentDetailPage() {
                       {document.description || '(Sin descripción)'}
                     </p>
                   </div>
+
+                  {openQuestions && (
+                    <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                      <label className="block text-sm font-medium text-amber-900 mb-1">
+                        Preguntas abiertas / pendientes
+                      </label>
+                      <p className="text-amber-900 whitespace-pre-wrap text-sm">
+                        {openQuestions}
+                      </p>
+                    </div>
+                  )}
                   
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">

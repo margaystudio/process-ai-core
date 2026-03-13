@@ -8,7 +8,7 @@ Este endpoint maneja:
 """
 
 from fastapi import APIRouter, HTTPException, File, UploadFile, Form, Query, Body, Depends, BackgroundTasks
-from typing import List, Optional
+from typing import Any, List, Optional
 import re
 import tempfile
 import shutil
@@ -42,6 +42,42 @@ from api.dependencies import get_current_user_id
 from process_ai_core.db.permissions import has_permission
 
 router = APIRouter(prefix="/api/v1/documents", tags=["documents"])
+
+
+def _extract_open_questions_metadata(session, document_id: str) -> Optional[dict[str, Any]]:
+    """
+    Extrae metadata de "preguntas_abiertas" desde la última versión del documento.
+
+    Esta metadata se usa para mostrar preguntas pendientes en la UI fuera del PDF.
+    """
+    latest_version = (
+        session.query(DocumentVersion)
+        .filter(
+            DocumentVersion.document_id == document_id,
+            DocumentVersion.content_json.isnot(None),
+        )
+        .order_by(DocumentVersion.version_number.desc(), DocumentVersion.created_at.desc())
+        .first()
+    )
+    if not latest_version or not latest_version.content_json:
+        return None
+
+    try:
+        parsed = json.loads(latest_version.content_json)
+    except (json.JSONDecodeError, TypeError):
+        return None
+
+    open_questions = parsed.get("preguntas_abiertas")
+    if not isinstance(open_questions, str):
+        return None
+
+    open_questions = open_questions.strip()
+    if not open_questions:
+        return None
+
+    return {
+        "preguntas_abiertas": open_questions,
+    }
 
 @router.get("/pending-approval", response_model=list[DocumentResponse])
 async def list_documents_pending_approval(
@@ -294,6 +330,7 @@ async def get_document(
             name=doc.name,
             description=doc.description,
             status=doc.status,
+            metadata=_extract_open_questions_metadata(session, doc.id),
             created_at=doc.created_at.isoformat(),
         )
 

@@ -240,10 +240,5 @@ class ProcessRenderer:
                 lines.append(f"- Variantes: {document.variantes.strip()}\n")
             lines.append("\n")
 
-        # PREGUNTAS ABIERTAS
-        if "preguntas_abiertas" in profile.show and document.preguntas_abiertas.strip():
-            lines.append(f"## {title('preguntas_abiertas', 'Preguntas abiertas')}\n\n")
-            lines.append(document.preguntas_abiertas.strip() + "\n\n")
-
         return "".join(lines)
 
