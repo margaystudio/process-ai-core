@@ -34,6 +34,7 @@ from process_ai_core.engine import run_process_pipeline
 from process_ai_core.prompt_context import build_context_block
 from process_ai_core.export import export_pdf, get_export_content, export_pdf_from_content
 from process_ai_core.ingest import discover_raw_assets
+from process_ai_core.upload_validation import ALLOWED_UPLOAD_EXTENSIONS
 from fastapi.responses import Response
 
 from ..models.requests import DocumentResponse, DocumentUpdateRequest, ProcessRunResponse
@@ -41,7 +42,6 @@ from api.dependencies import get_current_user_id
 from process_ai_core.db.permissions import has_permission
 
 router = APIRouter(prefix="/api/v1/documents", tags=["documents"])
-
 
 @router.get("/pending-approval", response_model=list[DocumentResponse])
 async def list_documents_pending_approval(
@@ -593,7 +593,7 @@ async def create_document_run(
         audio_files: Archivos de audio nuevos (opcional)
         video_files: Archivos de video nuevos (opcional)
         image_files: Archivos de imagen nuevos (opcional)
-        text_files: Archivos de texto nuevos (opcional)
+        text_files: Archivos de texto nuevos (opcional; .txt, .md, .pdf, .docx)
         revision_notes: Instrucciones de revisión para el LLM (opcional, ej: "Corregir errores gramaticales")
         reuse_previous_files: Si True, reutiliza archivos del último run (automático si hay revision_notes sin archivos)
     
@@ -693,11 +693,21 @@ async def create_document_run(
                 return
             
             for upload_file in files:
+                ext = Path(upload_file.filename).suffix.lower() if upload_file.filename else ""
+                allowed = ALLOWED_UPLOAD_EXTENSIONS[kind]
+                if ext not in allowed:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=(
+                            f"Extensión no permitida para {kind}: '{ext or '(sin extensión)'}'. "
+                            f"Permitidas: {', '.join(sorted(allowed))}"
+                        ),
+                    )
+
                 counters[kind] += 1
                 asset_id = f"{prefix}{counters[kind]}"
                 
                 # Guardar archivo en temp_dir
-                ext = Path(upload_file.filename).suffix if upload_file.filename else ""
                 temp_path = temp_dir / f"{asset_id}{ext}"
                 
                 # Leer contenido y guardar

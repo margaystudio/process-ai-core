@@ -46,7 +46,7 @@ Diseño
 AUDIO_EXT = {".m4a", ".mp3", ".wav", ".ogg", ".opus", ".aac", ".webm"}
 VIDEO_EXT = {".mp4", ".mov", ".mkv"}
 IMAGE_EXT = {".png", ".jpg", ".jpeg", ".webp"}
-TEXT_EXT  = {".txt", ".md"}
+TEXT_EXT  = {".txt", ".md", ".pdf", ".docx"}
 
 
 # ============================================================

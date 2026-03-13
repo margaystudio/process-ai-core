@@ -19,11 +19,11 @@ from api.dependencies import get_current_user_id
 from process_ai_core.document_profiles import get_profile
 from process_ai_core.domain_models import RawAsset
 from process_ai_core.engine import run_process_pipeline
+from process_ai_core.upload_validation import ALLOWED_UPLOAD_EXTENSIONS
 
 from ..models.requests import ProcessMode, ProcessRunResponse
 
 router = APIRouter(prefix="/api/v1/process-runs", tags=["process-runs"])
-
 
 @router.post("", response_model=ProcessRunResponse)
 async def create_process_run(
@@ -53,7 +53,7 @@ async def create_process_run(
         audio_files: Archivos de audio (.m4a, .mp3, .wav, .ogg, .opus, .aac - incluye audios de WhatsApp)
         video_files: Archivos de video (.mp4, .mov, .mkv)
         image_files: Archivos de imagen (.png, .jpg, .jpeg, .webp)
-        text_files: Archivos de texto (.txt, .md)
+        text_files: Archivos de texto (.txt, .md, .pdf, .docx)
 
     Returns:
         ProcessRunResponse con run_id, status y paths a artefactos generados
@@ -112,11 +112,21 @@ async def create_process_run(
                 return
 
             for upload_file in files:
+                ext = Path(upload_file.filename).suffix.lower() if upload_file.filename else ""
+                allowed = ALLOWED_UPLOAD_EXTENSIONS[kind]
+                if ext not in allowed:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=(
+                            f"Extensión no permitida para {kind}: '{ext or '(sin extensión)'}'. "
+                            f"Permitidas: {', '.join(sorted(allowed))}"
+                        ),
+                    )
+
                 counters[kind] += 1
                 asset_id = f"{prefix}{counters[kind]}"
 
                 # Guardar archivo en temp_dir
-                ext = Path(upload_file.filename).suffix if upload_file.filename else ""
                 temp_path = temp_dir / f"{asset_id}{ext}"
 
                 # Leer contenido y guardar

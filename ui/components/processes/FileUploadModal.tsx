@@ -2,6 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react'
 import {
+  EXTENSIONS_BY_TYPE,
   MAX_FILE_SIZE_BYTES,
   formatFileSize,
   getFileExtension,
@@ -11,11 +12,11 @@ import {
 
 export type { FileType } from '@/lib/fileUploadValidation'
 
-const TYPE_OPTIONS: { value: FileType; label: string; extensions: string[] }[] = [
-  { value: 'audio', label: 'Audio', extensions: ['.m4a', '.mp3', '.wav', '.webm', '.ogg'] },
-  { value: 'text', label: 'Documento', extensions: ['.txt', '.md'] },
-  { value: 'image', label: 'Imagen', extensions: ['.png', '.jpg', '.jpeg', '.webp'] },
-  { value: 'video', label: 'Otro', extensions: ['.mp4', '.mov', '.mkv'] },
+const TYPE_OPTIONS: { value: FileType; label: string; extensions: readonly string[] }[] = [
+  { value: 'audio', label: 'Audio', extensions: EXTENSIONS_BY_TYPE.audio },
+  { value: 'text', label: 'Documento', extensions: EXTENSIONS_BY_TYPE.text },
+  { value: 'image', label: 'Imagen', extensions: EXTENSIONS_BY_TYPE.image },
+  { value: 'video', label: 'Otro', extensions: EXTENSIONS_BY_TYPE.video },
 ]
 
 function formatRecordingTime(seconds: number): string {
