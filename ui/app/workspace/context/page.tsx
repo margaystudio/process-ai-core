@@ -36,10 +36,13 @@ export default function ContextPage() {
   const [uploadFolderId, setUploadFolderId] = useState<string | null>(null)
   const [dragOverFolderId, setDragOverFolderId] = useState<string | null>(null)
   const [dragOverRoot, setDragOverRoot] = useState(false)
+  const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({})
   const [isFolderModalOpen, setIsFolderModalOpen] = useState(false)
   const [folderModalParentId, setFolderModalParentId] = useState<string | null>(null)
   const [folderName, setFolderName] = useState('')
   const [creatingFolder, setCreatingFolder] = useState(false)
+  const [fileToDelete, setFileToDelete] = useState<ContextFileResponse | null>(null)
+  const [deletingFile, setDeletingFile] = useState(false)
 
   const loadData = useCallback(async () => {
     if (!selectedWorkspaceId) {
@@ -169,11 +172,15 @@ export default function ContextPage() {
   const removeFile = async (id: string) => {
     if (!selectedWorkspaceId) return
     try {
+      setDeletingFile(true)
       await deleteContextFile(selectedWorkspaceId, id)
       setFiles((prev) => prev.filter((f) => f.id !== id))
       if (previewFile?.id === id) setPreviewFile(null)
+      setFileToDelete(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al eliminar')
+    } finally {
+      setDeletingFile(false)
     }
   }
 
@@ -235,6 +242,13 @@ export default function ContextPage() {
     await moveDraggedItem(payload, targetFolderId)
   }
 
+  const toggleFolderExpanded = (folderId: string) => {
+    setExpandedFolders((prev) => ({
+      ...prev,
+      [folderId]: !prev[folderId],
+    }))
+  }
+
   const renderFileRow = (file: ContextFileResponse, depth: number) => (
     <div
       key={file.id}
@@ -289,7 +303,7 @@ export default function ContextPage() {
         </button>
         {canEditWorkspace && (
           <button
-            onClick={() => removeFile(file.id)}
+            onClick={() => setFileToDelete(file)}
             className="p-1.5 text-red-600 hover:bg-red-50 rounded-md"
             title="Eliminar"
           >
@@ -306,6 +320,8 @@ export default function ContextPage() {
     const childFolders = foldersByParent.get(folder.id) || []
     const childFiles = filesByFolder.get(folder.id) || []
     const isDropActive = dragOverFolderId === folder.id
+    const isExpanded = !!expandedFolders[folder.id]
+    const hasChildren = childFolders.length > 0 || childFiles.length > 0
 
     return (
       <div key={folder.id} className="space-y-2">
@@ -328,10 +344,32 @@ export default function ContextPage() {
           style={{ marginLeft: depth * 20 }}
         >
           <div className="flex items-center gap-3 min-w-0">
-            <svg className="h-5 w-5 text-amber-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-              <path d="M2 4a2 2 0 012-2h3.172a2 2 0 011.414.586l1.828 1.828H16a2 2 0 012 2v1H2V4z" />
-              <path d="M2 8h16v6a2 2 0 01-2 2H4a2 2 0 01-2-2V8z" />
-            </svg>
+            <button
+              type="button"
+              onClick={() => toggleFolderExpanded(folder.id)}
+              className="flex items-center gap-2 rounded-md p-1 hover:bg-gray-100"
+              title={isExpanded ? 'Cerrar carpeta' : 'Abrir carpeta'}
+            >
+              <svg
+                className={`h-4 w-4 text-gray-400 transition-transform ${isExpanded ? 'rotate-90' : ''} ${hasChildren ? '' : 'opacity-40'}`}
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+              {isExpanded ? (
+                <svg className="h-5 w-5 text-amber-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                  <path d="M2 6a2 2 0 012-2h3.172a2 2 0 011.414.586l1.121 1.121A2 2 0 0011.121 6H16a2 2 0 012 2v1H2V6z" />
+                  <path d="M2 10h16l-1.2 5.4A2 2 0 0114.85 17H5.15a2 2 0 01-1.95-1.6L2 10z" />
+                </svg>
+              ) : (
+                <svg className="h-5 w-5 text-amber-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                  <path d="M2 4a2 2 0 012-2h3.172a2 2 0 011.414.586l1.828 1.828H16a2 2 0 012 2v1H2V4z" />
+                  <path d="M2 8h16v6a2 2 0 01-2 2H4a2 2 0 01-2-2V8z" />
+                </svg>
+              )}
+            </button>
             <div className="min-w-0">
               <p className="font-medium text-gray-900 truncate">{folder.name}</p>
               <p className="text-xs text-gray-500 truncate">{folder.path}</p>
@@ -359,8 +397,8 @@ export default function ContextPage() {
           )}
         </div>
 
-        {childFolders.map((child) => renderFolderNode(child, depth + 1))}
-        {childFiles.map((file) => renderFileRow(file, depth + 1))}
+        {isExpanded && childFolders.map((child) => renderFolderNode(child, depth + 1))}
+        {isExpanded && childFiles.map((file) => renderFileRow(file, depth + 1))}
       </div>
     )
   }
@@ -447,7 +485,7 @@ export default function ContextPage() {
               <p className="mt-2 text-sm text-gray-600">
                 {uploading ? 'Subiendo...' : 'Arrastra archivos aquí o haz clic para seleccionar'}
               </p>
-              <p className="mt-1 text-xs text-gray-500">
+              <p className="mt-2 text-sm font-semibold text-gray-700">
                 Destino: {uploadFolderId ? folders.find((folder) => folder.id === uploadFolderId)?.path || 'Carpeta seleccionada' : 'Raíz'}
               </p>
             </div>
@@ -598,6 +636,64 @@ export default function ContextPage() {
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {fileToDelete && (
+        <div className="fixed inset-0 z-50 overflow-y-auto">
+          <div className="flex items-center justify-center min-h-screen px-4">
+            <div
+              className="fixed inset-0 bg-black/50 transition-opacity"
+              onClick={() => !deletingFile && setFileToDelete(null)}
+            />
+
+            <div className="relative bg-white rounded-xl shadow-2xl max-w-md w-full border border-gray-200">
+              <div className="flex items-start justify-between p-5 border-b border-gray-100">
+                <div>
+                  <h2 className="text-lg font-semibold text-gray-900">Eliminar archivo</h2>
+                  <p className="text-sm text-gray-500 mt-1">
+                    Esta acción quitará el archivo del contexto y no se puede deshacer.
+                  </p>
+                </div>
+                <button
+                  onClick={() => !deletingFile && setFileToDelete(null)}
+                  className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md"
+                  aria-label="Cerrar"
+                >
+                  <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              <div className="p-5">
+                <div className="rounded-lg border border-red-100 bg-red-50 p-4">
+                  <p className="text-sm text-red-800">
+                    ¿Estás seguro que quieres eliminar <span className="font-semibold">{fileToDelete.name}</span>?
+                  </p>
+                </div>
+
+                <div className="mt-5 flex items-center justify-end gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setFileToDelete(null)}
+                    className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg"
+                    disabled={deletingFile}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => removeFile(fileToDelete.id)}
+                    className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg disabled:opacity-60"
+                    disabled={deletingFile}
+                  >
+                    {deletingFile ? 'Eliminando...' : 'Sí, eliminar'}
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
