@@ -168,7 +168,7 @@ export default function Header() {
                 <button
                   onClick={() => setDocsMenuOpen(!docsMenuOpen)}
                   className={`flex items-center space-x-1 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                    isActive('/workspace') || pathname?.startsWith('/workspace/contexto')
+                    isActive('/workspace') || pathname?.startsWith('/workspace/context')
                       ? 'bg-blue-100 text-blue-700'
                       : 'text-gray-700 hover:bg-gray-100'
                   }`}
@@ -199,10 +199,10 @@ export default function Header() {
                         Procesos
                       </Link>
                       <Link
-                        href="/workspace/contexto"
+                        href="/workspace/context"
                         onClick={() => setDocsMenuOpen(false)}
                         className={`block px-4 py-2 text-sm ${
-                          pathname?.startsWith('/workspace/contexto') ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700 hover:bg-gray-100'
+                          pathname?.startsWith('/workspace/context') ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700 hover:bg-gray-100'
                         }`}
                       >
                         Contexto
@@ -373,10 +373,10 @@ export default function Header() {
                 Procesos
               </Link>
               <Link
-                href="/workspace/contexto"
+                href="/workspace/context"
                 onClick={() => setMobileMenuOpen(false)}
                 className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                  pathname?.startsWith('/workspace/contexto') ? 'bg-blue-100 text-blue-700' : 'text-gray-700 hover:bg-gray-100'
+                  pathname?.startsWith('/workspace/context') ? 'bg-blue-100 text-blue-700' : 'text-gray-700 hover:bg-gray-100'
                 }`}
               >
                 Contexto
