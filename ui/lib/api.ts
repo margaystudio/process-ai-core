@@ -46,7 +46,22 @@ export interface WorkspaceResponse {
   name: string;
   slug: string;
   workspace_type: string;
+  role?: string | null;
+  branding_icon_url?: string | null;
+  branding_primary_color?: string | null;
+  branding_secondary_color?: string | null;
   created_at: string;
+}
+
+function normalizeWorkspaceResponse(workspace: WorkspaceResponse): WorkspaceResponse {
+  return {
+    ...workspace,
+    branding_icon_url: workspace.branding_icon_url
+      ? (workspace.branding_icon_url.startsWith('http')
+        ? workspace.branding_icon_url
+        : `${API_URL}${workspace.branding_icon_url}`)
+      : null,
+  }
 }
 
 export interface CatalogOption {
@@ -272,7 +287,8 @@ export async function listWorkspaces(): Promise<WorkspaceResponse[]> {
     throw new Error(error.detail || `HTTP ${response.status}`);
   }
 
-  return response.json();
+  const data = await response.json()
+  return data.map(normalizeWorkspaceResponse)
 }
 
 /**
@@ -290,7 +306,80 @@ export async function getUserWorkspaces(userId: string): Promise<WorkspaceRespon
 
   const data = await response.json()
   console.log('[getUserWorkspaces] Workspaces obtenidos:', data.length, data.map((ws: any) => ws.name))
-  return data
+  return data.map(normalizeWorkspaceResponse)
+}
+
+export async function uploadWorkspaceBrandingIcon(
+  workspaceId: string,
+  file: File
+): Promise<{ icon_url: string | null }> {
+  const { getAccessToken } = await import('@/lib/api-auth')
+  const token = await getAccessToken()
+  const headers: HeadersInit = {}
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`
+  }
+
+  const formData = new FormData()
+  formData.append('file', file)
+
+  const response = await fetch(`${API_URL}/api/v1/workspaces/${workspaceId}/branding/icon`, {
+    method: 'POST',
+    headers,
+    body: formData,
+  })
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error al subir el icono' }))
+    throw new Error(error.detail || `HTTP ${response.status}`)
+  }
+
+  const data = await response.json()
+  return {
+    icon_url: data.icon_url
+      ? (data.icon_url.startsWith('http') ? data.icon_url : `${API_URL}${data.icon_url}`)
+      : null,
+  }
+}
+
+export async function deleteWorkspaceBrandingIcon(
+  workspaceId: string
+): Promise<{ icon_url: string | null }> {
+  const { getAuthHeaders } = await import('@/lib/api-auth')
+  const headers = await getAuthHeaders({})
+
+  const response = await fetch(`${API_URL}/api/v1/workspaces/${workspaceId}/branding/icon`, {
+    method: 'DELETE',
+    headers,
+  })
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error al eliminar el icono' }))
+    throw new Error(error.detail || `HTTP ${response.status}`)
+  }
+
+  return response.json()
+}
+
+export async function updateWorkspaceBranding(
+  workspaceId: string,
+  branding: { primary_color: string; secondary_color: string }
+): Promise<{ primary_color: string; secondary_color: string }> {
+  const { getAuthHeaders } = await import('@/lib/api-auth')
+  const headers = await getAuthHeaders({ 'Content-Type': 'application/json' })
+
+  const response = await fetch(`${API_URL}/api/v1/workspaces/${workspaceId}/branding`, {
+    method: 'PUT',
+    headers,
+    body: JSON.stringify(branding),
+  })
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error al guardar los colores' }))
+    throw new Error(error.detail || `HTTP ${response.status}`)
+  }
+
+  return response.json()
 }
 
 /** Perfil de usuario (incluye teléfono y verificación). */
@@ -380,7 +469,7 @@ export async function addUserToWorkspace(
     throw new Error(error.detail || `HTTP ${response.status}`);
   }
 
-  return response.json();
+  return response.json()
 }
 
 /**
@@ -394,7 +483,8 @@ export async function getWorkspace(workspaceId: string): Promise<WorkspaceRespon
     throw new Error(error.detail || `HTTP ${response.status}`);
   }
 
-  return response.json();
+  const data = await response.json()
+  return normalizeWorkspaceResponse(data)
 }
 
 /**
@@ -1347,7 +1437,8 @@ export async function createB2BWorkspace(
     throw new Error(error.detail || `HTTP ${response.status}`);
   }
 
-  return response.json();
+  const data = await response.json()
+  return normalizeWorkspaceResponse(data)
 }
 
 /**
@@ -1376,7 +1467,8 @@ export async function listAllWorkspaces(
     throw new Error(error.detail || `HTTP ${response.status}`);
   }
 
-  return response.json();
+  const data = await response.json()
+  return data.map(normalizeWorkspaceResponse)
 }
 
 // ============================================================================

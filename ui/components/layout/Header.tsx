@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useState, useRef, useEffect } from 'react'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
+import { useBrandingTheme } from '@/hooks/useBrandingTheme'
 import { useUser } from '@/hooks/useUser'
 import { useUserId } from '@/hooks/useUserId'
 import { getUser } from '@/lib/api'
@@ -21,6 +22,7 @@ export default function Header() {
   const userMenuRef = useRef<HTMLDivElement>(null)
 
   const displayName = profileName ?? user?.name ?? user?.email ?? 'Usuario'
+  const { brandTextStyle } = useBrandingTheme(selectedWorkspace)
 
   useEffect(() => {
     if (!userId) {
@@ -113,10 +115,19 @@ export default function Header() {
           {/* Logo y título */}
           <div className="flex items-center">
             <Link href="/workspace" className="flex items-center space-x-3">
+              {selectedWorkspace?.branding_icon_url && (
+                <div className="flex-shrink-0 flex items-center justify-center w-12 h-12 rounded-md border border-gray-200 bg-white overflow-hidden">
+                  <img
+                    src={selectedWorkspace.branding_icon_url}
+                    alt={`Icono de ${selectedWorkspace.name}`}
+                    className="h-11 w-11 object-contain"
+                  />
+                </div>
+              )}
               <div className="flex-shrink-0 flex items-center">
                 <img
                   src="/margay-logo.png"
-                  alt="Margay Logo"
+                  alt="Logo de Process AI"
                   className="h-10 w-10 object-contain"
                   onError={(e) => {
                     // Fallback a SVG si la imagen no existe
@@ -152,7 +163,7 @@ export default function Header() {
                   <ellipse cx="50" cy="60" rx="5" ry="3" fill="#654321" opacity="0.6"/>
                 </svg>
               </div>
-              <span className="text-2xl font-bold text-blue-600">Process AI</span>
+              <span className="text-2xl font-bold" style={brandTextStyle}>Process AI</span>
             </Link>
           </div>
 

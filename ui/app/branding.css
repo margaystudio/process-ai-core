@@ -1,0 +1,92 @@
+:root {
+  --brand-primary: #2563EB;
+  --brand-secondary: #1D4ED8;
+  --brand-primary-soft: rgba(37, 99, 235, 0.12);
+  --brand-primary-soft-strong: rgba(37, 99, 235, 0.18);
+  --brand-primary-soft-subtle: rgba(37, 99, 235, 0.08);
+  --brand-primary-border: rgba(37, 99, 235, 0.32);
+  --brand-focus-ring: rgba(37, 99, 235, 0.35);
+  --brand-secondary-soft: rgba(29, 78, 216, 0.14);
+}
+
+.bg-blue-600 {
+  background-color: var(--brand-primary) !important;
+}
+
+.bg-blue-100 {
+  background-color: var(--brand-primary-soft) !important;
+}
+
+.bg-blue-50,
+.bg-blue-50\/50 {
+  background-color: var(--brand-primary-soft-subtle) !important;
+}
+
+.text-blue-600 {
+  color: var(--brand-primary) !important;
+}
+
+.text-blue-700,
+.text-blue-800,
+.text-blue-900 {
+  color: var(--brand-secondary) !important;
+}
+
+.border-blue-200 {
+  border-color: var(--brand-primary-border) !important;
+}
+
+.border-blue-500,
+.border-blue-600 {
+  border-color: var(--brand-primary) !important;
+}
+
+.hover\:bg-blue-700:hover {
+  background-color: var(--brand-secondary) !important;
+}
+
+.hover\:bg-blue-50:hover {
+  background-color: var(--brand-primary-soft-subtle) !important;
+}
+
+.hover\:text-blue-600:hover {
+  color: var(--brand-primary) !important;
+}
+
+.hover\:text-blue-700:hover,
+.hover\:text-blue-800:hover,
+.hover\:text-blue-900:hover {
+  color: var(--brand-secondary) !important;
+}
+
+.hover\:border-blue-500:hover {
+  border-color: var(--brand-primary) !important;
+}
+
+.focus\:border-blue-500:focus {
+  border-color: var(--brand-primary) !important;
+}
+
+.focus\:ring-blue-500:focus {
+  --tw-ring-color: var(--brand-focus-ring) !important;
+}
+
+.aria-selected\:bg-blue-50[aria-selected="true"] {
+  background-color: var(--brand-primary-soft-subtle) !important;
+}
+
+.aria-selected\:text-blue-700[aria-selected="true"] {
+  color: var(--brand-secondary) !important;
+}
+
+.file\:bg-blue-50::file-selector-button {
+  background-color: var(--brand-primary-soft-subtle) !important;
+}
+
+.file\:text-blue-700::file-selector-button {
+  color: var(--brand-secondary) !important;
+}
+
+.hover\:file\:bg-blue-100::file-selector-button:hover {
+  background-color: var(--brand-primary-soft) !important;
+}

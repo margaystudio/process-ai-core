@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, ChangeEvent } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import {
   getWorkspaceSubscription,
@@ -12,11 +12,15 @@ import {
   listWorkspaceInvitations,
   InvitationResponse,
   createWorkspaceInvitation,
+  uploadWorkspaceBrandingIcon,
+  deleteWorkspaceBrandingIcon,
+  updateWorkspaceBranding,
 } from '@/lib/api'
 import { useLoading } from '@/contexts/LoadingContext'
 import { useUserId } from '@/hooks/useUserId'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
 import { useCanEditWorkspace, useCanManageUsers } from '@/hooks/useHasPermission'
+import { useUserRole } from '@/hooks/useUserRole'
 import { createClient } from '@/lib/supabase/client'
 
 export default function WorkspaceSettingsPage() {
@@ -24,20 +28,29 @@ export default function WorkspaceSettingsPage() {
   const params = useParams()
   const { withLoading } = useLoading()
   const userId = useUserId()
-  const { selectedWorkspaceId, workspaces } = useWorkspace()
+  const { selectedWorkspaceId, workspaces, refreshWorkspaces } = useWorkspace()
   const workspaceId = (params?.id as string) || selectedWorkspaceId
   const { hasPermission: canEditWorkspace, loading: loadingEditPerm } = useCanEditWorkspace()
   const { hasPermission: canManageUsers, loading: loadingManagePerm } = useCanManageUsers()
+  const { role, loading: loadingRole } = useUserRole()
+  const currentWorkspace = workspaces.find((ws) => ws.id === workspaceId) || null
+  const workspaceRole = currentWorkspace?.role ?? role
   
   // Verificar si el usuario es superadmin (tiene un workspace de tipo "system")
   const isSuperadmin = workspaces.some(ws => ws.workspace_type === 'system')
   
   // Superadmin tiene acceso a la configuración de cualquier workspace
-  const hasAccess = isSuperadmin || canEditWorkspace
+  const hasAccess = isSuperadmin || canEditWorkspace || workspaceRole === 'owner' || workspaceRole === 'admin'
+  const canManageBranding = workspaceRole === 'owner' || workspaceRole === 'creator'
 
-  const [activeTab, setActiveTab] = useState<'general' | 'users' | 'subscription' | 'limits'>('general')
+  const [activeTab, setActiveTab] = useState<'general' | 'users' | 'subscription' | 'limits' | 'branding'>('general')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [brandingIconUrl, setBrandingIconUrl] = useState<string | null>(null)
+  const [brandingPrimaryColor, setBrandingPrimaryColor] = useState('#2563EB')
+  const [brandingSecondaryColor, setBrandingSecondaryColor] = useState('#1D4ED8')
+  const [brandingSaving, setBrandingSaving] = useState(false)
+  const [brandingMessage, setBrandingMessage] = useState<string | null>(null)
 
   // Subscription data
   const [subscription, setSubscription] = useState<WorkspaceSubscriptionResponse | null>(null)
@@ -52,11 +65,109 @@ export default function WorkspaceSettingsPage() {
   const [inviteMessage, setInviteMessage] = useState('')
   const [lastInvitationUrl, setLastInvitationUrl] = useState<string | null>(null)
 
+  const extractBrandingColors = (file: File): Promise<{ primary: string; secondary: string }> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => {
+        const img = new Image()
+        img.onload = () => {
+          const canvas = document.createElement('canvas')
+          const ctx = canvas.getContext('2d', { willReadFrequently: true })
+          if (!ctx) {
+            reject(new Error('No se pudo analizar el icono'))
+            return
+          }
+
+          const maxSize = 64
+          const scale = Math.min(maxSize / img.width, maxSize / img.height, 1)
+          canvas.width = Math.max(1, Math.round(img.width * scale))
+          canvas.height = Math.max(1, Math.round(img.height * scale))
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+
+          const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height)
+          const buckets = new Map<string, { count: number; rgb: [number, number, number] }>()
+
+          for (let i = 0; i < data.length; i += 4) {
+            const alpha = data[i + 3]
+            if (alpha < 64) continue
+
+            const r = data[i]
+            const g = data[i + 1]
+            const b = data[i + 2]
+            const max = Math.max(r, g, b)
+            const min = Math.min(r, g, b)
+            const saturation = max === 0 ? 0 : (max - min) / max
+            const brightness = (r + g + b) / 3
+
+            // Ignorar blancos/grises muy neutros que suelen ser fondo.
+            if (brightness > 245 || (saturation < 0.12 && brightness > 210)) continue
+
+            const qr = Math.round(r / 32) * 32
+            const qg = Math.round(g / 32) * 32
+            const qb = Math.round(b / 32) * 32
+            const key = `${qr},${qg},${qb}`
+            const existing = buckets.get(key)
+            if (existing) {
+              existing.count += 1
+            } else {
+              buckets.set(key, { count: 1, rgb: [qr, qg, qb] })
+            }
+          }
+
+          const colors = [...buckets.values()].sort((a, b) => b.count - a.count)
+          if (colors.length === 0) {
+            reject(new Error('No se pudieron detectar colores en el icono'))
+            return
+          }
+
+          const toHex = ([r, g, b]: [number, number, number]) =>
+            `#${[r, g, b].map((value) => Math.max(0, Math.min(255, value)).toString(16).padStart(2, '0')).join('').toUpperCase()}`
+
+          const distance = (a: [number, number, number], b: [number, number, number]) =>
+            Math.sqrt(
+              ((a[0] - b[0]) ** 2) +
+              ((a[1] - b[1]) ** 2) +
+              ((a[2] - b[2]) ** 2)
+            )
+
+          const primary = colors[0].rgb
+          const secondary = colors.find((color) => distance(color.rgb, primary) > 80)?.rgb || colors[Math.min(1, colors.length - 1)].rgb
+
+          resolve({
+            primary: toHex(primary),
+            secondary: toHex(secondary),
+          })
+        }
+        img.onerror = () => reject(new Error('No se pudo leer el icono'))
+        img.src = String(reader.result)
+      }
+      reader.onerror = () => reject(new Error('No se pudo procesar el icono'))
+      reader.readAsDataURL(file)
+    })
+  }
+
   useEffect(() => {
     if (workspaceId) {
       loadData()
     }
   }, [workspaceId])
+
+  useEffect(() => {
+    setBrandingIconUrl(currentWorkspace?.branding_icon_url || null)
+    setBrandingPrimaryColor(currentWorkspace?.branding_primary_color || '#2563EB')
+    setBrandingSecondaryColor(currentWorkspace?.branding_secondary_color || '#1D4ED8')
+  }, [
+    currentWorkspace?.branding_icon_url,
+    currentWorkspace?.branding_primary_color,
+    currentWorkspace?.branding_secondary_color,
+  ])
+
+  useEffect(() => {
+    if (loadingEditPerm || loadingRole) return
+    if (!hasAccess && canManageBranding) {
+      setActiveTab('branding')
+    }
+  }, [hasAccess, canManageBranding, loadingEditPerm, loadingRole])
 
   const loadData = async () => {
     if (!workspaceId) return
@@ -159,8 +270,92 @@ export default function WorkspaceSettingsPage() {
     )
   }
 
-  // Verificar permisos: solo owner/admin/superadmin pueden acceder a settings
-  if (!loadingEditPerm && !hasAccess) {
+  const availableTabs = [
+    ...(hasAccess ? [
+      { id: 'general' as const, label: 'General' },
+      { id: 'users' as const, label: 'Usuarios' },
+      { id: 'subscription' as const, label: 'Suscripción' },
+      { id: 'limits' as const, label: 'Límites y Uso' },
+    ] : []),
+    ...(canManageBranding ? [{ id: 'branding' as const, label: 'Personalización' }] : []),
+  ]
+
+  const hasAnyAccess = hasAccess || canManageBranding
+
+  const handleBrandingFileChange = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!workspaceId || !file) return
+
+    if (!['image/png', 'image/jpeg', 'image/webp', 'image/svg+xml'].includes(file.type)) {
+      setBrandingMessage('Formato no soportado. Usa PNG, JPG, WEBP o SVG.')
+      e.target.value = ''
+      return
+    }
+
+    try {
+      setBrandingSaving(true)
+      setBrandingMessage(null)
+      const [result, extractedColors] = await Promise.all([
+        uploadWorkspaceBrandingIcon(workspaceId, file),
+        extractBrandingColors(file),
+      ])
+      setBrandingIconUrl(result.icon_url)
+      setBrandingPrimaryColor(extractedColors.primary)
+      setBrandingSecondaryColor(extractedColors.secondary)
+      await updateWorkspaceBranding(workspaceId, {
+        primary_color: extractedColors.primary,
+        secondary_color: extractedColors.secondary,
+      })
+      setBrandingMessage('Icono actualizado correctamente. Los colores se tomaron automaticamente desde la imagen.')
+      await refreshWorkspaces()
+    } catch (err) {
+      setBrandingMessage(err instanceof Error ? err.message : 'No se pudo subir el icono.')
+    } finally {
+      setBrandingSaving(false)
+      e.target.value = ''
+    }
+  }
+
+  const handleDeleteBrandingIcon = async () => {
+    if (!workspaceId) return
+
+    try {
+      setBrandingSaving(true)
+      setBrandingMessage(null)
+      await deleteWorkspaceBrandingIcon(workspaceId)
+      setBrandingIconUrl(null)
+      setBrandingMessage('Icono eliminado correctamente.')
+      await refreshWorkspaces()
+    } catch (err) {
+      setBrandingMessage(err instanceof Error ? err.message : 'No se pudo eliminar el icono.')
+    } finally {
+      setBrandingSaving(false)
+    }
+  }
+
+  const handleSaveBrandingColors = async () => {
+    if (!workspaceId) return
+
+    try {
+      setBrandingSaving(true)
+      setBrandingMessage(null)
+      const result = await updateWorkspaceBranding(workspaceId, {
+        primary_color: brandingPrimaryColor,
+        secondary_color: brandingSecondaryColor,
+      })
+      setBrandingPrimaryColor(result.primary_color)
+      setBrandingSecondaryColor(result.secondary_color)
+      setBrandingMessage('Colores guardados correctamente.')
+      await refreshWorkspaces()
+    } catch (err) {
+      setBrandingMessage(err instanceof Error ? err.message : 'No se pudieron guardar los colores.')
+    } finally {
+      setBrandingSaving(false)
+    }
+  }
+
+  // Verificar permisos: owner/admin/superadmin ven settings completos; owner/creator ven personalización
+  if (!loadingEditPerm && !loadingRole && !hasAnyAccess) {
     return (
       <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
         <div className="max-w-7xl mx-auto">
@@ -172,7 +367,7 @@ export default function WorkspaceSettingsPage() {
               No tienes permisos para acceder a la configuración del espacio de trabajo.
             </p>
             <p className="text-sm text-red-700 mb-4">
-              Solo los administradores y dueños del workspace pueden acceder a esta página.
+              Solo los roles autorizados pueden acceder a esta página o a la sección de personalización.
             </p>
             <button
               onClick={() => router.push('/workspace')}
@@ -206,12 +401,7 @@ export default function WorkspaceSettingsPage() {
         <div className="bg-white shadow rounded-lg mb-6">
           <div className="border-b border-gray-200">
             <nav className="flex -mb-px">
-              {[
-                { id: 'general', label: 'General' },
-                { id: 'users', label: 'Usuarios' },
-                { id: 'subscription', label: 'Suscripción' },
-                { id: 'limits', label: 'Límites y Uso' },
-              ].map((tab) => (
+              {availableTabs.map((tab) => (
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id as any)}
@@ -229,15 +419,133 @@ export default function WorkspaceSettingsPage() {
 
           <div className="p-6">
             {/* General Tab */}
-            {activeTab === 'general' && (
+            {activeTab === 'general' && hasAccess && (
               <div>
                 <h2 className="text-xl font-semibold mb-4">Configuración General</h2>
                 <p className="text-gray-600">Configuración general del espacio de trabajo (próximamente)</p>
               </div>
             )}
 
+            {/* Branding Tab */}
+            {activeTab === 'branding' && canManageBranding && (
+              <div className="space-y-6">
+                <div>
+                  <h2 className="text-xl font-semibold mb-2">Personalización</h2>
+                  <p className="text-gray-600">
+                    Cargá un icono para este cliente. El sistema tomará automaticamente 2 colores principales desde la imagen y podrás ajustarlos manualmente si hace falta.
+                  </p>
+                </div>
+
+                <div className="rounded-lg border border-gray-200 p-6 bg-gray-50">
+                  <div className="flex flex-col md:flex-row md:items-center gap-6">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-16 w-16 items-center justify-center rounded-lg border border-gray-200 bg-white overflow-hidden">
+                        {brandingIconUrl ? (
+                          <img src={brandingIconUrl} alt="Icono del cliente" className="h-14 w-14 object-contain" />
+                        ) : (
+                          <span className="text-xs text-gray-400 text-center px-2">Sin icono</span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-white border border-gray-200">
+                          <img src="/margay-logo.png" alt="Logo de Process AI" className="h-10 w-10 object-contain" />
+                        </div>
+                        <span
+                          className="text-xl font-bold"
+                          style={
+                            brandingPrimaryColor === brandingSecondaryColor
+                              ? { color: brandingPrimaryColor }
+                              : {
+                                  backgroundImage: `linear-gradient(90deg, ${brandingPrimaryColor}, ${brandingSecondaryColor})`,
+                                  WebkitBackgroundClip: 'text',
+                                  backgroundClip: 'text',
+                                  color: 'transparent',
+                                }
+                          }
+                        >
+                          Process AI
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="space-y-4">
+                      <label className="inline-flex items-center px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-md cursor-pointer disabled:opacity-50">
+                        <input
+                          type="file"
+                          accept=".png,.jpg,.jpeg,.webp,.svg,image/png,image/jpeg,image/webp,image/svg+xml"
+                          className="sr-only"
+                          onChange={handleBrandingFileChange}
+                          disabled={brandingSaving}
+                        />
+                        {brandingSaving ? 'Guardando...' : 'Cargar icono'}
+                      </label>
+                      {brandingIconUrl && (
+                        <button
+                          type="button"
+                          onClick={handleDeleteBrandingIcon}
+                          className="block px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-100 disabled:opacity-50"
+                          disabled={brandingSaving}
+                        >
+                          Quitar icono
+                        </button>
+                      )}
+                      <p className="text-xs text-gray-500">
+                        Formatos permitidos: PNG, JPG, WEBP o SVG. Tamaño máximo: 2 MB.
+                      </p>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+                        <label className="block">
+                          <span className="block text-sm font-medium text-gray-700 mb-2">Color principal</span>
+                          <div className="flex items-center gap-3">
+                            <input
+                              type="color"
+                              value={brandingPrimaryColor}
+                              onChange={(e) => setBrandingPrimaryColor(e.target.value.toUpperCase())}
+                              className="h-11 w-14 rounded border border-gray-300 bg-white p-1"
+                              disabled={brandingSaving}
+                            />
+                            <span className="text-sm font-mono text-gray-600">{brandingPrimaryColor}</span>
+                          </div>
+                        </label>
+
+                        <label className="block">
+                          <span className="block text-sm font-medium text-gray-700 mb-2">Color secundario</span>
+                          <div className="flex items-center gap-3">
+                            <input
+                              type="color"
+                              value={brandingSecondaryColor}
+                              onChange={(e) => setBrandingSecondaryColor(e.target.value.toUpperCase())}
+                              className="h-11 w-14 rounded border border-gray-300 bg-white p-1"
+                              disabled={brandingSaving}
+                            />
+                            <span className="text-sm font-mono text-gray-600">{brandingSecondaryColor}</span>
+                          </div>
+                        </label>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={handleSaveBrandingColors}
+                        className="inline-flex items-center px-4 py-2 rounded-md text-white font-medium disabled:opacity-50"
+                        style={{ backgroundColor: brandingPrimaryColor }}
+                        disabled={brandingSaving}
+                      >
+                        {brandingSaving ? 'Guardando...' : 'Guardar colores'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {brandingMessage && (
+                    <p className={`mt-4 text-sm ${brandingMessage.includes('correctamente') ? 'text-green-700' : 'text-red-600'}`}>
+                      {brandingMessage}
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* Users Tab */}
-            {activeTab === 'users' && (
+            {activeTab === 'users' && hasAccess && (
               <div>
                 <div className="flex justify-between items-center mb-4">
                   <h2 className="text-xl font-semibold">Usuarios e Invitaciones</h2>
@@ -424,7 +732,7 @@ export default function WorkspaceSettingsPage() {
             )}
 
             {/* Subscription Tab */}
-            {activeTab === 'subscription' && (
+            {activeTab === 'subscription' && hasAccess && (
               <div>
                 <h2 className="text-xl font-semibold mb-4">Suscripción</h2>
                 {subscription ? (
@@ -492,7 +800,7 @@ export default function WorkspaceSettingsPage() {
             )}
 
             {/* Limits Tab */}
-            {activeTab === 'limits' && (
+            {activeTab === 'limits' && hasAccess && (
               <div>
                 <h2 className="text-xl font-semibold mb-4">Límites y Uso Actual</h2>
                 {limits ? (

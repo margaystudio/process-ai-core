@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import './globals.css'
+import './branding.css'
 import Header from '@/components/layout/Header'
 import { WorkspaceProvider } from '@/contexts/WorkspaceContext'
 import { LoadingProvider } from '@/contexts/LoadingContext'
