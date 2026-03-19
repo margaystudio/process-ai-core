@@ -13,11 +13,15 @@ from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from process_ai_core.db.database import get_db_session
 from process_ai_core.db.helpers import create_folder, get_folders_by_workspace, get_folder_by_id, update_folder, delete_folder
 from process_ai_core.db.models import Folder, FolderPermission, OperationalRole
 from api.dependencies import get_db, get_current_user_id
-from process_ai_core.db.permissions import get_user_role
+from process_ai_core.db.permissions import (
+    get_user_role,
+    can_view_folder,
+    can_create_in_folder,
+    has_permission,
+)
 
 from ..models.requests import (
     FolderCreateRequest, FolderResponse, FolderUpdateRequest,
@@ -27,8 +31,22 @@ from ..models.requests import (
 router = APIRouter(prefix="/api/v1/folders", tags=["folders"])
 
 
+def _require_workspace_member(session: Session, user_id: str, workspace_id: str) -> None:
+    """Lanza 403 si el usuario no es miembro del workspace."""
+    role = get_user_role(session, user_id, workspace_id)
+    if not role:
+        raise HTTPException(
+            status_code=403,
+            detail="No es miembro de este workspace",
+        )
+
+
 @router.post("", response_model=FolderResponse)
-async def create_folder_endpoint(request: FolderCreateRequest):
+async def create_folder_endpoint(
+    request: FolderCreateRequest,
+    user_id: str = Depends(get_current_user_id),
+    session: Session = Depends(get_db),
+):
     """
     Crea una nueva carpeta dentro de un workspace.
 
@@ -42,70 +60,94 @@ async def create_folder_endpoint(request: FolderCreateRequest):
         400: Si el workspace no existe
         500: Error interno del servidor
     """
-    with get_db_session() as session:
-        try:
-            # Verificar que el workspace existe
-            from process_ai_core.db.models import Workspace
-            workspace = session.query(Workspace).filter_by(id=request.workspace_id).first()
-            if not workspace:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Workspace {request.workspace_id} no encontrado"
-                )
-
-            # Verificar que la carpeta padre existe si se especifica
-            if request.parent_id:
-                parent = get_folder_by_id(session, request.parent_id)
-                if not parent:
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"Carpeta padre {request.parent_id} no encontrada"
-                    )
-
-            # Crear la carpeta
-            folder = create_folder(
-                session=session,
-                workspace_id=request.workspace_id,
-                name=request.name,
-                path=request.path or request.name,
-                parent_id=request.parent_id,
-                sort_order=request.sort_order or 0,
-                metadata=request.metadata,
-            )
-
-            # El commit se hace automáticamente por get_db_session, pero lo hacemos explícito
-            # para asegurar que se persista antes de retornar
-            session.flush()  # Flush para obtener el ID sin hacer commit aún
-
-            return FolderResponse(
-                id=folder.id,
-                workspace_id=folder.workspace_id,
-                name=folder.name,
-                path=folder.path,
-                parent_id=folder.parent_id,
-                sort_order=folder.sort_order,
-                inherits_permissions=getattr(folder, "inherits_permissions", True),
-                created_at=folder.created_at.isoformat(),
-            )
-
-        except HTTPException:
-            raise
-        except IntegrityError as e:
-            session.rollback()
+    try:
+        # Verificar que el workspace existe
+        from process_ai_core.db.models import Workspace
+        workspace = session.query(Workspace).filter_by(id=request.workspace_id).first()
+        if not workspace:
             raise HTTPException(
                 status_code=400,
-                detail=f"Error al crear carpeta: {str(e)}"
-            ) from e
-        except Exception as e:
-            session.rollback()
-            raise HTTPException(
-                status_code=500,
-                detail=f"Error interno: {str(e)}"
-            ) from e
+                detail=f"Workspace {request.workspace_id} no encontrado"
+            )
+
+        _require_workspace_member(session, user_id, request.workspace_id)
+
+        # Verificar permiso de creación en la carpeta padre (si aplica)
+        if request.parent_id:
+            parent = get_folder_by_id(session, request.parent_id)
+            if not parent:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Carpeta padre {request.parent_id} no encontrada"
+                )
+            if parent.workspace_id != request.workspace_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail="La carpeta padre no pertenece al workspace indicado",
+                )
+            if not can_create_in_folder(session, user_id, request.workspace_id, parent.id):
+                raise HTTPException(
+                    status_code=403,
+                    detail="No tiene permisos para crear en esta carpeta",
+                )
+        else:
+            # Para carpetas raíz, exigir permiso global de creación en el workspace.
+            user_role = get_user_role(session, user_id, request.workspace_id)
+            role_name = user_role.name if user_role else None
+            if role_name not in ("owner", "admin") and not has_permission(
+                session, user_id, request.workspace_id, "documents.create"
+            ):
+                raise HTTPException(
+                    status_code=403,
+                    detail="No tiene permisos para crear carpetas en este workspace",
+                )
+
+        # Crear la carpeta
+        folder = create_folder(
+            session=session,
+            workspace_id=request.workspace_id,
+            name=request.name,
+            path=request.path or request.name,
+            parent_id=request.parent_id,
+            sort_order=request.sort_order or 0,
+            metadata=request.metadata,
+        )
+
+        session.flush()
+
+        return FolderResponse(
+            id=folder.id,
+            workspace_id=folder.workspace_id,
+            name=folder.name,
+            path=folder.path,
+            parent_id=folder.parent_id,
+            sort_order=folder.sort_order,
+            inherits_permissions=getattr(folder, "inherits_permissions", True),
+            created_at=folder.created_at.isoformat(),
+        )
+
+    except HTTPException:
+        raise
+    except IntegrityError as e:
+        session.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail=f"Error al crear carpeta: {str(e)}"
+        ) from e
+    except Exception as e:
+        session.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error interno: {str(e)}"
+        ) from e
 
 
 @router.get("", response_model=list[FolderResponse])
-async def list_folders(workspace_id: str = None):
+async def list_folders(
+    workspace_id: str = None,
+    user_id: str = Depends(get_current_user_id),
+    session: Session = Depends(get_db),
+):
     """
     Lista todas las carpetas de un workspace.
 
@@ -120,21 +162,27 @@ async def list_folders(workspace_id: str = None):
             status_code=400,
             detail="workspace_id es requerido"
         )
-    with get_db_session() as session:
-        folders = get_folders_by_workspace(session, workspace_id)
-        return [
-            FolderResponse(
-                id=f.id,
-                workspace_id=f.workspace_id,
-                name=f.name,
-                path=f.path,
-                parent_id=f.parent_id,
-                sort_order=f.sort_order,
-                inherits_permissions=getattr(f, "inherits_permissions", True),
-                created_at=f.created_at.isoformat(),
-            )
-            for f in folders
-        ]
+
+    _require_workspace_member(session, user_id, workspace_id)
+
+    folders = get_folders_by_workspace(session, workspace_id)
+    visible_folders = [
+        f for f in folders
+        if can_view_folder(session, user_id, workspace_id, f.id)
+    ]
+    return [
+        FolderResponse(
+            id=f.id,
+            workspace_id=f.workspace_id,
+            name=f.name,
+            path=f.path,
+            parent_id=f.parent_id,
+            sort_order=f.sort_order,
+            inherits_permissions=getattr(f, "inherits_permissions", True),
+            created_at=f.created_at.isoformat(),
+        )
+        for f in visible_folders
+    ]
 
 
 @router.get("/{folder_id}/permissions")
@@ -201,7 +249,11 @@ async def update_folder_permissions(
 
 
 @router.get("/{folder_id}", response_model=FolderResponse)
-async def get_folder(folder_id: str):
+async def get_folder(
+    folder_id: str,
+    user_id: str = Depends(get_current_user_id),
+    session: Session = Depends(get_db),
+):
     """
     Obtiene una carpeta por su ID.
 
@@ -214,28 +266,39 @@ async def get_folder(folder_id: str):
     Raises:
         404: Si la carpeta no existe
     """
-    with get_db_session() as session:
-        folder = get_folder_by_id(session, folder_id)
-        if not folder:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Carpeta {folder_id} no encontrada"
-            )
-
-        return FolderResponse(
-            id=folder.id,
-            workspace_id=folder.workspace_id,
-            name=folder.name,
-            path=folder.path,
-            parent_id=folder.parent_id,
-            sort_order=folder.sort_order,
-            inherits_permissions=getattr(folder, "inherits_permissions", True),
-            created_at=folder.created_at.isoformat(),
+    folder = get_folder_by_id(session, folder_id)
+    if not folder:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Carpeta {folder_id} no encontrada"
         )
+
+    _require_workspace_member(session, user_id, folder.workspace_id)
+    if not can_view_folder(session, user_id, folder.workspace_id, folder.id):
+        raise HTTPException(
+            status_code=403,
+            detail="No tiene permisos para acceder a esta carpeta",
+        )
+
+    return FolderResponse(
+        id=folder.id,
+        workspace_id=folder.workspace_id,
+        name=folder.name,
+        path=folder.path,
+        parent_id=folder.parent_id,
+        sort_order=folder.sort_order,
+        inherits_permissions=getattr(folder, "inherits_permissions", True),
+        created_at=folder.created_at.isoformat(),
+    )
 
 
 @router.put("/{folder_id}", response_model=FolderResponse)
-async def update_folder_endpoint(folder_id: str, request: FolderUpdateRequest):
+async def update_folder_endpoint(
+    folder_id: str,
+    request: FolderUpdateRequest,
+    user_id: str = Depends(get_current_user_id),
+    session: Session = Depends(get_db),
+):
     """
     Actualiza una carpeta existente.
 
@@ -251,48 +314,86 @@ async def update_folder_endpoint(folder_id: str, request: FolderUpdateRequest):
         400: Si hay errores de validación (ciclos, etc.)
         500: Error interno del servidor
     """
-    with get_db_session() as session:
-        try:
-            folder = update_folder(
-                session=session,
-                folder_id=folder_id,
-                name=request.name,
-                path=request.path,
-                parent_id=request.parent_id,
-                sort_order=request.sort_order,
-                inherits_permissions=request.inherits_permissions,
-                metadata=request.metadata,
+    try:
+        existing = get_folder_by_id(session, folder_id)
+        if not existing:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Carpeta {folder_id} no encontrada",
             )
 
-            session.commit()
-
-            return FolderResponse(
-                id=folder.id,
-                workspace_id=folder.workspace_id,
-                name=folder.name,
-                path=folder.path,
-                parent_id=folder.parent_id,
-                sort_order=folder.sort_order,
-                inherits_permissions=getattr(folder, "inherits_permissions", True),
-                created_at=folder.created_at.isoformat(),
+        _require_workspace_member(session, user_id, existing.workspace_id)
+        if not can_create_in_folder(session, user_id, existing.workspace_id, existing.id):
+            raise HTTPException(
+                status_code=403,
+                detail="No tiene permisos para actualizar esta carpeta",
             )
 
-        except ValueError as e:
-            session.rollback()
-            raise HTTPException(
-                status_code=400,
-                detail=str(e)
-            ) from e
-        except Exception as e:
-            session.rollback()
-            raise HTTPException(
-                status_code=500,
-                detail=f"Error interno: {str(e)}"
-            ) from e
+        if request.parent_id:
+            parent = get_folder_by_id(session, request.parent_id)
+            if not parent:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Carpeta padre {request.parent_id} no encontrada",
+                )
+            if parent.workspace_id != existing.workspace_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail="La carpeta padre debe pertenecer al mismo workspace",
+                )
+            if not can_create_in_folder(session, user_id, existing.workspace_id, parent.id):
+                raise HTTPException(
+                    status_code=403,
+                    detail="No tiene permisos para mover/actualizar en la carpeta destino",
+                )
+
+        folder = update_folder(
+            session=session,
+            folder_id=folder_id,
+            name=request.name,
+            path=request.path,
+            parent_id=request.parent_id,
+            sort_order=request.sort_order,
+            inherits_permissions=request.inherits_permissions,
+            metadata=request.metadata,
+        )
+
+        session.flush()
+
+        return FolderResponse(
+            id=folder.id,
+            workspace_id=folder.workspace_id,
+            name=folder.name,
+            path=folder.path,
+            parent_id=folder.parent_id,
+            sort_order=folder.sort_order,
+            inherits_permissions=getattr(folder, "inherits_permissions", True),
+            created_at=folder.created_at.isoformat(),
+        )
+
+    except HTTPException:
+        raise
+    except ValueError as e:
+        session.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail=str(e)
+        ) from e
+    except Exception as e:
+        session.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error interno: {str(e)}"
+        ) from e
 
 
 @router.delete("/{folder_id}")
-async def delete_folder_endpoint(folder_id: str, move_documents_to: str = None):
+async def delete_folder_endpoint(
+    folder_id: str,
+    move_documents_to: str = None,
+    user_id: str = Depends(get_current_user_id),
+    session: Session = Depends(get_db),
+):
     """
     Elimina una carpeta.
 
@@ -308,31 +409,64 @@ async def delete_folder_endpoint(folder_id: str, move_documents_to: str = None):
         400: Si la carpeta tiene subcarpetas o hay otros errores
         500: Error interno del servidor
     """
-    with get_db_session() as session:
-        try:
-            delete_folder(
-                session=session,
-                folder_id=folder_id,
-                move_documents_to=move_documents_to if move_documents_to else None,
+    try:
+        folder = get_folder_by_id(session, folder_id)
+        if not folder:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Carpeta {folder_id} no encontrada",
             )
 
-            session.commit()
-
-            return {
-                "message": f"Carpeta {folder_id} eliminada exitosamente",
-                "folder_id": folder_id,
-            }
-
-        except ValueError as e:
-            session.rollback()
+        _require_workspace_member(session, user_id, folder.workspace_id)
+        if not can_create_in_folder(session, user_id, folder.workspace_id, folder.id):
             raise HTTPException(
-                status_code=400,
-                detail=str(e)
-            ) from e
-        except Exception as e:
-            session.rollback()
-            raise HTTPException(
-                status_code=500,
-                detail=f"Error interno: {str(e)}"
-            ) from e
+                status_code=403,
+                detail="No tiene permisos para eliminar esta carpeta",
+            )
+
+        if move_documents_to:
+            destination_folder = get_folder_by_id(session, move_documents_to)
+            if not destination_folder:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Carpeta destino {move_documents_to} no encontrada",
+                )
+            if destination_folder.workspace_id != folder.workspace_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail="La carpeta destino debe pertenecer al mismo workspace",
+                )
+            if not can_create_in_folder(session, user_id, folder.workspace_id, destination_folder.id):
+                raise HTTPException(
+                    status_code=403,
+                    detail="No tiene permisos para mover documentos a la carpeta destino",
+                )
+
+        delete_folder(
+            session=session,
+            folder_id=folder_id,
+            move_documents_to=move_documents_to if move_documents_to else None,
+        )
+
+        session.flush()
+
+        return {
+            "message": f"Carpeta {folder_id} eliminada exitosamente",
+            "folder_id": folder_id,
+        }
+
+    except HTTPException:
+        raise
+    except ValueError as e:
+        session.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail=str(e)
+        ) from e
+    except Exception as e:
+        session.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error interno: {str(e)}"
+        ) from e
 
