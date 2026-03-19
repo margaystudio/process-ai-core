@@ -245,6 +245,7 @@ async def update_folder_permissions(
                 operational_role_id=rid,
             )
             session.add(fp)
+    session.commit()
     return {"message": "Permisos actualizados", "folder_id": folder_id}
 
 
