@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
 import re
 import uuid
+from datetime import datetime, UTC
 
 from process_ai_core.db.models import (
     Workspace, OperationalRole, UserOperationalRole, WorkspaceMembership,
@@ -148,6 +149,7 @@ async def update_operational_role(
         role.description = request.description
     if request.is_active is not None:
         role.is_active = request.is_active
+    role.updated_at = datetime.now(UTC)
     session.flush()
     return OperationalRoleResponse(
         id=role.id,
@@ -205,6 +207,7 @@ async def assign_operational_roles_to_membership(
         )
         session.add(uor)
     session.flush()
+    session.commit()
     return {"message": "Roles operativos asignados", "membership_id": membership_id}
 
 

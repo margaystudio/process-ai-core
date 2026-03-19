@@ -1,13 +1,13 @@
 """
-Endpoints para gesti?n de validaciones de documentos.
+Endpoints para gestion de validaciones de documentos.
 
-Este m?dulo maneja:
-- POST /api/v1/documents/{document_id}/validate - Crear validaci?n
-- POST /api/v1/validations/{validation_id}/approve - Aprobar validaci?n (y versi?n asociada)
-- POST /api/v1/validations/{validation_id}/reject - Rechazar validaci?n con observaciones (texto libre y/o estructuradas)
+Este modulo maneja:
+- POST /api/v1/documents/{document_id}/validate - Crear validacion
+- POST /api/v1/validations/{validation_id}/approve - Aprobar validacion (y version asociada)
+- POST /api/v1/validations/{validation_id}/reject - Rechazar validacion con observaciones (texto libre y/o estructuradas)
 - GET /api/v1/documents/{document_id}/validations - Listar validaciones de un documento
 
-Nota: Los endpoints de versiones (submit, clone) est?n en api/routes/documents.py
+Nota: Los endpoints de versiones (submit, clone) estan en api/routes/documents.py
 """
 
 from fastapi import APIRouter, HTTPException, Body, Depends
@@ -71,14 +71,14 @@ async def create_document_validation(
     request: ValidationCreateRequest = Body(...),
 ):
     """
-    Crea una nueva validaci?n para un documento.
+    Crea una nueva validacion para un documento.
     
     Args:
         document_id: ID del documento
-        request: Datos de la validaci?n (run_id opcional, observations, checklist_json)
+        request: Datos de la validacion (run_id opcional, observations, checklist_json)
     
     Returns:
-        ValidationResponse con la validaci?n creada
+        ValidationResponse con la validacion creada
     """
     with get_db_session() as session:
         doc = session.query(Document).filter_by(id=document_id).first()
@@ -97,14 +97,14 @@ async def create_document_validation(
                     detail=f"Run {request.run_id} no encontrado para el documento {document_id}"
                 )
         
-        # Buscar versi?n IN_REVIEW existente para asociar la validaci?n
+        # Buscar version IN_REVIEW existente para asociar la validacion
         from process_ai_core.db.models import DocumentVersion
         version_in_review = session.query(DocumentVersion).filter_by(
             document_id=document_id,
             version_status="IN_REVIEW"
         ).first()
         
-        # Crear validaci?n
+        # Crear validacion
         validation = create_validation(
             session=session,
             document_id=document_id,
@@ -112,16 +112,16 @@ async def create_document_validation(
             observations=request.observations,
             checklist_json=request.checklist_json,
         )
-        session.flush()  # Flush para obtener el ID de la validaci?n
+        session.flush()  # Flush para obtener el ID de la validacion
         
-        # Si hay una versi?n IN_REVIEW, asociarla a la validaci?n
+        # Si hay una version IN_REVIEW, asociarla a la validacion
         if version_in_review:
             version_in_review.validation_id = validation.id
-            logger.info(f"Validaci?n {validation.id} asociada a versi?n IN_REVIEW {version_in_review.id}")
+            logger.info(f"Validacion {validation.id} asociada a version IN_REVIEW {version_in_review.id}")
         else:
-            logger.warning(f"No hay versi?n IN_REVIEW para el documento {document_id}. La validaci?n {validation.id} no est? asociada a ninguna versi?n.")
+            logger.warning(f"No hay version IN_REVIEW para el documento {document_id}. La validacion {validation.id} no esta asociada a ninguna version.")
         
-        # Actualizar estado del documento a pending_validation si no lo est?
+        # Actualizar estado del documento a pending_validation si no lo esta
         if doc.status != "pending_validation":
             doc.status = "pending_validation"
         
@@ -163,20 +163,20 @@ async def approve_document_validation_direct(
     session: Session = Depends(get_db),
 ):
     """
-    Aprueba directamente una versi?n IN_REVIEW del documento (one-shot validation).
+    Aprueba directamente una version IN_REVIEW del documento (one-shot validation).
     
     Este endpoint:
-    1. Busca la versi?n IN_REVIEW del documento
+    1. Busca la version IN_REVIEW del documento
     2. Si no existe, devuelve 400
-    3. Usa el validation_id asociado a la versi?n (creado en submit)
-    4. Ejecuta approve_version que cambia la versi?n a APPROVED
+    3. Usa el validation_id asociado a la version (creado en submit)
+    4. Ejecuta approve_version que cambia la version a APPROVED
     
     Solo usuarios con permisos para aprobar documentos pueden usar este endpoint.
     
     Args:
         document_id: ID del documento
         request: Observaciones opcionales
-        user_id: ID del usuario (extra?do del JWT)
+        user_id: ID del usuario (extraido del JWT)
     
     Returns:
         ValidationDecisionResponse con version_id, version_status, validation_id, document_status
@@ -207,29 +207,29 @@ async def approve_document_validation_direct(
             detail="No tiene acceso para aprobar documentos en la carpeta de este documento"
         )
     
-    # Buscar versi?n IN_REVIEW
+    # Buscar version IN_REVIEW
     version = get_in_review_version(session, document_id)
     if not version:
         raise HTTPException(
             status_code=400,
-            detail=f"No hay versi?n IN_REVIEW para el documento {document_id}. El documento debe estar en estado 'pending_validation' con una versi?n enviada a revisi?n."
+            detail=f"No hay version IN_REVIEW para el documento {document_id}. El documento debe estar en estado 'pending_validation' con una version enviada a revision."
         )
     
-    # Validar segregaci?n de funciones: el creador no puede aprobar su propia versi?n
+    # Validar segregacion de funciones: el creador no puede aprobar su propia version
     if version.created_by and version.created_by == user_id:
         raise HTTPException(
             status_code=403,
-            detail="No puedes aprobar una versi?n que creaste. Debe validarla otro usuario."
+            detail="No puedes aprobar una version que creaste. Debe validarla otro usuario."
         )
     
     # Loggear warning si created_by es NULL (versiones antiguas)
     if not version.created_by:
-        logger.warning(f"Versi?n {version.id} no tiene created_by. Permitir validaci?n pero registrar en logs.")
+        logger.warning(f"Version {version.id} no tiene created_by. Permitir validacion pero registrar en logs.")
     
-    # Verificar que la versi?n tenga validation_id asociado (deber?a existir desde submit)
+    # Verificar que la version tenga validation_id asociado (deberia existir desde submit)
     if not version.validation_id:
-        # Si no tiene validation_id, crear una validaci?n pendiente y asociarla
-        logger.warning(f"Versi?n {version.id} no tiene validation_id asociado, creando validaci?n")
+        # Si no tiene validation_id, crear una validacion pendiente y asociarla
+        logger.warning(f"Version {version.id} no tiene validation_id asociado, creando validacion")
         validation = create_validation(
             session=session,
             document_id=document_id,
@@ -246,7 +246,7 @@ async def approve_document_validation_direct(
         if validation and request.observations:
             validation.observations = request.observations
     
-    # Aprobar versi?n usando el helper existente
+    # Aprobar version usando el helper existente
     try:
         approved_version = approve_version(
             session=session,
@@ -275,13 +275,13 @@ async def reject_document_validation_direct(
     session: Session = Depends(get_db),
 ):
     """
-    Rechaza directamente una versi?n IN_REVIEW del documento (one-shot validation).
+    Rechaza directamente una version IN_REVIEW del documento (one-shot validation).
     
     Este endpoint:
-    1. Busca la versi?n IN_REVIEW del documento
+    1. Busca la version IN_REVIEW del documento
     2. Si no existe, devuelve 400
-    3. Usa el validation_id asociado a la versi?n (creado en submit)
-    4. Ejecuta reject_version que cambia la versi?n a REJECTED
+    3. Usa el validation_id asociado a la version (creado en submit)
+    4. Ejecuta reject_version que cambia la version a REJECTED
     
     Las observaciones son OBLIGATORIAS para rechazar.
     
@@ -290,7 +290,7 @@ async def reject_document_validation_direct(
     Args:
         document_id: ID del documento
         request: Observaciones (REQUIRED)
-        user_id: ID del usuario (extra?do del JWT)
+        user_id: ID del usuario (extraido del JWT)
     
     Returns:
         ValidationDecisionResponse con version_id, version_status, validation_id, document_status
@@ -298,7 +298,7 @@ async def reject_document_validation_direct(
     from process_ai_core.db.permissions import has_permission
     from process_ai_core.db.models import Document, DocumentVersion, Validation
     
-    # Validar que observations no est? vac?o
+    # Validar que observations no este vacio
     if not request.observations or not request.observations.strip():
         raise HTTPException(
             status_code=400,
@@ -328,29 +328,29 @@ async def reject_document_validation_direct(
             detail="No tiene acceso para rechazar documentos en la carpeta de este documento"
         )
     
-    # Buscar versi?n IN_REVIEW
+    # Buscar version IN_REVIEW
     version = get_in_review_version(session, document_id)
     if not version:
         raise HTTPException(
             status_code=400,
-            detail=f"No hay versi?n IN_REVIEW para el documento {document_id}. El documento debe estar en estado 'pending_validation' con una versi?n enviada a revisi?n."
+            detail=f"No hay version IN_REVIEW para el documento {document_id}. El documento debe estar en estado 'pending_validation' con una version enviada a revision."
         )
     
-    # Validar segregaci?n de funciones: el creador no puede rechazar su propia versi?n
+    # Validar segregacion de funciones: el creador no puede rechazar su propia version
     if version.created_by and version.created_by == user_id:
         raise HTTPException(
             status_code=403,
-            detail="No puedes rechazar una versi?n que creaste. Debe validarla otro usuario."
+            detail="No puedes rechazar una version que creaste. Debe validarla otro usuario."
         )
     
     # Loggear warning si created_by es NULL (versiones antiguas)
     if not version.created_by:
-        logger.warning(f"Versi?n {version.id} no tiene created_by. Permitir validaci?n pero registrar en logs.")
+        logger.warning(f"Version {version.id} no tiene created_by. Permitir validacion pero registrar en logs.")
     
-    # Verificar que la versi?n tenga validation_id asociado (deber?a existir desde submit)
+    # Verificar que la version tenga validation_id asociado (deberia existir desde submit)
     if not version.validation_id:
-        # Si no tiene validation_id, crear una validaci?n pendiente y asociarla
-        logger.warning(f"Versi?n {version.id} no tiene validation_id asociado, creando validaci?n")
+        # Si no tiene validation_id, crear una validacion pendiente y asociarla
+        logger.warning(f"Version {version.id} no tiene validation_id asociado, creando validacion")
         validation = create_validation(
             session=session,
             document_id=document_id,
@@ -362,7 +362,7 @@ async def reject_document_validation_direct(
         version.validation_id = validation.id
         session.flush()
     
-    # Rechazar versi?n usando el helper existente
+    # Rechazar version usando el helper existente
     try:
         rejected_version = reject_version(
             session=session,
@@ -392,23 +392,23 @@ async def approve_document_validation(
     workspace_id: str = Body(..., embed=True),
 ):
     """
-    Aprueba una validaci?n (y su versi?n asociada).
+    Aprueba una validacion (y su version asociada).
     
     Cuando se aprueba:
-    - La versi?n IN_REVIEW cambia a APPROVED
-    - Se marca como versi?n actual (is_current=True)
-    - La versi?n anterior APPROVED se marca como OBSOLETE
+    - La version IN_REVIEW cambia a APPROVED
+    - Se marca como version actual (is_current=True)
+    - La version anterior APPROVED se marca como OBSOLETE
     - El estado del documento pasa a "approved"
     
     Solo usuarios con permisos para aprobar documentos pueden usar este endpoint.
     
     Args:
-        validation_id: ID de la validaci?n
+        validation_id: ID de la validacion
         user_id: ID del usuario que aprueba
         workspace_id: ID del workspace
     
     Returns:
-        ValidationResponse con la validaci?n aprobada
+        ValidationResponse con la validacion aprobada
     """
     with get_db_session() as session:
         # Verificar permisos
@@ -424,7 +424,7 @@ async def approve_document_validation(
         if not validation:
             raise HTTPException(
                 status_code=404,
-                detail=f"Validaci?n {validation_id} no encontrada"
+                detail=f"Validacion {validation_id} no encontrada"
             )
         
         # Verificar que el documento pertenece al workspace
@@ -450,10 +450,10 @@ async def approve_document_validation(
         if validation.status != "pending":
             raise HTTPException(
                 status_code=400,
-                detail=f"La validaci?n ya est? {validation.status}, no se puede aprobar"
+                detail=f"La validacion ya esta {validation.status}, no se puede aprobar"
             )
         
-        # Aprobar versi?n usando el nuevo helper
+        # Aprobar version usando el nuevo helper
         try:
             approved_version = approve_version(
                 session=session,
@@ -486,33 +486,33 @@ async def reject_document_validation(
     session: Session = Depends(get_db),
 ):
     """
-    Rechaza una validaci?n (y su versi?n asociada) con observaciones.
+    Rechaza una validacion (y su version asociada) con observaciones.
     
     Cuando se rechaza:
-    - La versi?n IN_REVIEW cambia a REJECTED
+    - La version IN_REVIEW cambia a REJECTED
     - El estado del documento pasa a "rejected"
-    - Las observaciones (texto libre y/o estructuradas) se guardan para correcci?n posterior
+    - Las observaciones (texto libre y/o estructuradas) se guardan para correccion posterior
     
     Solo usuarios con permisos para rechazar documentos pueden usar este endpoint.
     
     Args:
-        validation_id: ID de la validaci?n
+        validation_id: ID de la validacion
         request: Observaciones del rechazo (texto libre y/o estructuradas)
         user_id: ID del usuario que rechaza
         workspace_id: ID del workspace
     
     Returns:
-        ValidationResponse con la validaci?n rechazada
+        ValidationResponse con la validacion rechazada
     """
     # Verificar permisos
     from process_ai_core.db.permissions import has_permission
     
-    # Obtener la validaci?n para encontrar el documento y workspace
+    # Obtener la validacion para encontrar el documento y workspace
     validation = session.query(Validation).filter_by(id=validation_id).first()
     if not validation:
         raise HTTPException(
             status_code=404,
-            detail=f"Validaci?n {validation_id} no encontrada"
+            detail=f"Validacion {validation_id} no encontrada"
         )
     
     # Obtener el documento para verificar workspace
@@ -541,54 +541,54 @@ async def reject_document_validation(
     if validation.status != "pending":
         raise HTTPException(
             status_code=400,
-            detail=f"La validaci?n ya est? {validation.status}, no se puede rechazar"
+            detail=f"La validacion ya esta {validation.status}, no se puede rechazar"
         )
     
-    # Intentar encontrar o asociar una versi?n IN_REVIEW
+    # Intentar encontrar o asociar una version IN_REVIEW
     from process_ai_core.db.models import DocumentVersion
     version = session.query(DocumentVersion).filter_by(validation_id=validation_id).first()
     
     if not version:
-        # Buscar versi?n IN_REVIEW para este documento
+        # Buscar version IN_REVIEW para este documento
         version_in_review = session.query(DocumentVersion).filter_by(
             document_id=validation.document_id,
             version_status="IN_REVIEW"
         ).first()
         if version_in_review:
-            # Asociar la versi?n a la validaci?n
+            # Asociar la version a la validacion
             version_in_review.validation_id = validation_id
             session.flush()
             version = version_in_review
-            logger.info(f"Validaci?n {validation_id} asociada a versi?n IN_REVIEW {version.id} durante el rechazo")
+            logger.info(f"Validacion {validation_id} asociada a version IN_REVIEW {version.id} durante el rechazo")
     
     # Validar formato de observaciones estructuradas si se proporcionan
     structured_obs = None
     if request.structured_observations:
-        # Validar que cada observaci?n tenga los campos requeridos
+        # Validar que cada observacion tenga los campos requeridos
         for obs in request.structured_observations:
             if not isinstance(obs, dict):
                 raise HTTPException(
                     status_code=400,
-                    detail="Cada observaci?n estructurada debe ser un objeto/diccionario"
+                    detail="Cada observacion estructurada debe ser un objeto/diccionario"
                 )
             required_fields = ["section", "comment", "severity"]
             missing = [f for f in required_fields if f not in obs]
             if missing:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Observaci?n estructurada incompleta. Faltan campos: {', '.join(missing)}"
+                    detail=f"Observacion estructurada incompleta. Faltan campos: {', '.join(missing)}"
                 )
             if obs["severity"] not in ("low", "medium", "high", "critical"):
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Severidad inv?lida: {obs['severity']}. Debe ser: low, medium, high, critical"
+                    detail=f"Severidad invalida: {obs['severity']}. Debe ser: low, medium, high, critical"
                 )
         structured_obs = request.structured_observations
     
-    # Si hay versi?n asociada, usar reject_version (que maneja el rechazo de la versi?n)
-    # Si no hay versi?n, solo rechazar la validaci?n directamente usando reject_validation
+    # Si hay version asociada, usar reject_version (que maneja el rechazo de la version)
+    # Si no hay version, solo rechazar la validacion directamente usando reject_validation
     if version:
-        # Hay versi?n, usar el helper reject_version que maneja todo
+        # Hay version, usar el helper reject_version que maneja todo
         try:
             rejected_version = reject_version(
                 session=session,
@@ -602,8 +602,8 @@ async def reject_document_validation(
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
     else:
-        # No hay versi?n, solo rechazar la validaci?n (flujo legacy o validaci?n sin versi?n)
-        logger.warning(f"Rechazando validaci?n {validation_id} sin versi?n asociada (flujo legacy)")
+        # No hay version, solo rechazar la validacion (flujo legacy o validacion sin version)
+        logger.warning(f"Rechazando validacion {validation_id} sin version asociada (flujo legacy)")
         try:
             # Si hay observaciones estructuradas, guardarlas en checklist_json
             checklist_data = {}
@@ -655,7 +655,7 @@ async def get_document_validations(document_id: str):
         document_id: ID del documento
     
     Returns:
-        Lista de ValidationResponse ordenadas por fecha de creaci?n (m?s recientes primero)
+        Lista de ValidationResponse ordenadas por fecha de creacion (mas recientes primero)
     """
     with get_db_session() as session:
         doc = session.query(Document).filter_by(id=document_id).first()
