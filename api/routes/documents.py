@@ -44,26 +44,42 @@ from process_ai_core.db.permissions import has_permission
 router = APIRouter(prefix="/api/v1/documents", tags=["documents"])
 
 
-def _extract_open_questions_metadata(session, document_id: str) -> Optional[dict[str, Any]]:
+def _extract_open_questions_metadata(session, doc: Document) -> Optional[dict[str, Any]]:
     """
-    Extrae metadata de "preguntas_abiertas" desde la última versión del documento.
+    Extrae metadata de "preguntas_abiertas" desde una versión aprobada del documento.
 
     Esta metadata se usa para mostrar preguntas pendientes en la UI fuera del PDF.
     """
-    latest_version = (
-        session.query(DocumentVersion)
-        .filter(
-            DocumentVersion.document_id == document_id,
-            DocumentVersion.content_json.isnot(None),
+    approved_version = None
+
+    if doc.approved_version_id:
+        approved_version = (
+            session.query(DocumentVersion)
+            .filter(
+                DocumentVersion.id == doc.approved_version_id,
+                DocumentVersion.document_id == doc.id,
+                DocumentVersion.content_json.isnot(None),
+            )
+            .first()
         )
-        .order_by(DocumentVersion.version_number.desc(), DocumentVersion.created_at.desc())
-        .first()
-    )
-    if not latest_version or not latest_version.content_json:
+
+    if approved_version is None:
+        approved_version = (
+            session.query(DocumentVersion)
+            .filter(
+                DocumentVersion.document_id == doc.id,
+                DocumentVersion.version_status == "APPROVED",
+                DocumentVersion.content_json.isnot(None),
+            )
+            .order_by(DocumentVersion.version_number.desc(), DocumentVersion.created_at.desc())
+            .first()
+        )
+
+    if not approved_version or not approved_version.content_json:
         return None
 
     try:
-        parsed = json.loads(latest_version.content_json)
+        parsed = json.loads(approved_version.content_json)
     except (json.JSONDecodeError, TypeError):
         return None
 
@@ -330,7 +346,7 @@ async def get_document(
             name=doc.name,
             description=doc.description,
             status=doc.status,
-            metadata=_extract_open_questions_metadata(session, doc.id),
+            metadata=_extract_open_questions_metadata(session, doc),
             created_at=doc.created_at.isoformat(),
         )
 
