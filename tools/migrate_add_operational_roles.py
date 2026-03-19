@@ -20,6 +20,8 @@ def migrate():
     """Ejecuta la migración."""
     with get_db_session() as session:
         try:
+            dialect_name = session.bind.dialect.name if session.bind else "sqlite"
+
             # 1. Tabla operational_roles
             print("Creando tabla 'operational_roles'...")
             session.execute(text("""
@@ -95,9 +97,12 @@ def migrate():
             # 4. Columna inherits_permissions en folders
             print("Agregando columna 'inherits_permissions' a 'folders'...")
             try:
+                # SQLite no tiene tipo BOOLEAN nativo (usa INTEGER 0/1).
+                # Para motores con soporte, usamos BOOLEAN para portabilidad.
+                inherits_permissions_type = "INTEGER" if dialect_name == "sqlite" else "BOOLEAN"
                 session.execute(text("""
-                    ALTER TABLE folders ADD COLUMN inherits_permissions INTEGER DEFAULT 1
-                """))
+                    ALTER TABLE folders ADD COLUMN inherits_permissions {inherits_permissions_type} DEFAULT 1
+                """.format(inherits_permissions_type=inherits_permissions_type)))
                 print("  OK Columna inherits_permissions agregada")
             except Exception as e:
                 if "duplicate column name" in str(e).lower() or "already exists" in str(e).lower():

@@ -35,6 +35,23 @@ def _slugify(name: str) -> str:
     return s[:100] or "rol"
 
 
+def _make_unique_slug(session: Session, workspace_id: str, base_slug: str) -> str:
+    """
+    Genera un slug único en un workspace usando sufijos incrementales.
+    Ej: rol, rol_2, rol_3...
+    """
+    base = (base_slug or "rol")[:100] or "rol"
+    slug = base
+    counter = 2
+
+    while session.query(OperationalRole).filter_by(workspace_id=workspace_id, slug=slug).first():
+        suffix = f"_{counter}"
+        slug = f"{base[:100 - len(suffix)]}{suffix}"
+        counter += 1
+
+    return slug
+
+
 def _require_workspace_admin(session: Session, user_id: str, workspace_id: str) -> None:
     """Lanza 403 si el usuario no es owner/admin del workspace."""
     role = get_user_role(session, user_id, workspace_id)
@@ -84,10 +101,13 @@ async def create_operational_role(
     ws = session.query(Workspace).filter_by(id=workspace_id).first()
     if not ws:
         raise HTTPException(status_code=404, detail="Workspace no encontrado")
-    slug = request.slug or _slugify(request.name)
-    existing = session.query(OperationalRole).filter_by(workspace_id=workspace_id, slug=slug).first()
-    if existing:
-        raise HTTPException(status_code=400, detail=f"Ya existe un rol operativo con slug '{slug}' en este workspace")
+    if request.slug:
+        slug = request.slug
+        existing = session.query(OperationalRole).filter_by(workspace_id=workspace_id, slug=slug).first()
+        if existing:
+            raise HTTPException(status_code=400, detail=f"Ya existe un rol operativo con slug '{slug}' en este workspace")
+    else:
+        slug = _make_unique_slug(session, workspace_id, _slugify(request.name))
     role = OperationalRole(
         id=str(uuid.uuid4()),
         workspace_id=workspace_id,
