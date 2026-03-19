@@ -7,14 +7,22 @@ Este endpoint maneja:
 - GET /api/v1/folders/{folder_id}: Obtener una carpeta
 """
 
-from fastapi import APIRouter, HTTPException
+import uuid
+
+from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
 from process_ai_core.db.database import get_db_session
 from process_ai_core.db.helpers import create_folder, get_folders_by_workspace, get_folder_by_id, update_folder, delete_folder
-from process_ai_core.db.models import Folder
+from process_ai_core.db.models import Folder, FolderPermission, OperationalRole
+from api.dependencies import get_db, get_current_user_id
+from process_ai_core.db.permissions import get_user_role
 
-from ..models.requests import FolderCreateRequest, FolderResponse, FolderUpdateRequest
+from ..models.requests import (
+    FolderCreateRequest, FolderResponse, FolderUpdateRequest,
+    FolderPermissionsUpdateRequest,
+)
 
 router = APIRouter(prefix="/api/v1/folders", tags=["folders"])
 
@@ -76,6 +84,7 @@ async def create_folder_endpoint(request: FolderCreateRequest):
                 path=folder.path,
                 parent_id=folder.parent_id,
                 sort_order=folder.sort_order,
+                inherits_permissions=getattr(folder, "inherits_permissions", True),
                 created_at=folder.created_at.isoformat(),
             )
 
@@ -121,10 +130,74 @@ async def list_folders(workspace_id: str = None):
                 path=f.path,
                 parent_id=f.parent_id,
                 sort_order=f.sort_order,
+                inherits_permissions=getattr(f, "inherits_permissions", True),
                 created_at=f.created_at.isoformat(),
             )
             for f in folders
         ]
+
+
+@router.get("/{folder_id}/permissions")
+async def get_folder_permissions(
+    folder_id: str,
+    user_id: str = Depends(get_current_user_id),
+    session: Session = Depends(get_db),
+):
+    """
+    Obtiene los permisos de una carpeta (roles operativos con acceso).
+    Requiere ser miembro del workspace (owner/admin para ver permisos).
+    """
+    folder = session.query(Folder).filter_by(id=folder_id).first()
+    if not folder:
+        raise HTTPException(status_code=404, detail="Carpeta no encontrada")
+    role = get_user_role(session, user_id, folder.workspace_id)
+    if not role:
+        raise HTTPException(status_code=403, detail="No es miembro de este workspace")
+    inherits = getattr(folder, "inherits_permissions", True)
+    perms = session.query(FolderPermission).filter_by(folder_id=folder_id).all()
+    role_ids = [p.operational_role_id for p in perms]
+    roles = session.query(OperationalRole).filter(OperationalRole.id.in_(role_ids)).all() if role_ids else []
+    role_list = [{"id": r.id, "name": r.name, "slug": r.slug} for r in roles]
+    return {
+        "folder_id": folder_id,
+        "inherits_permissions": inherits,
+        "operational_role_ids": role_ids,
+        "operational_roles": role_list,
+    }
+
+
+@router.put("/{folder_id}/permissions")
+async def update_folder_permissions(
+    folder_id: str,
+    request: FolderPermissionsUpdateRequest,
+    user_id: str = Depends(get_current_user_id),
+    session: Session = Depends(get_db),
+):
+    """
+    Actualiza los permisos de una carpeta (herencia y roles operativos con acceso).
+    Requiere ser owner o admin del workspace.
+    """
+    folder = session.query(Folder).filter_by(id=folder_id).first()
+    if not folder:
+        raise HTTPException(status_code=404, detail="Carpeta no encontrada")
+    role = get_user_role(session, user_id, folder.workspace_id)
+    if not role or role.name not in ("owner", "admin"):
+        raise HTTPException(status_code=403, detail="Se requiere rol owner o admin")
+    if request.inherits_permissions is not None:
+        folder.inherits_permissions = request.inherits_permissions
+    if request.operational_role_ids is not None:
+        session.query(FolderPermission).filter_by(folder_id=folder_id).delete()
+        for rid in request.operational_role_ids:
+            r = session.query(OperationalRole).filter_by(id=rid, workspace_id=folder.workspace_id).first()
+            if not r:
+                raise HTTPException(status_code=400, detail=f"Rol operativo {rid} no existe o no pertenece al workspace")
+            fp = FolderPermission(
+                id=str(uuid.uuid4()),
+                folder_id=folder_id,
+                operational_role_id=rid,
+            )
+            session.add(fp)
+    return {"message": "Permisos actualizados", "folder_id": folder_id}
 
 
 @router.get("/{folder_id}", response_model=FolderResponse)
@@ -156,6 +229,7 @@ async def get_folder(folder_id: str):
             path=folder.path,
             parent_id=folder.parent_id,
             sort_order=folder.sort_order,
+            inherits_permissions=getattr(folder, "inherits_permissions", True),
             created_at=folder.created_at.isoformat(),
         )
 
@@ -186,6 +260,7 @@ async def update_folder_endpoint(folder_id: str, request: FolderUpdateRequest):
                 path=request.path,
                 parent_id=request.parent_id,
                 sort_order=request.sort_order,
+                inherits_permissions=request.inherits_permissions,
                 metadata=request.metadata,
             )
 
@@ -198,6 +273,7 @@ async def update_folder_endpoint(folder_id: str, request: FolderUpdateRequest):
                 path=folder.path,
                 parent_id=folder.parent_id,
                 sort_order=folder.sort_order,
+                inherits_permissions=getattr(folder, "inherits_permissions", True),
                 created_at=folder.created_at.isoformat(),
             )
 

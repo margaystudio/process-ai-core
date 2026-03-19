@@ -200,6 +200,12 @@ async def approve_document_validation_direct(
             status_code=403,
             detail="No tiene permisos para aprobar documentos"
         )
+    from process_ai_core.db.permissions import can_approve_in_folder
+    if not can_approve_in_folder(session, user_id, workspace_id, doc.folder_id):
+        raise HTTPException(
+            status_code=403,
+            detail="No tiene acceso para aprobar documentos en la carpeta de este documento"
+        )
     
     # Buscar versi?n IN_REVIEW
     version = get_in_review_version(session, document_id)
@@ -315,6 +321,12 @@ async def reject_document_validation_direct(
             status_code=403,
             detail="No tiene permisos para rechazar documentos"
         )
+    from process_ai_core.db.permissions import can_approve_in_folder
+    if not can_approve_in_folder(session, user_id, workspace_id, doc.folder_id):
+        raise HTTPException(
+            status_code=403,
+            detail="No tiene acceso para rechazar documentos en la carpeta de este documento"
+        )
     
     # Buscar versi?n IN_REVIEW
     version = get_in_review_version(session, document_id)
@@ -428,6 +440,12 @@ async def approve_document_validation(
                 status_code=403,
                 detail="Documento no pertenece a este workspace"
             )
+        from process_ai_core.db.permissions import can_approve_in_folder
+        if not can_approve_in_folder(session, user_id, workspace_id, doc.folder_id):
+            raise HTTPException(
+                status_code=403,
+                detail="No tiene acceso para aprobar documentos en la carpeta de este documento"
+            )
         
         if validation.status != "pending":
             raise HTTPException(
@@ -512,6 +530,12 @@ async def reject_document_validation(
         raise HTTPException(
             status_code=403,
             detail="No tiene permisos para rechazar documentos"
+        )
+    from process_ai_core.db.permissions import can_approve_in_folder
+    if not can_approve_in_folder(session, user_id, workspace_id, doc.folder_id):
+        raise HTTPException(
+            status_code=403,
+            detail="No tiene acceso para rechazar documentos en la carpeta de este documento"
         )
     
     if validation.status != "pending":

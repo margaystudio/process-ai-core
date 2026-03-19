@@ -11,7 +11,11 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
-from .models import Role, Permission, RolePermission, WorkspaceMembership, User
+from .models import (
+    Role, Permission, RolePermission, WorkspaceMembership, User,
+    Folder, OperationalRole, UserOperationalRole, FolderPermission,
+)
+from .helpers import get_folder_by_id
 
 
 def has_permission(
@@ -255,6 +259,143 @@ def assign_permission_to_role(
     )
     session.add(role_permission)
     return role_permission
+
+
+# --- Roles operativos y permisos por carpeta ---
+
+
+def _is_superadmin(session: Session, user_id: str) -> bool:
+    """True si el usuario es superadmin (rol superadmin en cualquier workspace)."""
+    superadmin_role = session.query(Role).filter_by(name="superadmin", is_system=True).first()
+    if not superadmin_role:
+        return False
+    return session.query(WorkspaceMembership).filter_by(
+        user_id=user_id,
+        role_id=superadmin_role.id,
+    ).first() is not None
+
+
+def _get_user_system_role_name(session: Session, user_id: str, workspace_id: str) -> str | None:
+    """Devuelve el nombre del rol de sistema del usuario en el workspace (owner, admin, approver, creator, viewer)."""
+    role = get_user_role(session, user_id, workspace_id)
+    return role.name if role else None
+
+
+def _get_user_operational_role_ids(session: Session, user_id: str, workspace_id: str) -> set[str]:
+    """IDs de roles operativos asignados al usuario en el workspace."""
+    membership = session.query(WorkspaceMembership).filter_by(
+        user_id=user_id,
+        workspace_id=workspace_id,
+    ).first()
+    if not membership:
+        return set()
+    rows = (
+        session.query(UserOperationalRole.operational_role_id)
+        .filter_by(workspace_membership_id=membership.id)
+        .all()
+    )
+    return {r[0] for r in rows}
+
+
+def _get_folder_allowed_operational_role_ids(session: Session, folder_id: str) -> set[str]:
+    """
+    IDs de roles operativos que pueden acceder a la carpeta.
+    Si inherits_permissions es True, sube al padre hasta encontrar permisos explícitos.
+    Si la carpeta raíz hereda y no tiene permisos, se considera que no hay restricción (todos).
+    """
+    folder = get_folder_by_id(session, folder_id)
+    if not folder:
+        return set()
+    visited: set[str] = set()
+    current = folder
+    while current:
+        if current.id in visited:
+            return set()
+        visited.add(current.id)
+        if not getattr(current, "inherits_permissions", True):
+            rows = (
+                session.query(FolderPermission.operational_role_id)
+                .filter_by(folder_id=current.id)
+                .all()
+            )
+            return {r[0] for r in rows}
+        if current.parent_id:
+            current = get_folder_by_id(session, current.parent_id)
+        else:
+            return set()
+    return set()
+
+
+def _has_folder_access_by_operational_roles(
+    session: Session, user_id: str, workspace_id: str, folder_id: str
+) -> bool:
+    """
+    True si el usuario tiene acceso a la carpeta por roles operativos.
+    Si la carpeta no tiene restricciones (lista vacía o raíz heredando), True.
+    """
+    allowed = _get_folder_allowed_operational_role_ids(session, folder_id)
+    if not allowed:
+        # Sin restricciones en la carpeta: cualquier miembro del workspace puede (por rol de sistema)
+        return True
+    user_roles = _get_user_operational_role_ids(session, user_id, workspace_id)
+    return bool(user_roles & allowed)
+
+
+def can_view_folder(
+    session: Session, user_id: str, workspace_id: str, folder_id: str
+) -> bool:
+    """
+    Verifica si un usuario puede ver (acceder a) una carpeta.
+    superadmin/owner/admin: bypass. Luego: membership + acceso por rol operativo + permiso documents.view.
+    """
+    if _is_superadmin(session, user_id):
+        return True
+    role_name = _get_user_system_role_name(session, user_id, workspace_id)
+    if role_name in ("owner", "admin"):
+        return True
+    if not role_name:
+        return False
+    if not has_permission(session, user_id, workspace_id, "documents.view"):
+        return False
+    return _has_folder_access_by_operational_roles(session, user_id, workspace_id, folder_id)
+
+
+def can_create_in_folder(
+    session: Session, user_id: str, workspace_id: str, folder_id: str
+) -> bool:
+    """
+    Verifica si un usuario puede crear documentos en una carpeta.
+    superadmin/owner/admin: bypass. Luego: acceso por rol operativo + permiso documents.create.
+    """
+    if _is_superadmin(session, user_id):
+        return True
+    role_name = _get_user_system_role_name(session, user_id, workspace_id)
+    if role_name in ("owner", "admin"):
+        return True
+    if not role_name:
+        return False
+    if not has_permission(session, user_id, workspace_id, "documents.create"):
+        return False
+    return _has_folder_access_by_operational_roles(session, user_id, workspace_id, folder_id)
+
+
+def can_approve_in_folder(
+    session: Session, user_id: str, workspace_id: str, folder_id: str
+) -> bool:
+    """
+    Verifica si un usuario puede aprobar/rechazar documentos en una carpeta.
+    superadmin/owner/admin: bypass. Luego: acceso por rol operativo + permiso documents.approve.
+    """
+    if _is_superadmin(session, user_id):
+        return True
+    role_name = _get_user_system_role_name(session, user_id, workspace_id)
+    if role_name in ("owner", "admin"):
+        return True
+    if not role_name:
+        return False
+    if not has_permission(session, user_id, workspace_id, "documents.approve"):
+        return False
+    return _has_folder_access_by_operational_roles(session, user_id, workspace_id, folder_id)
 
 
 
