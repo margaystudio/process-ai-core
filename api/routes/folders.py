@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from process_ai_core.db.helpers import create_folder, get_folders_by_workspace, get_folder_by_id, update_folder, delete_folder
 from process_ai_core.db.models import Folder, FolderPermission, OperationalRole
 from api.dependencies import get_db, get_current_user_id
+from api.dependencies import is_superadmin
 from process_ai_core.db.permissions import (
     get_user_role,
     can_view_folder,
@@ -198,9 +199,24 @@ async def get_folder_permissions(
     folder = session.query(Folder).filter_by(id=folder_id).first()
     if not folder:
         raise HTTPException(status_code=404, detail="Carpeta no encontrada")
+
+    # Superadmin tiene acceso global a la configuración.
+    if is_superadmin(user_id, session):
+        inherits = getattr(folder, "inherits_permissions", True)
+        perms = session.query(FolderPermission).filter_by(folder_id=folder_id).all()
+        role_ids = [p.operational_role_id for p in perms]
+        roles = session.query(OperationalRole).filter(OperationalRole.id.in_(role_ids)).all() if role_ids else []
+        role_list = [{"id": r.id, "name": r.name, "slug": r.slug} for r in roles]
+        return {
+            "folder_id": folder_id,
+            "inherits_permissions": inherits,
+            "operational_role_ids": role_ids,
+            "operational_roles": role_list,
+        }
+
     role = get_user_role(session, user_id, folder.workspace_id)
-    if not role:
-        raise HTTPException(status_code=403, detail="No es miembro de este workspace")
+    if not role or role.name not in ("owner", "admin"):
+        raise HTTPException(status_code=403, detail="Se requiere rol owner o admin")
     inherits = getattr(folder, "inherits_permissions", True)
     perms = session.query(FolderPermission).filter_by(folder_id=folder_id).all()
     role_ids = [p.operational_role_id for p in perms]
