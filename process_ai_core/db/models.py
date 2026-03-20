@@ -60,6 +60,8 @@ class Workspace(Base):
     documents: Mapped[list["Document"]] = relationship(back_populates="workspace")
     memberships: Mapped[list["WorkspaceMembership"]] = relationship(back_populates="workspace")
     folders: Mapped[list["Folder"]] = relationship(back_populates="workspace")
+    context_folders: Mapped[list["ContextFolder"]] = relationship("ContextFolder", back_populates="workspace", cascade="all, delete-orphan")
+    context_files: Mapped[list["ContextFile"]] = relationship("ContextFile", back_populates="workspace", cascade="all, delete-orphan")
     operational_roles: Mapped[list["OperationalRole"]] = relationship(back_populates="workspace")
     subscription: Mapped["WorkspaceSubscription | None"] = relationship("WorkspaceSubscription", back_populates="workspace", uselist=False)
     invitations: Mapped[list["WorkspaceInvitation"]] = relationship("WorkspaceInvitation", foreign_keys="WorkspaceInvitation.workspace_id")
@@ -156,6 +158,53 @@ class Recipe(Document):
     __mapper_args__ = {
         "polymorphic_identity": "recipe",
     }
+
+
+class ContextFolder(Base):
+    """
+    Carpeta jerárquica para organizar archivos de contexto de un workspace.
+
+    Soporta subcarpetas mediante `parent_id` y mantiene `path` para facilitar
+    renderizado y futuras búsquedas.
+    """
+    __tablename__ = "context_folders"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    workspace_id: Mapped[str] = mapped_column(String(36), ForeignKey("workspaces.id"), index=True)
+    name: Mapped[str] = mapped_column(String(200))
+    path: Mapped[str] = mapped_column(String(500), default="")
+    parent_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("context_folders.id"), nullable=True, index=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    workspace: Mapped["Workspace"] = relationship("Workspace", back_populates="context_folders")
+    parent: Mapped["ContextFolder | None"] = relationship("ContextFolder", remote_side="ContextFolder.id", back_populates="children")
+    children: Mapped[list["ContextFolder"]] = relationship("ContextFolder", back_populates="parent")
+    files: Mapped[list["ContextFile"]] = relationship("ContextFile", back_populates="folder")
+
+
+class ContextFile(Base):
+    """
+    Archivo de contexto del negocio asociado a un workspace.
+    
+    Almacena manuales, políticas, descripciones que enriquecen la generación de procesos.
+    Para TXT/MD el contenido se guarda en `content` para inyectarlo en el prompt.
+    Para PDF/DOC se guarda el archivo en disco (file_path) para futura extracción.
+    """
+    __tablename__ = "context_files"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    workspace_id: Mapped[str] = mapped_column(String(36), ForeignKey("workspaces.id"), index=True)
+    folder_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("context_folders.id"), nullable=True, index=True)
+    name: Mapped[str] = mapped_column(String(255))
+    file_path: Mapped[str] = mapped_column(String(500))  # Ruta relativa en output/context/{workspace_id}/
+    content: Mapped[str | None] = mapped_column(Text, nullable=True)  # Texto extraído (TXT/MD) para el prompt
+    file_type: Mapped[str] = mapped_column(String(50), default="")  # MIME o extensión
+    size: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    workspace: Mapped["Workspace"] = relationship("Workspace", back_populates="context_files")
+    folder: Mapped["ContextFolder | None"] = relationship("ContextFolder", back_populates="files")
 
 
 class Folder(Base):

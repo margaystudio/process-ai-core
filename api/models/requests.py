@@ -216,6 +216,51 @@ class DocumentUpdateRequest(BaseModel):
     cook_time: Optional[str] = Field(default=None, description="Tiempo de cocción")
 
 
+class ContextFileResponse(BaseModel):
+    """Response de un archivo de contexto."""
+
+    id: str = Field(..., description="ID único del archivo")
+    workspace_id: str = Field(..., description="ID del workspace")
+    folder_id: Optional[str] = Field(default=None, description="ID de la carpeta de contexto")
+    name: str = Field(..., description="Nombre del archivo")
+    size: int = Field(..., description="Tamaño en bytes")
+    file_type: str = Field(default="", description="Tipo MIME o extensión")
+    content: Optional[str] = Field(default=None, description="Contenido extraído (TXT/MD) para prompt")
+    created_at: str = Field(..., description="Fecha de carga")
+
+
+class ContextFolderCreateRequest(BaseModel):
+    """Request para crear una carpeta de contexto."""
+
+    name: str = Field(..., description="Nombre de la carpeta")
+    parent_id: Optional[str] = Field(default=None, description="ID de la carpeta padre")
+
+
+class ContextFolderMoveRequest(BaseModel):
+    """Request para mover o renombrar una carpeta de contexto."""
+
+    parent_id: Optional[str] = Field(default=None, description="Nuevo parent_id")
+    name: Optional[str] = Field(default=None, description="Nuevo nombre de la carpeta")
+
+
+class ContextFolderResponse(BaseModel):
+    """Response de una carpeta de contexto."""
+
+    id: str = Field(..., description="ID único de la carpeta")
+    workspace_id: str = Field(..., description="ID del workspace")
+    name: str = Field(..., description="Nombre de la carpeta")
+    path: str = Field(..., description="Path jerárquico de la carpeta")
+    parent_id: Optional[str] = Field(default=None, description="ID de la carpeta padre")
+    sort_order: int = Field(..., description="Orden de visualización")
+    created_at: str = Field(..., description="Fecha de creación")
+
+
+class ContextFileMoveRequest(BaseModel):
+    """Request para mover un archivo de contexto a otra carpeta."""
+
+    folder_id: Optional[str] = Field(default=None, description="ID de la carpeta destino; null para raíz")
+
+
 class DocumentResponse(BaseModel):
     """Response de un documento."""
 

@@ -18,7 +18,9 @@ export default function Header() {
   const [profileName, setProfileName] = useState<string | null>(null)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
+  const [docsMenuOpen, setDocsMenuOpen] = useState(false)
   const userMenuRef = useRef<HTMLDivElement>(null)
+  const docsMenuRef = useRef<HTMLDivElement>(null)
 
   const displayName = profileName ?? user?.name ?? user?.email ?? 'Usuario'
 
@@ -62,22 +64,25 @@ export default function Header() {
     return pathname?.startsWith(path)
   }
 
-  // Cerrar menú de usuario al hacer click fuera
+  // Cerrar menús al hacer click fuera
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (userMenuRef.current && !userMenuRef.current.contains(event.target as Node)) {
         setUserMenuOpen(false)
       }
+      if (docsMenuRef.current && !docsMenuRef.current.contains(event.target as Node)) {
+        setDocsMenuOpen(false)
+      }
     }
 
-    if (userMenuOpen) {
+    if (userMenuOpen || docsMenuOpen) {
       document.addEventListener('mousedown', handleClickOutside)
     }
 
     return () => {
       document.removeEventListener('mousedown', handleClickOutside)
     }
-  }, [userMenuOpen])
+  }, [userMenuOpen, docsMenuOpen])
 
   // Cerrar sesión
   const handleSignOut = async () => {
@@ -159,16 +164,53 @@ export default function Header() {
           {/* Navegación principal - Desktop (solo en rutas privadas) */}
           {!isPublicRoute && (
             <nav className="hidden md:flex items-center space-x-1">
-              <Link
-                href="/workspace"
-                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                  isActive('/workspace')
-                    ? 'bg-blue-100 text-blue-700'
-                    : 'text-gray-700 hover:bg-gray-100'
-                }`}
-              >
-                Documentos
-              </Link>
+              <div className="relative" ref={docsMenuRef}>
+                <button
+                  onClick={() => setDocsMenuOpen(!docsMenuOpen)}
+                  className={`flex items-center space-x-1 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                    isActive('/workspace') || pathname?.startsWith('/workspace/context')
+                      ? 'bg-blue-100 text-blue-700'
+                      : 'text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  <span>Documentos</span>
+                  <svg
+                    className={`h-4 w-4 transition-transform ${docsMenuOpen ? 'rotate-180' : ''}`}
+                    fill="none"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+                {docsMenuOpen && (
+                  <div className="absolute left-0 mt-1 w-48 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 z-50">
+                    <div className="py-1">
+                      <Link
+                        href="/workspace"
+                        onClick={() => setDocsMenuOpen(false)}
+                        className={`block px-4 py-2 text-sm ${
+                          pathname === '/workspace' ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700 hover:bg-gray-100'
+                        }`}
+                      >
+                        Procesos
+                      </Link>
+                      <Link
+                        href="/workspace/context"
+                        onClick={() => setDocsMenuOpen(false)}
+                        className={`block px-4 py-2 text-sm ${
+                          pathname?.startsWith('/workspace/context') ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700 hover:bg-gray-100'
+                        }`}
+                      >
+                        Contexto
+                      </Link>
+                    </div>
+                  </div>
+                )}
+              </div>
               {isSuperadmin && (
                 <Link
                   href="/clients"
@@ -318,16 +360,26 @@ export default function Header() {
         {!isPublicRoute && mobileMenuOpen && (
           <div className="md:hidden border-t border-gray-200 py-4">
             <nav className="flex flex-col space-y-1">
+              <div className="px-4 py-2 text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Documentos
+              </div>
               <Link
                 href="/workspace"
                 onClick={() => setMobileMenuOpen(false)}
                 className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                  isActive('/workspace')
-                    ? 'bg-blue-100 text-blue-700'
-                    : 'text-gray-700 hover:bg-gray-100'
+                  pathname === '/workspace' ? 'bg-blue-100 text-blue-700' : 'text-gray-700 hover:bg-gray-100'
                 }`}
               >
-                Documentos
+                Procesos
+              </Link>
+              <Link
+                href="/workspace/context"
+                onClick={() => setMobileMenuOpen(false)}
+                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                  pathname?.startsWith('/workspace/context') ? 'bg-blue-100 text-blue-700' : 'text-gray-700 hover:bg-gray-100'
+                }`}
+              >
+                Contexto
               </Link>
               {isSuperadmin && (
                 <Link
