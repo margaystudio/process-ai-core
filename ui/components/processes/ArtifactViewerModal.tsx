@@ -27,14 +27,14 @@ export default function ArtifactViewerModal({
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [pdfUrl, setPdfUrl] = useState<string | null>(null)
-  const [pdfZoom, setPdfZoom] = useState(100)
+  const [pdfFrameLoading, setPdfFrameLoading] = useState(false)
   const blobUrlRef = useRef<string | null>(null)
 
   useEffect(() => {
     if (!isOpen) {
       setContent(null)
       setPdfUrl(null)
-      setPdfZoom(100)
+      setPdfFrameLoading(false)
       setError(null)
       if (blobUrlRef.current) {
         URL.revokeObjectURL(blobUrlRef.current)
@@ -59,6 +59,7 @@ export default function ArtifactViewerModal({
         }
 
         if (type === 'pdf') {
+          setPdfFrameLoading(true)
           const urlWithCacheBust = `${absoluteUrl}${absoluteUrl.includes('?') ? '&' : '?'}t=${Date.now()}`
           try {
             const response = await fetch(urlWithCacheBust, {
@@ -76,8 +77,8 @@ export default function ArtifactViewerModal({
                 const blobUrl = URL.createObjectURL(blob)
                 blobUrlRef.current = blobUrl
                 setPdfUrl(blobUrl)
-                setPdfZoom(100)
               } else if (!isPdfBytes && blob.size < 10000) {
+                setPdfFrameLoading(false)
                 const text = await blob.text()
                 setError(text.slice(0, 200) || 'La respuesta no es un PDF válido.')
               } else {
@@ -118,15 +119,18 @@ export default function ArtifactViewerModal({
     }
   }, [isOpen, runId, filename, type, versionPreviewPdf?.documentId, versionPreviewPdf?.versionId])
 
+  useEffect(() => {
+    if (error) {
+      setPdfFrameLoading(false)
+    }
+  }, [error])
+
   if (!isOpen) return null
 
   const pdfViewerSrc = pdfUrl
-    ? `${pdfUrl}#toolbar=1&navpanes=0&statusbar=0&messages=0&zoom=${pdfZoom}`
+    ? `${pdfUrl}#toolbar=1&navpanes=0&statusbar=0&messages=0`
     : null
-
-  const handleZoomIn = () => setPdfZoom((z) => Math.min(300, z + 10))
-  const handleZoomOut = () => setPdfZoom((z) => Math.max(50, z - 10))
-  const handleZoomReset = () => setPdfZoom(100)
+  const showPdfLoadingState = type === 'pdf' && !error && !pdfUrl
 
   const getTitle = () => {
     switch (type) {
@@ -151,7 +155,7 @@ export default function ArtifactViewerModal({
         />
 
         {/* Modal */}
-        <div className="relative bg-white rounded-lg shadow-xl max-w-6xl w-full max-h-[90vh] flex flex-col">
+        <div className="relative bg-white rounded-lg shadow-xl max-w-6xl w-full h-[90vh] flex flex-col">
           {/* Header */}
           <div className="flex items-center justify-between p-6 border-b border-gray-200">
             <h2 className="text-xl font-semibold text-gray-900">{getTitle()}</h2>
@@ -164,8 +168,23 @@ export default function ArtifactViewerModal({
           </div>
 
           {/* Content */}
-          <div className="flex-1 overflow-auto p-6">
-            {loading ? (
+          <div
+            className={`flex-1 min-h-0 p-6 ${
+              type === 'pdf' && pdfUrl && !loading && !error ? 'overflow-hidden' : 'overflow-auto'
+            }`}
+          >
+            {showPdfLoadingState ? (
+              <div className="flex h-full min-h-[24rem] items-center justify-center rounded-lg border border-gray-200 bg-white">
+                <div className="flex flex-col items-center gap-4">
+                  <img
+                    src="/margay-spiner.png"
+                    alt="Cargando PDF"
+                    className="h-16 w-16 object-contain animate-spin"
+                  />
+                  <p className="text-sm font-medium text-gray-600">Cargando PDF...</p>
+                </div>
+              </div>
+            ) : loading ? (
               <div className="flex items-center justify-center h-96">
                 <div className="text-center">
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2"></div>
@@ -179,32 +198,8 @@ export default function ArtifactViewerModal({
                 </div>
               </div>
             ) : type === 'pdf' && pdfUrl ? (
-              <div className="border border-gray-200 rounded-lg overflow-hidden">
-                <div className="flex items-center justify-between gap-3 p-3 border-b border-gray-200 bg-gray-50">
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={handleZoomOut}
-                      className="px-3 py-1.5 text-sm border border-gray-300 rounded-md hover:bg-gray-100"
-                    >
-                      -
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleZoomReset}
-                      className="px-3 py-1.5 text-sm border border-gray-300 rounded-md hover:bg-gray-100"
-                    >
-                      {pdfZoom}%
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleZoomIn}
-                      className="px-3 py-1.5 text-sm border border-gray-300 rounded-md hover:bg-gray-100"
-                    >
-                      +
-                    </button>
-                  </div>
-
+              <div className="relative h-full min-h-0 border border-gray-200 rounded-lg overflow-hidden flex flex-col">
+                <div className="flex items-center justify-end gap-3 p-3 border-b border-gray-200 bg-gray-50">
                   <div className="flex items-center gap-2">
                     <a
                       href={pdfUrl}
@@ -214,20 +209,26 @@ export default function ArtifactViewerModal({
                     >
                       Abrir en pestaña
                     </a>
-                    <a
-                      href={pdfUrl}
-                      download={filename || 'preview.pdf'}
-                      className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700"
-                    >
-                      Descargar
-                    </a>
                   </div>
                 </div>
                 <iframe
                   src={pdfViewerSrc ?? undefined}
-                  className="w-full h-[600px]"
+                  className="w-full h-full min-h-0"
                   title="Preview del PDF"
+                  onLoad={() => setPdfFrameLoading(false)}
                 />
+                {pdfFrameLoading && (
+                  <div className="absolute inset-0 z-10 flex items-center justify-center bg-white">
+                    <div className="flex flex-col items-center gap-4">
+                      <img
+                        src="/margay-spiner.png"
+                        alt="Cargando PDF"
+                        className="h-16 w-16 object-contain animate-spin"
+                      />
+                      <p className="text-sm font-medium text-gray-600">Cargando PDF...</p>
+                    </div>
+                  </div>
+                )}
               </div>
             ) : type === 'json' && content ? (
               <div className="border border-gray-200 rounded-lg overflow-hidden">

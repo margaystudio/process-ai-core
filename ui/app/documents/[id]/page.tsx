@@ -1171,14 +1171,24 @@ export default function DocumentDetailPage() {
               
               {/* Opciones de corrección: en rechazado o en borrador (creador puede modificar contenido) */}
               {(document.status === 'rejected' || (document.status === 'draft' && allowEditMetadata)) && (
-                <div className="mt-6 p-4 bg-yellow-50 rounded-lg border border-yellow-200">
+                <div
+                  className={`mt-6 p-4 rounded-lg border ${
+                    document.status === 'draft'
+                      ? 'bg-blue-50 border-blue-200'
+                      : 'bg-yellow-50 border-yellow-200'
+                  }`}
+                >
                   <div className="flex items-center justify-between mb-4">
                     <h3 className="text-lg font-medium text-gray-900">
                       {document.status === 'draft' ? 'Modificar contenido del documento' : 'Corregir Documento'}
                     </h3>
                     <button
                       onClick={() => setShowCorrectionOptions(!showCorrectionOptions)}
-                      className="px-4 py-2 bg-yellow-600 text-white rounded-md hover:bg-yellow-700 text-sm font-medium"
+                      className={`px-4 py-2 text-white rounded-md text-sm font-medium ${
+                        document.status === 'draft'
+                          ? 'bg-blue-600 hover:bg-blue-700'
+                          : 'bg-yellow-600 hover:bg-yellow-700'
+                      }`}
                     >
                       {showCorrectionOptions ? 'Ocultar' : 'Mostrar Opciones'}
                     </button>
