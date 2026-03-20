@@ -373,6 +373,8 @@ async def delete_workspace_branding_icon(
 
     branding = _get_workspace_branding(workspace)
     branding.pop("client_icon_filename", None)
+    branding.pop("primary_color", None)
+    branding.pop("secondary_color", None)
     _save_workspace_branding(workspace, branding)
     session.flush()
 

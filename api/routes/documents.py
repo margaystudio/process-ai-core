@@ -38,6 +38,7 @@ from process_ai_core.upload_validation import ALLOWED_UPLOAD_EXTENSIONS
 from fastapi.responses import Response
 
 from ..models.requests import DocumentResponse, DocumentUpdateRequest, ProcessRunResponse
+from ._branding import get_workspace_pdf_branding
 from api.dependencies import get_current_user_id
 from process_ai_core.db.permissions import has_permission
 
@@ -804,7 +805,12 @@ async def create_document_run(
             # Generar PDF
             pdf_generated = False
             try:
-                export_pdf(run_dir=output_dir, md_path=md_path, pdf_name="process.pdf")
+                export_pdf(
+                    run_dir=output_dir,
+                    md_path=md_path,
+                    pdf_name="process.pdf",
+                    branding=get_workspace_pdf_branding(session, doc.workspace_id),
+                )
                 pdf_generated = True
             except Exception as pdf_error:
                 pass
@@ -1187,12 +1193,16 @@ def _generate_draft_pdf_background(
     content_html: str,
     run_id: Optional[str],
     document_id: str,
+    workspace_id: Optional[str],
     output_dir: str,
     api_base: str,
 ) -> None:
     """Genera y guarda draft_preview.pdf en segundo plano. No lanza excepciones."""
     try:
         html_for_pdf = _rewrite_img_src_to_absolute(content_html, run_id, api_base)
+        branding = None
+        with get_db_session() as session:
+            branding = get_workspace_pdf_branding(session, workspace_id)
         pdf_dir: Optional[Path] = None
         if run_id:
             candidate = Path(output_dir) / run_id
@@ -1216,6 +1226,7 @@ def _generate_draft_pdf_background(
             run_dir=pdf_dir,
             pdf_name="draft_preview.pdf",
             base_url=api_base,
+            branding=branding,
         )
         logger.info("PDF del borrador guardado en %s/draft_preview.pdf", pdf_dir)
         tmp_html = pdf_dir / "content.html"
@@ -1295,6 +1306,7 @@ async def save_editable_content(
             content_html=content_html,
             run_id=draft_run_id,
             document_id=document_id,
+            workspace_id=doc.workspace_id,
             output_dir=settings.output_dir,
             api_base=settings.api_base_url.rstrip("/"),
         )
@@ -1620,8 +1632,20 @@ Responde SOLO con el JSON corregido, sin texto adicional.
         
         # Generar PDF
         pdf_generated = False
+        pdf_branding = None
+        with get_db_session() as branding_session:
+            doc_for_branding = branding_session.query(Document).filter_by(id=document_id).first()
+            pdf_branding = get_workspace_pdf_branding(
+                branding_session,
+                doc_for_branding.workspace_id if doc_for_branding else None,
+            )
         try:
-            export_pdf(run_dir=output_dir, md_path=md_path, pdf_name="process.pdf")
+            export_pdf(
+                run_dir=output_dir,
+                md_path=md_path,
+                pdf_name="process.pdf",
+                branding=pdf_branding,
+            )
             pdf_generated = True
             logger.info("PDF generado exitosamente")
         except Exception as pdf_error:
@@ -1862,6 +1886,7 @@ async def get_version_preview_pdf(document_id: str, version_id: str):
             .filter_by(id=version_id, document_id=document_id)
             .first()
         )
+        document = session.query(Document).filter_by(id=document_id).first()
         if not version:
             raise HTTPException(
                 status_code=404,
@@ -1874,6 +1899,10 @@ async def get_version_preview_pdf(document_id: str, version_id: str):
         version_run_id = version.run_id
         version_status = version.version_status
         markdown_fallback = getattr(version, "content_markdown", None)
+        pdf_branding = get_workspace_pdf_branding(
+            session,
+            document.workspace_id if document else None,
+        )
 
     def _is_weasyprint_system_dependency_error(exc: Exception) -> bool:
         msg = str(exc).lower()
@@ -1917,32 +1946,10 @@ async def get_version_preview_pdf(document_id: str, version_id: str):
                 raise RuntimeError("Pandoc devolvió Markdown vacío al convertir HTML")
             return md
 
-    # Servir draft_preview.pdf desde disco solo para estados estables.
-    # En DRAFT puede quedar desactualizado después de editar si la generación en background falla,
-    # por eso en DRAFT preferimos regenerar on-demand.
-    draft_pdf_path: Optional[Path] = None
-    if version_status in ("IN_REVIEW", "APPROVED"):
-        if version_run_id:
-            candidate = Path(settings.output_dir) / version_run_id / "draft_preview.pdf"
-            if candidate.exists():
-                draft_pdf_path = candidate
-        if draft_pdf_path is None:
-            candidate = Path(settings.output_dir) / "documents" / document_id / "draft_preview.pdf"
-            if candidate.exists():
-                draft_pdf_path = candidate
-
-    if draft_pdf_path is not None:
-        logger.info("Sirviendo draft_preview.pdf desde disco: %s", draft_pdf_path)
-        return Response(
-            content=draft_pdf_path.read_bytes(),
-            media_type="application/pdf",
-            headers={
-                "Content-Disposition": 'inline; filename="draft_preview.pdf"',
-                "Cache-Control": "no-cache, no-store, must-revalidate",
-                "Pragma": "no-cache",
-                "Expires": "0",
-            },
-        )
+    # Fuente de verdad para visualización:
+    # regeneramos siempre el preview desde el contenido actual de la versión.
+    # Esto evita desfasajes cuando cambia la plantilla PDF o cuando existe un
+    # draft_preview.pdf viejo guardado en disco.
 
     # Post-procesar HTML: limpiar artefactos LaTeX y reescribir URLs de imágenes
     if fmt == "html":
@@ -1978,6 +1985,7 @@ async def get_version_preview_pdf(document_id: str, version_id: str):
                 run_dir=_run_dir_for_cleanup,
                 pdf_name="preview.pdf",
                 base_url=api_base if selected_format == "html" else None,
+                branding=pdf_branding,
             )
         except Exception as export_exc:
             can_fallback = bool(markdown_fallback and str(markdown_fallback).strip())
@@ -2009,6 +2017,7 @@ async def get_version_preview_pdf(document_id: str, version_id: str):
                     run_dir=_run_dir_for_cleanup,
                     pdf_name="preview.pdf",
                     base_url=None,
+                    branding=pdf_branding,
                 )
             else:
                 raise

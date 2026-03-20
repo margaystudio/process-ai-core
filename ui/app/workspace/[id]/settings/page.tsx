@@ -23,6 +23,9 @@ import { useCanEditWorkspace, useCanManageUsers } from '@/hooks/useHasPermission
 import { useUserRole } from '@/hooks/useUserRole'
 import { createClient } from '@/lib/supabase/client'
 
+const DEFAULT_PRIMARY_BRAND_COLOR = '#2563EB'
+const DEFAULT_SECONDARY_BRAND_COLOR = '#1D4ED8'
+
 export default function WorkspaceSettingsPage() {
   const router = useRouter()
   const params = useParams()
@@ -47,8 +50,8 @@ export default function WorkspaceSettingsPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [brandingIconUrl, setBrandingIconUrl] = useState<string | null>(null)
-  const [brandingPrimaryColor, setBrandingPrimaryColor] = useState('#2563EB')
-  const [brandingSecondaryColor, setBrandingSecondaryColor] = useState('#1D4ED8')
+  const [brandingPrimaryColor, setBrandingPrimaryColor] = useState(DEFAULT_PRIMARY_BRAND_COLOR)
+  const [brandingSecondaryColor, setBrandingSecondaryColor] = useState(DEFAULT_SECONDARY_BRAND_COLOR)
   const [brandingSaving, setBrandingSaving] = useState(false)
   const [brandingMessage, setBrandingMessage] = useState<string | null>(null)
 
@@ -154,8 +157,8 @@ export default function WorkspaceSettingsPage() {
 
   useEffect(() => {
     setBrandingIconUrl(currentWorkspace?.branding_icon_url || null)
-    setBrandingPrimaryColor(currentWorkspace?.branding_primary_color || '#2563EB')
-    setBrandingSecondaryColor(currentWorkspace?.branding_secondary_color || '#1D4ED8')
+    setBrandingPrimaryColor(currentWorkspace?.branding_primary_color || DEFAULT_PRIMARY_BRAND_COLOR)
+    setBrandingSecondaryColor(currentWorkspace?.branding_secondary_color || DEFAULT_SECONDARY_BRAND_COLOR)
   }, [
     currentWorkspace?.branding_icon_url,
     currentWorkspace?.branding_primary_color,
@@ -324,7 +327,9 @@ export default function WorkspaceSettingsPage() {
       setBrandingMessage(null)
       await deleteWorkspaceBrandingIcon(workspaceId)
       setBrandingIconUrl(null)
-      setBrandingMessage('Icono eliminado correctamente.')
+      setBrandingPrimaryColor(DEFAULT_PRIMARY_BRAND_COLOR)
+      setBrandingSecondaryColor(DEFAULT_SECONDARY_BRAND_COLOR)
+      setBrandingMessage('Icono eliminado correctamente. Se restauraron los colores predeterminados.')
       await refreshWorkspaces()
     } catch (err) {
       setBrandingMessage(err instanceof Error ? err.message : 'No se pudo eliminar el icono.')

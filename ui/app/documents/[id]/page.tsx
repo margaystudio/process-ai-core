@@ -153,6 +153,20 @@ export default function DocumentDetailPage() {
   // Catalog options
   const [audienceOptions, setAudienceOptions] = useState<CatalogOption[]>([])
   const [detailLevelOptions, setDetailLevelOptions] = useState<CatalogOption[]>([])
+
+  const getRelevantPdfVersion = (runId?: string) => {
+    const scopedVersions = runId
+      ? versions.filter((v) => v.run_id === runId)
+      : versions
+
+    return (
+      scopedVersions.find((v) => v.version_status === 'DRAFT' && v.content_type === 'manual_edit') ||
+      scopedVersions.find((v) => v.version_status === 'IN_REVIEW') ||
+      scopedVersions.find((v) => v.version_status === 'APPROVED') ||
+      scopedVersions.find((v) => v.version_status === 'DRAFT') ||
+      null
+    )
+  }
   
   useEffect(() => {
     async function loadDocument() {
@@ -962,9 +976,9 @@ export default function DocumentDetailPage() {
                           
                           {(() => {
                             // PDF desde la versión en revisión (fuente de verdad: content_html o content_markdown)
-                            const inReviewVersion = versions.find(v => v.version_status === 'IN_REVIEW')
-                            if (inReviewVersion) {
-                              const pdfUrl = getVersionPreviewPdfUrl(documentId, inReviewVersion.id)
+                            const relevantPdfVersion = getRelevantPdfVersion()
+                            if (relevantPdfVersion) {
+                              const pdfUrl = getVersionPreviewPdfUrl(documentId, relevantPdfVersion.id)
                               return (
                                 <div className="border border-gray-200 rounded-lg overflow-hidden">
                                   <iframe
@@ -1386,10 +1400,7 @@ export default function DocumentDetailPage() {
                               onClick={() => {
                                 // Buscar la versión más relevante para este run que tenga el contenido más reciente.
                                 // Prioridad: DRAFT con edición manual > IN_REVIEW > APPROVED.
-                                const relevantVersion =
-                                  versions.find((v) => v.version_status === 'DRAFT' && v.run_id === run.run_id && v.content_type === 'manual_edit') ||
-                                  versions.find((v) => v.version_status === 'IN_REVIEW' && v.run_id === run.run_id) ||
-                                  versions.find((v) => v.version_status === 'APPROVED' && v.run_id === run.run_id)
+                                const relevantVersion = getRelevantPdfVersion(run.run_id)
                                 if (relevantVersion) {
                                   openVersionPreviewPdf(documentId, relevantVersion.id)
                                 } else {

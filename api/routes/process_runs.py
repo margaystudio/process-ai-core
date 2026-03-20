@@ -22,6 +22,7 @@ from process_ai_core.engine import run_process_pipeline
 from process_ai_core.upload_validation import ALLOWED_UPLOAD_EXTENSIONS
 
 from ..models.requests import ProcessMode, ProcessRunResponse
+from ._branding import get_run_pdf_branding, get_workspace_pdf_branding
 
 router = APIRouter(prefix="/api/v1/process-runs", tags=["process-runs"])
 
@@ -219,8 +220,16 @@ async def create_process_run(
             pdf_generated = False
             try:
                 from process_ai_core.export import export_pdf
+                from process_ai_core.db.database import get_db_session
 
-                export_pdf(run_dir=output_dir, md_path=md_path, pdf_name="process.pdf")
+                with get_db_session() as session:
+                    pdf_branding = get_workspace_pdf_branding(session, workspace_id)
+                export_pdf(
+                    run_dir=output_dir,
+                    md_path=md_path,
+                    pdf_name="process.pdf",
+                    branding=pdf_branding,
+                )
                 pdf_generated = True
             except Exception as pdf_error:
                 # PDF opcional, no fallamos si no se puede generar
@@ -460,11 +469,15 @@ async def generate_pdf_from_run(run_id: str):
     # Generar PDF
     try:
         from process_ai_core.export import export_pdf
+        from process_ai_core.db.database import get_db_session
 
+        with get_db_session() as session:
+            pdf_branding = get_run_pdf_branding(session, run_id)
         pdf_path = export_pdf(
             run_dir=run_dir,
             md_path=md_path,
             pdf_name="process.pdf",
+            branding=pdf_branding,
         )
 
         return {
