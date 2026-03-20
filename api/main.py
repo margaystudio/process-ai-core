@@ -14,7 +14,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
-from .routes import artifacts, auth, catalog, context_files, documents, folders, process_runs, recipe_runs, users, validations, workspaces, subscriptions, invitations, superadmin
+from .routes import artifacts, auth, catalog, context_files, documents, folders, process_runs, recipe_runs, users, validations, workspaces, subscriptions, invitations, superadmin, operational_roles
 
 # Cargar variables de entorno
 load_dotenv()
@@ -67,6 +67,7 @@ app.include_router(users.router)
 app.include_router(subscriptions.router)
 app.include_router(invitations.router)
 app.include_router(superadmin.router)
+app.include_router(operational_roles.router)
 
 
 @app.get("/")

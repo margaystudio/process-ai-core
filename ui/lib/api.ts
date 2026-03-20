@@ -62,7 +62,37 @@ export interface Folder {
   path: string;
   parent_id?: string;
   sort_order: number;
+  inherits_permissions?: boolean;
   created_at: string;
+}
+
+export interface OperationalRoleResponse {
+  id: string;
+  workspace_id: string;
+  name: string;
+  slug: string;
+  description: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorkspaceMember {
+  membership_id: string;
+  user_id: string;
+  email: string;
+  name: string;
+  role: string;
+  operational_role_ids: string[];
+}
+
+export interface FolderPermissionsResponse {
+  folder_id: string;
+  inherits_permissions: boolean;
+  operational_role_ids: string[];
+  operational_roles: { id: string; name: string; slug: string }[];
+export interface DocumentMetadata {
+  preguntas_abiertas?: string;
 }
 
 export interface Document {
@@ -73,6 +103,7 @@ export interface Document {
   name: string;
   description: string;
   status: string;
+  metadata?: DocumentMetadata;
   created_at: string;
 }
 
@@ -758,6 +789,164 @@ export async function deleteFolder(folderId: string, moveDocumentsTo?: string): 
 }
 
 /**
+ * Obtiene los permisos de una carpeta (roles operativos con acceso).
+ */
+export async function getFolderPermissions(folderId: string): Promise<FolderPermissionsResponse> {
+  const { getAccessToken } = await import('@/lib/api-auth');
+  const token = await getAccessToken();
+  const headers: HeadersInit = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const response = await fetch(`${API_URL}/api/v1/folders/${folderId}/permissions`, { headers });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
+    throw new Error(error.detail || `HTTP ${response.status}`);
+  }
+  return response.json();
+}
+
+/**
+ * Actualiza los permisos de una carpeta.
+ */
+export async function updateFolderPermissions(
+  folderId: string,
+  body: { inherits_permissions?: boolean; operational_role_ids?: string[] }
+): Promise<{ message: string; folder_id: string }> {
+  const { getAccessToken } = await import('@/lib/api-auth');
+  const token = await getAccessToken();
+  const headers: HeadersInit = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const response = await fetch(`${API_URL}/api/v1/folders/${folderId}/permissions`, {
+    method: 'PUT',
+    headers,
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
+    throw new Error(error.detail || `HTTP ${response.status}`);
+  }
+  return response.json();
+}
+
+/**
+ * Lista roles operativos del workspace.
+ */
+export async function listOperationalRoles(workspaceId: string): Promise<OperationalRoleResponse[]> {
+  const { getAccessToken } = await import('@/lib/api-auth');
+  const token = await getAccessToken();
+  const headers: HeadersInit = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const response = await fetch(`${API_URL}/api/v1/workspaces/${workspaceId}/operational-roles`, { headers });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
+    throw new Error(error.detail || `HTTP ${response.status}`);
+  }
+  return response.json();
+}
+
+/**
+ * Crea un rol operativo.
+ */
+export async function createOperationalRole(
+  workspaceId: string,
+  body: { name: string; slug?: string; description?: string }
+): Promise<OperationalRoleResponse> {
+  const { getAccessToken } = await import('@/lib/api-auth');
+  const token = await getAccessToken();
+  const headers: HeadersInit = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const response = await fetch(`${API_URL}/api/v1/workspaces/${workspaceId}/operational-roles`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
+    throw new Error(error.detail || `HTTP ${response.status}`);
+  }
+  return response.json();
+}
+
+/**
+ * Actualiza un rol operativo.
+ */
+export async function updateOperationalRole(
+  roleId: string,
+  body: { name?: string; description?: string; is_active?: boolean }
+): Promise<OperationalRoleResponse> {
+  const { getAccessToken } = await import('@/lib/api-auth');
+  const token = await getAccessToken();
+  const headers: HeadersInit = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const response = await fetch(`${API_URL}/api/v1/operational-roles/${roleId}`, {
+    method: 'PUT',
+    headers,
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
+    throw new Error(error.detail || `HTTP ${response.status}`);
+  }
+  return response.json();
+}
+
+/**
+ * Elimina un rol operativo.
+ */
+export async function deleteOperationalRole(roleId: string): Promise<void> {
+  const { getAccessToken } = await import('@/lib/api-auth');
+  const token = await getAccessToken();
+  const headers: HeadersInit = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const response = await fetch(`${API_URL}/api/v1/operational-roles/${roleId}`, {
+    method: 'DELETE',
+    headers,
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
+    throw new Error(error.detail || `HTTP ${response.status}`);
+  }
+}
+
+/**
+ * Lista miembros del workspace (con roles operativos).
+ */
+export async function getWorkspaceMembers(workspaceId: string): Promise<{ workspace_id: string; members: WorkspaceMember[] }> {
+  const { getAccessToken } = await import('@/lib/api-auth');
+  const token = await getAccessToken();
+  const headers: HeadersInit = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const response = await fetch(`${API_URL}/api/v1/workspaces/${workspaceId}/members`, { headers });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
+    throw new Error(error.detail || `HTTP ${response.status}`);
+  }
+  return response.json();
+}
+
+/**
+ * Asigna roles operativos a un usuario (membership).
+ */
+export async function assignOperationalRolesToMembership(
+  membershipId: string,
+  operationalRoleIds: string[]
+): Promise<{ message: string; membership_id: string }> {
+  const { getAccessToken } = await import('@/lib/api-auth');
+  const token = await getAccessToken();
+  const headers: HeadersInit = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const response = await fetch(`${API_URL}/api/v1/workspace-memberships/${membershipId}/operational-roles`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ operational_role_ids: operationalRoleIds }),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
+    throw new Error(error.detail || `HTTP ${response.status}`);
+  }
+  return response.json();
+}
+
+/**
  * Lista documentos de un workspace.
  * Requiere autenticación. El backend filtra por rol (viewers solo ven aprobados).
  */
@@ -799,7 +988,12 @@ export async function getDocumentRuns(documentId: string): Promise<Array<{
     pdf?: string;
   };
 }>> {
-  const response = await fetch(`${API_URL}/api/v1/documents/${documentId}/runs`);
+  const { getAccessToken } = await import('@/lib/api-auth');
+  const token = await getAccessToken();
+  const headers: HeadersInit = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const response = await fetch(`${API_URL}/api/v1/documents/${documentId}/runs`, { headers });
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
@@ -833,11 +1027,14 @@ export async function getDocument(documentId: string): Promise<Document> {
  * Actualiza un documento.
  */
 export async function updateDocument(documentId: string, request: DocumentUpdateRequest): Promise<Document> {
+  const { getAccessToken } = await import('@/lib/api-auth');
+  const token = await getAccessToken();
+  const headers: HeadersInit = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
   const response = await fetch(`${API_URL}/api/v1/documents/${documentId}`, {
     method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers,
     body: JSON.stringify(request),
   });
 
@@ -1233,11 +1430,14 @@ export async function updateDocumentContent(
   content_type: string;
   created_at: string;
 }> {
+  const { getAccessToken } = await import('@/lib/api-auth');
+  const token = await getAccessToken();
+  const headers: HeadersInit = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
   const response = await fetch(`${API_URL}/api/v1/documents/${documentId}/content`, {
     method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers,
     body: JSON.stringify({ content_json: contentJson }),
   });
 
@@ -1440,10 +1640,16 @@ export async function checkPermission(
  */
 export async function listDocumentsPendingApproval(
   workspaceId: string,
-  userId: string
+  _userId?: string
 ): Promise<Document[]> {
+  const { getAccessToken } = await import('@/lib/api-auth');
+  const token = await getAccessToken();
+  const headers: HeadersInit = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
   const response = await fetch(
-    `${API_URL}/api/v1/documents/pending-approval?workspace_id=${workspaceId}&user_id=${userId}`
+    `${API_URL}/api/v1/documents/pending-approval?workspace_id=${workspaceId}`,
+    { headers }
   );
 
   if (!response.ok) {
@@ -1459,10 +1665,16 @@ export async function listDocumentsPendingApproval(
  */
 export async function listDocumentsToReview(
   workspaceId: string,
-  userId: string
+  _userId?: string
 ): Promise<Document[]> {
+  const { getAccessToken } = await import('@/lib/api-auth');
+  const token = await getAccessToken();
+  const headers: HeadersInit = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
   const response = await fetch(
-    `${API_URL}/api/v1/documents/to-review?workspace_id=${workspaceId}&user_id=${userId}`
+    `${API_URL}/api/v1/documents/to-review?workspace_id=${workspaceId}`,
+    { headers }
   );
 
   if (!response.ok) {

@@ -6,7 +6,7 @@ validando tipos y valores antes de pasarlos al core.
 """
 
 from enum import Enum
-from typing import Optional
+from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -133,6 +133,7 @@ class FolderUpdateRequest(BaseModel):
     path: Optional[str] = Field(default=None, description="Path completo de la carpeta")
     parent_id: Optional[str] = Field(default=None, description="ID de la carpeta padre (None para quitar parent)")
     sort_order: Optional[int] = Field(default=None, description="Orden de visualización")
+    inherits_permissions: Optional[bool] = Field(default=None, description="Si hereda permisos del padre")
     metadata: Optional[dict] = Field(default=None, description="Metadata adicional (JSON, se mergea con existente)")
 
 
@@ -145,7 +146,53 @@ class FolderResponse(BaseModel):
     path: str = Field(..., description="Path completo de la carpeta")
     parent_id: Optional[str] = Field(default=None, description="ID de la carpeta padre")
     sort_order: int = Field(..., description="Orden de visualización")
+    inherits_permissions: Optional[bool] = Field(default=True, description="Si usa permisos del padre")
     created_at: str = Field(..., description="Fecha de creación")
+
+
+# --- Roles operativos ---
+
+
+class OperationalRoleCreateRequest(BaseModel):
+    """Request para crear un rol operativo."""
+
+    name: str = Field(..., description="Nombre del rol (ej: Pistero)")
+    slug: Optional[str] = Field(default=None, description="Slug único (se infiere de name si no se envía)")
+    description: Optional[str] = Field(default="", description="Descripción")
+
+
+class OperationalRoleUpdateRequest(BaseModel):
+    """Request para actualizar un rol operativo."""
+
+    name: Optional[str] = Field(default=None, description="Nombre del rol")
+    description: Optional[str] = Field(default=None, description="Descripción")
+    is_active: Optional[bool] = Field(default=None, description="Activo/inactivo")
+
+
+class OperationalRoleResponse(BaseModel):
+    """Response de un rol operativo."""
+
+    id: str = Field(..., description="ID único del rol")
+    workspace_id: str = Field(..., description="ID del workspace")
+    name: str = Field(..., description="Nombre del rol")
+    slug: str = Field(..., description="Slug")
+    description: str = Field(default="", description="Descripción")
+    is_active: bool = Field(..., description="Activo")
+    created_at: str = Field(..., description="Fecha de creación")
+    updated_at: str = Field(..., description="Fecha de actualización")
+
+
+class OperationalRoleAssignRequest(BaseModel):
+    """Request para asignar roles operativos a un usuario (membership)."""
+
+    operational_role_ids: List[str] = Field(..., description="IDs de roles operativos a asignar")
+
+
+class FolderPermissionsUpdateRequest(BaseModel):
+    """Request para actualizar permisos de una carpeta."""
+
+    inherits_permissions: Optional[bool] = Field(default=None, description="Si hereda del padre")
+    operational_role_ids: Optional[List[str]] = Field(default=None, description="IDs de roles operativos con acceso (si no hereda)")
 
 
 class DocumentUpdateRequest(BaseModel):
@@ -224,4 +271,5 @@ class DocumentResponse(BaseModel):
     name: str = Field(..., description="Nombre del documento")
     description: str = Field(..., description="Descripción")
     status: str = Field(..., description="Estado: draft|active|archived")
+    metadata: Optional[dict] = Field(default=None, description="Metadata adicional del documento")
     created_at: str = Field(..., description="Fecha de creación")

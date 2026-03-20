@@ -62,6 +62,7 @@ class Workspace(Base):
     folders: Mapped[list["Folder"]] = relationship(back_populates="workspace")
     context_folders: Mapped[list["ContextFolder"]] = relationship("ContextFolder", back_populates="workspace", cascade="all, delete-orphan")
     context_files: Mapped[list["ContextFile"]] = relationship("ContextFile", back_populates="workspace", cascade="all, delete-orphan")
+    operational_roles: Mapped[list["OperationalRole"]] = relationship(back_populates="workspace")
     subscription: Mapped["WorkspaceSubscription | None"] = relationship("WorkspaceSubscription", back_populates="workspace", uselist=False)
     invitations: Mapped[list["WorkspaceInvitation"]] = relationship("WorkspaceInvitation", foreign_keys="WorkspaceInvitation.workspace_id")
 
@@ -232,7 +233,10 @@ class Folder(Base):
     
     # Orden de visualización
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
-    
+
+    # Si True, la carpeta usa los permisos del padre; si False, tiene su propia lista de roles
+    inherits_permissions: Mapped[bool] = mapped_column(Boolean, default=True)
+
     # Metadata adicional (JSON flexible)
     # Puede contener: 
     #   - description: Descripción de la carpeta
@@ -252,6 +256,9 @@ class Folder(Base):
     parent: Mapped["Folder | None"] = relationship("Folder", remote_side="Folder.id", back_populates="children")
     children: Mapped[list["Folder"]] = relationship("Folder", back_populates="parent")
     documents: Mapped[list["Document"]] = relationship(back_populates="folder", cascade="all, delete-orphan")
+    folder_permissions: Mapped[list["FolderPermission"]] = relationship(
+        "FolderPermission", back_populates="folder", cascade="all, delete-orphan"
+    )
 
 
 class User(Base):
@@ -382,6 +389,73 @@ class WorkspaceMembership(Base):
     user: Mapped["User"] = relationship(back_populates="workspace_memberships")
     workspace: Mapped["Workspace"] = relationship(back_populates="memberships")
     role_obj: Mapped["Role"] = relationship("Role", foreign_keys=[role_id], back_populates="workspace_memberships")
+    user_operational_roles: Mapped[list["UserOperationalRole"]] = relationship(
+        "UserOperationalRole", back_populates="workspace_membership", cascade="all, delete-orphan"
+    )
+
+
+class OperationalRole(Base):
+    """
+    Rol operativo configurable por workspace (ej: Pistero, Cajero, Administración).
+    Define en qué parte de la estructura (carpetas) puede actuar el usuario.
+    """
+    __tablename__ = "operational_roles"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    workspace_id: Mapped[str] = mapped_column(String(36), ForeignKey("workspaces.id"), index=True)
+    name: Mapped[str] = mapped_column(String(200))
+    slug: Mapped[str] = mapped_column(String(100), index=True)
+    description: Mapped[str] = mapped_column(Text, default="")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    workspace: Mapped["Workspace"] = relationship(back_populates="operational_roles")
+    user_operational_roles: Mapped[list["UserOperationalRole"]] = relationship(
+        "UserOperationalRole", back_populates="operational_role", cascade="all, delete-orphan"
+    )
+    folder_permissions: Mapped[list["FolderPermission"]] = relationship(
+        "FolderPermission", back_populates="operational_role", cascade="all, delete-orphan"
+    )
+
+
+class UserOperationalRole(Base):
+    """Asignación de un rol operativo a un usuario (membership) en el workspace."""
+    __tablename__ = "user_operational_roles"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    workspace_membership_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("workspace_memberships.id", ondelete="CASCADE"), index=True
+    )
+    operational_role_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("operational_roles.id", ondelete="CASCADE"), index=True
+    )
+    assigned_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    assigned_by: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+
+    workspace_membership: Mapped["WorkspaceMembership"] = relationship(
+        "WorkspaceMembership", back_populates="user_operational_roles"
+    )
+    operational_role: Mapped["OperationalRole"] = relationship(
+        "OperationalRole", back_populates="user_operational_roles"
+    )
+
+
+class FolderPermission(Base):
+    """Define qué roles operativos pueden acceder a una carpeta."""
+    __tablename__ = "folder_permissions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    folder_id: Mapped[str] = mapped_column(String(36), ForeignKey("folders.id", ondelete="CASCADE"), index=True)
+    operational_role_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("operational_roles.id", ondelete="CASCADE"), index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    folder: Mapped["Folder"] = relationship("Folder", back_populates="folder_permissions")
+    operational_role: Mapped["OperationalRole"] = relationship(
+        "OperationalRole", back_populates="folder_permissions"
+    )
 
 
 class Run(Base):

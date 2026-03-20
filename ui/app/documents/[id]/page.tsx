@@ -180,10 +180,14 @@ export default function DocumentDetailPage() {
         // Load catalog options and process-specific fields
         if (doc.document_type === 'process') {
           const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+          const { getAccessToken } = await import('@/lib/api-auth')
+          const authToken = await getAccessToken()
+          const authHeaders: HeadersInit = {}
+          if (authToken) authHeaders['Authorization'] = `Bearer ${authToken}`
           const [audienceOpts, detailOpts, processDocResponse] = await Promise.all([
             getCatalogOptions('audience').catch(() => []),
             getCatalogOptions('detail_level').catch(() => []),
-            fetch(`${apiUrl}/api/v1/documents/${documentId}/process`)
+            fetch(`${apiUrl}/api/v1/documents/${documentId}/process`, { headers: authHeaders })
               .then(r => r.ok ? r.json() : null)
               .catch(() => null),
           ])
@@ -640,6 +644,10 @@ export default function DocumentDetailPage() {
     return null
   }
 
+  const openQuestions = typeof document.metadata?.preguntas_abiertas === 'string'
+    ? document.metadata.preguntas_abiertas.trim()
+    : ''
+
   if (userRoleName === 'viewer' && document.status !== 'approved') {
     return (
       <div className="p-8">
@@ -909,6 +917,17 @@ export default function DocumentDetailPage() {
                       {document.description || '(Sin descripción)'}
                     </p>
                   </div>
+
+                  {openQuestions && (
+                    <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                      <label className="block text-sm font-medium text-amber-900 mb-1">
+                        Preguntas abiertas / pendientes
+                      </label>
+                      <p className="text-amber-900 whitespace-pre-wrap text-sm">
+                        {openQuestions}
+                      </p>
+                    </div>
+                  )}
                   
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
