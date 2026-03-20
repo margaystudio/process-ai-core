@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import './globals.css'
 import './branding.css'
 import Header from '@/components/layout/Header'
+import BrandingFavicon from '@/components/layout/BrandingFavicon'
 import { WorkspaceProvider } from '@/contexts/WorkspaceContext'
 import { LoadingProvider } from '@/contexts/LoadingContext'
 
@@ -20,6 +21,7 @@ export default function RootLayout({
       <body className="min-h-screen bg-gray-50">
         <LoadingProvider>
           <WorkspaceProvider>
+            <BrandingFavicon />
             <Header />
             {children}
           </WorkspaceProvider>
