@@ -39,7 +39,7 @@ from fastapi.responses import Response
 
 from ..models.requests import DocumentResponse, DocumentUpdateRequest, ProcessRunResponse
 from api.dependencies import get_current_user_id
-from process_ai_core.db.permissions import has_permission
+from process_ai_core.db.permissions import has_permission, can_view_folder
 
 router = APIRouter(prefix="/api/v1/documents", tags=["documents"])
 
@@ -98,7 +98,7 @@ def _extract_open_questions_metadata(session, doc: Document) -> Optional[dict[st
 @router.get("/pending-approval", response_model=list[DocumentResponse])
 async def list_documents_pending_approval(
     workspace_id: str = Query(..., description="ID del workspace"),
-    user_id: str = Query(..., description="ID del usuario (para verificar rol)"),
+    user_id: str = Depends(get_current_user_id),
 ):
     """
     Lista documentos pendientes de aprobación para un usuario con rol de aprobador.
@@ -144,6 +144,9 @@ async def list_documents_pending_approval(
             .distinct()
             .all()
         )
+        # Solo documentos en carpetas donde el usuario puede aprobar (roles operativos)
+        from process_ai_core.db.permissions import can_approve_in_folder
+        documents = [d for d in documents if can_approve_in_folder(session, user_id, workspace_id, d.folder_id)]
         
         return [
             DocumentResponse(
@@ -163,7 +166,7 @@ async def list_documents_pending_approval(
 @router.get("/to-review", response_model=list[DocumentResponse])
 async def list_documents_to_review(
     workspace_id: str = Query(..., description="ID del workspace"),
-    user_id: str = Query(..., description="ID del usuario creador"),
+    user_id: str = Depends(get_current_user_id),
 ):
     """
     Lista documentos rechazados que el usuario creador debe revisar y corregir.
@@ -191,6 +194,7 @@ async def list_documents_to_review(
             workspace_id=workspace_id,
             status="rejected",
         ).order_by(Document.created_at.desc()).all()
+        documents = [d for d in documents if can_view_folder(session, user_id, workspace_id, d.folder_id)]
         
         return [
             DocumentResponse(
@@ -267,6 +271,8 @@ async def list_documents(
             query = query.filter(Document.status == status)
         
         documents = query.order_by(Document.created_at.desc()).all()
+        # Filtrar por acceso a carpeta (roles operativos)
+        documents = [d for d in documents if can_view_folder(session, user_id, workspace_id, d.folder_id)]
         
         return [
             DocumentResponse(
@@ -320,6 +326,13 @@ async def get_document(
                 detail="No tiene permisos para ver este documento"
             )
 
+        # Verificar acceso a la carpeta del documento (roles operativos)
+        if not can_view_folder(session, user_id, doc.workspace_id, doc.folder_id):
+            raise HTTPException(
+                status_code=403,
+                detail="No tiene acceso a la carpeta de este documento"
+            )
+
         # Si el usuario es viewer, solo puede ver documentos aprobados
         from process_ai_core.db.permissions import get_user_role
         user_role = get_user_role(session, user_id, doc.workspace_id)
@@ -352,7 +365,11 @@ async def get_document(
 
 
 @router.put("/{document_id}", response_model=DocumentResponse)
-async def update_document(document_id: str, request: DocumentUpdateRequest):
+async def update_document(
+    document_id: str,
+    request: DocumentUpdateRequest,
+    user_id: str = Depends(get_current_user_id),
+):
     """
     Actualiza un documento.
 
@@ -375,6 +392,19 @@ async def update_document(document_id: str, request: DocumentUpdateRequest):
                 detail=f"Documento {document_id} no encontrado"
             )
         
+        if not has_permission(session, user_id, doc.workspace_id, "documents.edit"):
+            raise HTTPException(
+                status_code=403,
+                detail="No tiene permisos para editar documentos en este workspace"
+            )
+        
+        from process_ai_core.db.permissions import can_view_folder
+        if not can_view_folder(session, user_id, doc.workspace_id, doc.folder_id):
+            raise HTTPException(
+                status_code=403,
+                detail="No tiene acceso a la carpeta de este documento"
+            )
+        
         # Verificar inmutabilidad (bloquea solo si hay IN_REVIEW)
         from process_ai_core.db.helpers import check_version_immutable
         is_immutable, reason = check_version_immutable(session, document_id)
@@ -383,6 +413,15 @@ async def update_document(document_id: str, request: DocumentUpdateRequest):
                 status_code=400,
                 detail=reason
             )
+
+        # Si se quiere mover a otra carpeta, verificar acceso a la carpeta destino
+        if request.folder_id is not None and request.folder_id != doc.folder_id:
+            from process_ai_core.db.permissions import can_create_in_folder
+            if not can_create_in_folder(session, user_id, doc.workspace_id, request.folder_id):
+                raise HTTPException(
+                    status_code=403,
+                    detail="No tiene acceso para mover documentos a la carpeta destino"
+                )
 
         # Actualizar campos básicos
         if request.name is not None:
@@ -505,6 +544,12 @@ async def delete_document_endpoint(
                 detail="No tiene permisos para eliminar documentos en este workspace"
             )
         
+        if not can_view_folder(session, user_id, doc.workspace_id, doc.folder_id):
+            raise HTTPException(
+                status_code=403,
+                detail="No tiene acceso a la carpeta de este documento"
+            )
+        
         # Obtener runs antes de eliminar para limpiar archivos físicos
         runs = session.query(Run).filter_by(document_id=document_id).all()
         run_ids = [run.id for run in runs]
@@ -551,7 +596,10 @@ async def delete_document_endpoint(
 
 
 @router.get("/{document_id}/process")
-async def get_process_details(document_id: str):
+async def get_process_details(
+    document_id: str,
+    user_id: str = Depends(get_current_user_id),
+):
     """
     Obtiene los campos específicos de un Process.
     
@@ -563,6 +611,13 @@ async def get_process_details(document_id: str):
             raise HTTPException(
                 status_code=404,
                 detail=f"Documento {document_id} no encontrado"
+            )
+        
+        from process_ai_core.db.permissions import can_view_folder
+        if not can_view_folder(session, user_id, doc.workspace_id, doc.folder_id):
+            raise HTTPException(
+                status_code=403,
+                detail="No tiene acceso a la carpeta de este documento"
             )
         
         if doc.document_type != "process":
@@ -588,7 +643,10 @@ async def get_process_details(document_id: str):
 
 
 @router.get("/{document_id}/runs")
-async def get_document_runs(document_id: str):
+async def get_document_runs(
+    document_id: str,
+    user_id: str = Depends(get_current_user_id),
+):
     """
     Obtiene todos los runs asociados a un documento.
     """
@@ -600,6 +658,13 @@ async def get_document_runs(document_id: str):
             raise HTTPException(
                 status_code=404,
                 detail=f"Documento {document_id} no encontrado"
+            )
+        
+        from process_ai_core.db.permissions import can_view_folder
+        if not can_view_folder(session, user_id, doc.workspace_id, doc.folder_id):
+            raise HTTPException(
+                status_code=403,
+                detail="No tiene acceso a la carpeta de este documento"
             )
         
         runs = session.query(Run).filter_by(document_id=document_id).order_by(Run.created_at.desc()).all()
@@ -664,6 +729,13 @@ async def create_document_run(
             raise HTTPException(
                 status_code=404,
                 detail=f"Documento {document_id} no encontrado"
+            )
+        
+        from process_ai_core.db.permissions import can_create_in_folder
+        if not can_create_in_folder(session, user_id, doc.workspace_id, doc.folder_id):
+            raise HTTPException(
+                status_code=403,
+                detail="No tiene acceso para crear runs en la carpeta de este documento"
             )
         
         if doc.document_type != "process":
@@ -989,6 +1061,7 @@ async def create_document_run(
 async def update_document_content(
     document_id: str,
     content_json: str = Body(..., embed=True),
+    user_id: str = Depends(get_current_user_id),
 ):
     """
     Edita manualmente el contenido de un documento.
@@ -1010,6 +1083,13 @@ async def update_document_content(
             raise HTTPException(
                 status_code=404,
                 detail=f"Documento {document_id} no encontrado"
+            )
+        
+        from process_ai_core.db.permissions import can_create_in_folder
+        if not can_create_in_folder(session, user_id, doc.workspace_id, doc.folder_id):
+            raise HTTPException(
+                status_code=403,
+                detail="No tiene acceso para editar documentos en esta carpeta"
             )
         
         if doc.document_type != "process":
@@ -1185,6 +1265,10 @@ async def get_editable_content(
         doc = session.query(Document).filter_by(id=document_id).first()
         if not doc:
             raise HTTPException(status_code=404, detail="Documento no encontrado")
+        
+        if not can_view_folder(session, user_id, doc.workspace_id, doc.folder_id):
+            raise HTTPException(status_code=403, detail="No tiene acceso a la carpeta de este documento")
+        
         if doc.document_type != "process":
             raise HTTPException(status_code=400, detail="Solo documentos de tipo process soportan edición manual")
 
@@ -1295,6 +1379,11 @@ async def save_editable_content(
         doc = session.query(Document).filter_by(id=document_id).first()
         if not doc:
             raise HTTPException(status_code=404, detail="Documento no encontrado")
+        
+        from process_ai_core.db.permissions import can_create_in_folder
+        if not can_create_in_folder(session, user_id, doc.workspace_id, doc.folder_id):
+            raise HTTPException(status_code=403, detail="No tiene acceso para editar documentos en esta carpeta")
+        
         if doc.document_type != "process":
             raise HTTPException(status_code=400, detail="Solo documentos de tipo process")
 
@@ -1376,6 +1465,10 @@ async def upload_editor_image(
         doc = session.query(Document).filter_by(id=document_id).first()
         if not doc:
             raise HTTPException(status_code=404, detail="Documento no encontrado")
+        
+        from process_ai_core.db.permissions import can_create_in_folder
+        if not can_create_in_folder(session, user_id, doc.workspace_id, doc.folder_id):
+            raise HTTPException(status_code=403, detail="No tiene acceso para editar documentos en esta carpeta")
 
     settings = get_settings()
     uploads_dir = Path(settings.output_dir) / "editor-uploads" / document_id
@@ -1447,6 +1540,13 @@ async def patch_document_with_ai(
                 raise HTTPException(
                     status_code=404,
                     detail=f"Documento {document_id} no encontrado"
+                )
+            
+            from process_ai_core.db.permissions import can_create_in_folder
+            if not can_create_in_folder(session, user_id, doc.workspace_id, doc.folder_id):
+                raise HTTPException(
+                    status_code=403,
+                    detail="No tiene acceso para modificar documentos en esta carpeta"
                 )
             
             if doc.document_type != "process":
@@ -2200,8 +2300,8 @@ async def get_document_audit_log(document_id: str):
 async def submit_version_for_review_endpoint(
     document_id: str,
     version_id: str,
-    user_id: str = Body(..., embed=True),
     workspace_id: str = Body(..., embed=True),
+    user_id: str = Depends(get_current_user_id),
 ):
     """
     Envía una versión DRAFT a revisión (cambia a IN_REVIEW y crea Validation).
