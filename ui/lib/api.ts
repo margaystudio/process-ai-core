@@ -65,6 +65,10 @@ export interface Folder {
   created_at: string;
 }
 
+export interface DocumentMetadata {
+  preguntas_abiertas?: string;
+}
+
 export interface Document {
   id: string;
   workspace_id: string;
@@ -73,6 +77,7 @@ export interface Document {
   name: string;
   description: string;
   status: string;
+  metadata?: DocumentMetadata;
   created_at: string;
 }
 
