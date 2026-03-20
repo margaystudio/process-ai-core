@@ -91,6 +91,8 @@ export interface FolderPermissionsResponse {
   inherits_permissions: boolean;
   operational_role_ids: string[];
   operational_roles: { id: string; name: string; slug: string }[];
+export interface DocumentMetadata {
+  preguntas_abiertas?: string;
 }
 
 export interface Document {
@@ -101,6 +103,7 @@ export interface Document {
   name: string;
   description: string;
   status: string;
+  metadata?: DocumentMetadata;
   created_at: string;
 }
 

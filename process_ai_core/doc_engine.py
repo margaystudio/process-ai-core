@@ -515,9 +515,4 @@ def render_markdown(
             lines.append(f"- Variantes: {doc.variantes.strip()}\n")
         lines.append("\n")
 
-    # PREGUNTAS ABIERTAS
-    if "preguntas_abiertas" in profile.show and doc.preguntas_abiertas.strip():
-        lines.append(f"## {title('preguntas_abiertas', 'Preguntas abiertas')}\n\n")
-        lines.append(doc.preguntas_abiertas.strip() + "\n\n")
-
     return "".join(lines)
