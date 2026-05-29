@@ -26,6 +26,60 @@ from .models import (
 from datetime import datetime, UTC
 
 
+def get_or_create_workspace_for_tenant(session: Session, tenant_id: str, tenant_name: str, tenant_slug: str) -> str:
+    """
+    Busca o crea el Workspace local que corresponde al tenant del control plane.
+
+    Estrategia get-or-create:
+      1. Busca por tenant_id (clave de vínculo, única).
+      2. Si existe, devuelve su id local sin tocar nada más.
+      3. Si no existe, crea el Workspace + carpeta raíz y lo devuelve.
+
+    El llamador (resolve_tenant_workspace_id) maneja el IntegrityError de
+    concurrencia reintentando una vez.
+
+    Returns:
+        ID local del Workspace (el que usan las FKs de documents/folders/etc.)
+    """
+    workspace = session.query(Workspace).filter_by(tenant_id=tenant_id).first()
+    if workspace:
+        return workspace.id
+
+    # Garantizar slug único: si ya existe otro workspace con el mismo slug,
+    # añadir los primeros 8 caracteres del tenant_id como sufijo.
+    slug = tenant_slug
+    if session.query(Workspace).filter_by(slug=slug).first():
+        slug = f"{tenant_slug}-{tenant_id[:8]}"
+
+    workspace = Workspace(
+        slug=slug,
+        name=tenant_name,
+        workspace_type="organization",
+        tenant_id=tenant_id,
+    )
+    session.add(workspace)
+    session.flush()  # Obtener el id antes de crear la carpeta raíz
+
+    # Crear carpeta raíz (mismo patrón que create_organization_workspace)
+    create_folder(
+        session=session,
+        workspace_id=workspace.id,
+        name=tenant_name,
+        path=tenant_name,
+        parent_id=None,
+        sort_order=0,
+    )
+    session.flush()
+
+    logger.info(
+        "workspace creado para tenant: local_id=%s tenant_id=%s slug=%s",
+        workspace.id,
+        tenant_id,
+        slug,
+    )
+    return workspace.id
+
+
 def create_organization_workspace(
     session: Session,
     name: str,

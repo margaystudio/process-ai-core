@@ -34,6 +34,13 @@ class Workspace(Base):
     slug: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     name: Mapped[str] = mapped_column(String(200))
 
+    # Vínculo con el tenant del control plane (margay-workspace).
+    # Único + índice para que resolve_tenant_workspace_id sea O(1).
+    # Nullable para workspaces creados antes de esta migración.
+    tenant_id: Mapped[str | None] = mapped_column(
+        String(100), unique=True, nullable=True, index=True
+    )
+
     # Tipo de workspace
     workspace_type: Mapped[str] = mapped_column(String(20))  # "organization" | "user" | "community"
 

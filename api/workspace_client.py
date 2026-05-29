@@ -154,14 +154,33 @@ async def get_workspace_context(
 
 def resolve_tenant_workspace_id(ctx: "WorkspaceSessionContext") -> str:
     """
-    Devuelve el ID de workspace local (process_ai_core) para el tenant activo.
+    Devuelve el ID local del Workspace que corresponde al tenant activo.
 
-    TODO (1.4b): implementar get-or-create del Workspace local en la DB de
-    process_ai_core, usando ctx.tenant.id/slug como clave de búsqueda.
-    Por ahora asume que ctx.tenant.id coincide con el Workspace.id local.
-    Punto único de resolución: sólo hay que cambiar este helper en 1.4b.
+    Usa get-or-create: si el Workspace aún no existe en la DB local lo crea
+    (con carpeta raíz). Maneja la condición de carrera reintentando una vez
+    ante IntegrityError (dos requests simultáneos para el mismo tenant).
+
+    Punto único de resolución: todo el mapeo tenant→Workspace pasa por aquí.
     """
-    return ctx.tenant.id
+    from sqlalchemy.exc import IntegrityError
+
+    from process_ai_core.db.database import get_db_session
+    from process_ai_core.db.helpers import get_or_create_workspace_for_tenant
+
+    for attempt in range(2):
+        try:
+            with get_db_session() as session:
+                return get_or_create_workspace_for_tenant(
+                    session,
+                    tenant_id=ctx.tenant.id,
+                    tenant_name=ctx.tenant.name,
+                    tenant_slug=ctx.tenant.slug,
+                )
+        except IntegrityError:
+            if attempt == 1:
+                raise
+            # Condición de carrera: otro proceso ya creó el workspace;
+            # la segunda pasada lo encontrará vía SELECT.
 
 
 def _get_required_app_key() -> str:
