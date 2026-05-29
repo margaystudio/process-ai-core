@@ -1,8 +1,7 @@
-# process_ai_core/document_profiles.py
 from __future__ import annotations
 
 """
-process_ai_core.document_profiles
+process_ai_core.domains.processes.profiles
 =================================
 
 Perfiles de documento (presentación) para el render final.
@@ -20,8 +19,8 @@ Responsabilidad
 NO hace
 -------
 - No transforma contenido del proceso
-- No decide qué "dice" el documento (eso lo genera el LLM y lo parsea doc_engine)
-- No renderiza Markdown (eso lo hace `doc_engine.render_markdown`)
+- No decide qué "dice" el documento (eso lo genera el LLM y lo parsea ProcessBuilder)
+- No renderiza Markdown (eso lo hace `domains.processes.renderer.render_markdown`)
 
 Idea clave
 ----------
@@ -66,7 +65,7 @@ class DocumentProfile:
         Etiqueta humana del perfil (para UI / debugging).
     show:
         Lista de claves de secciones que deben renderizarse.
-        Estas claves deben estar alineadas con lo que soporta `doc_engine.render_markdown`.
+        Estas claves deben estar alineadas con lo que soporta `renderer.render_markdown`.
         Ej: "objetivo", "pasos", "riesgos", etc.
     titles:
         Mapeo de clave de sección → título que se renderiza en el documento.

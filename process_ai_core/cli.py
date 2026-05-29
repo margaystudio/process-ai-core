@@ -33,7 +33,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from .config import get_settings
-from .document_profiles import get_profile
+from .domains.processes.profiles import get_profile
 from .engine import run_process_pipeline
 from .export import export_pdf  # Import dentro del paquete
 from .ingest import discover_raw_assets

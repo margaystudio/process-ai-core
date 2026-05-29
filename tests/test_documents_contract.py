@@ -79,6 +79,7 @@ def test_get_document_devuelve_preguntas_abiertas_en_metadata(monkeypatch, sessi
 
     monkeypatch.setattr(documents_route, "get_db_session", fake_db_session)
     monkeypatch.setattr(documents_route, "has_permission", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(documents_route, "can_view_folder", lambda *_args, **_kwargs: True)
     import process_ai_core.db.permissions as permissions_module
 
     monkeypatch.setattr(

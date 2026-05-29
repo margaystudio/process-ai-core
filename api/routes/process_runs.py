@@ -16,7 +16,7 @@ from fastapi.responses import JSONResponse
 
 from process_ai_core.config import get_settings
 from api.dependencies import get_current_user_id
-from process_ai_core.document_profiles import get_profile
+from process_ai_core.domains.processes.profiles import get_profile
 from process_ai_core.domain_models import RawAsset
 from process_ai_core.engine import run_process_pipeline
 from process_ai_core.upload_validation import ALLOWED_UPLOAD_EXTENSIONS

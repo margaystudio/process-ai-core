@@ -1,8 +1,7 @@
 from process_ai_core.domain_models import Step, ProcessDocument
-from process_ai_core.doc_engine import render_markdown
 from process_ai_core.domains.processes.profiles import get_profile
 from process_ai_core.domains.processes.models import Step as DomainStep, ProcessDocument as DomainProcessDocument
-from process_ai_core.domains.processes.renderer import ProcessRenderer
+from process_ai_core.domains.processes.renderer import ProcessRenderer, render_markdown
 
 
 def test_render_markdown_basic():
