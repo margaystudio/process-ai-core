@@ -43,7 +43,7 @@ from typing import Optional
 from sqlalchemy import select
 
 from process_ai_core.db.models_catalog import CatalogOption
-from process_ai_core.db.models import Workspace, Document, Process, Recipe, Folder
+from process_ai_core.db.models import Workspace, Document, Process, Recipe, Folder, ContextFile
 from process_ai_core.db.helpers import get_workspace_metadata
 
 
@@ -207,6 +207,19 @@ def build_context_block(session, workspace: Workspace, document: Document) -> st
         lines.append("")
         lines.append("Contexto del workspace:")
         lines.append(workspace_context.strip())
+
+    # Archivos de contexto del negocio (TXT/MD con contenido extraído)
+    context_files = (
+        session.query(ContextFile)
+        .filter_by(workspace_id=workspace.id)
+        .filter(ContextFile.content.isnot(None), ContextFile.content != "")
+        .all()
+    )
+    for cf in context_files:
+        if cf.content and cf.content.strip():
+            lines.append("")
+            lines.append(f"Documento de contexto ({cf.name}):")
+            lines.append(cf.content.strip())
 
     if document_context_text and document_context_text.strip():
         lines.append("")
