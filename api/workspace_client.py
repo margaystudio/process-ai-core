@@ -11,7 +11,7 @@ import time
 from typing import Optional
 
 import httpx
-from fastapi import Header, HTTPException
+from fastapi import Depends, Header, HTTPException
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
@@ -125,7 +125,7 @@ def fetch_workspace_context(token: str) -> WorkspaceSessionContext:
     return ctx
 
 
-# ── Dependencia FastAPI ──────────────────────────────────────────────────────
+# ── Dependencias FastAPI ─────────────────────────────────────────────────────
 
 async def get_workspace_context(
     authorization: Optional[str] = Header(None, alias="Authorization"),
@@ -150,3 +150,42 @@ async def get_workspace_context(
         )
     token = authorization.removeprefix("Bearer ").strip()
     return fetch_workspace_context(token)
+
+
+def _get_required_app_key() -> str:
+    return os.getenv("PROCESS_AI_APP_KEY", "process_ai")
+
+
+async def require_process_ai_access(
+    ctx: WorkspaceSessionContext = Depends(get_workspace_context),
+) -> WorkspaceSessionContext:
+    """
+    Dependencia FastAPI que verifica que el usuario tenga acceso a la
+    aplicación process_ai en su tenant activo.
+
+    Si la clave no aparece en ctx.applications → HTTP 403.
+    La clave requerida es configurable via PROCESS_AI_APP_KEY (default: "process_ai").
+
+    Usage (a nivel de router)::
+
+        router = APIRouter(dependencies=[Depends(require_process_ai_access)])
+
+    Returns the context so it can be reused by endpoints that also declare it.
+    """
+    required_key = _get_required_app_key()
+    app_keys = {app.key for app in ctx.applications}
+    if required_key not in app_keys:
+        logger.warning(
+            "process_ai access denied: tenant=%s user=%s app_keys=%s",
+            ctx.tenant.id,
+            ctx.user.id,
+            sorted(app_keys),
+        )
+        raise HTTPException(
+            status_code=403,
+            detail=f"Access to '{required_key}' not granted for this tenant",
+        )
+    logger.debug(
+        "process_ai access granted: tenant=%s user=%s", ctx.tenant.id, ctx.user.id
+    )
+    return ctx

@@ -40,9 +40,14 @@ from fastapi.responses import Response
 from ..models.requests import DocumentResponse, DocumentUpdateRequest, ProcessRunResponse
 from ._branding import get_workspace_pdf_branding
 from api.dependencies import get_current_user_id
+from api.workspace_client import require_process_ai_access
 from process_ai_core.db.permissions import has_permission, can_view_folder
 
-router = APIRouter(prefix="/api/v1/documents", tags=["documents"])
+router = APIRouter(
+    prefix="/api/v1/documents",
+    tags=["documents"],
+    dependencies=[Depends(require_process_ai_access)],
+)
 
 
 def _extract_open_questions_metadata(session, doc: Document) -> Optional[dict[str, Any]]:
