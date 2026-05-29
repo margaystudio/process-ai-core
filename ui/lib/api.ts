@@ -596,7 +596,10 @@ export async function createCatalogOption(
  * Lista todas las carpetas de un workspace.
  */
 export async function listFolders(workspaceId: string): Promise<Folder[]> {
-  const response = await fetch(`${API_URL}/api/v1/folders?workspace_id=${workspaceId}`);
+  const { getAuthHeaders } = await import('@/lib/api-auth')
+  const headers = await getAuthHeaders({})
+
+  const response = await fetch(`${API_URL}/api/v1/folders?workspace_id=${workspaceId}`, { headers });
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
@@ -610,11 +613,12 @@ export async function listFolders(workspaceId: string): Promise<Folder[]> {
  * Crea una nueva carpeta.
  */
 export async function createFolder(request: FolderCreateRequest): Promise<Folder> {
+  const { getAuthHeaders } = await import('@/lib/api-auth')
+  const headers = await getAuthHeaders({ 'Content-Type': 'application/json' })
+
   const response = await fetch(`${API_URL}/api/v1/folders`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers,
     body: JSON.stringify(request),
   });
 
@@ -630,11 +634,12 @@ export async function createFolder(request: FolderCreateRequest): Promise<Folder
  * Actualiza una carpeta existente.
  */
 export async function updateFolder(folderId: string, request: Partial<FolderCreateRequest>): Promise<Folder> {
+  const { getAuthHeaders } = await import('@/lib/api-auth')
+  const headers = await getAuthHeaders({ 'Content-Type': 'application/json' })
+
   const response = await fetch(`${API_URL}/api/v1/folders/${folderId}`, {
     method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers,
     body: JSON.stringify(request),
   });
 
@@ -655,8 +660,12 @@ export async function deleteFolder(folderId: string, moveDocumentsTo?: string): 
     url.searchParams.append('move_documents_to', moveDocumentsTo);
   }
 
+  const { getAuthHeaders } = await import('@/lib/api-auth')
+  const headers = await getAuthHeaders({})
+
   const response = await fetch(url.toString(), {
     method: 'DELETE',
+    headers,
   });
 
   if (!response.ok) {
