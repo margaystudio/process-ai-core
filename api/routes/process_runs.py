@@ -27,9 +27,14 @@ from api.workspace_client import (
     WorkspaceSessionContext,
     get_workspace_context,
     resolve_tenant_workspace_id,
+    sync_workspace_access,
 )
 
-router = APIRouter(prefix="/api/v1/process-runs", tags=["process-runs"])
+router = APIRouter(
+    prefix="/api/v1/process-runs",
+    tags=["process-runs"],
+    dependencies=[Depends(sync_workspace_access)],
+)
 
 @router.post("", response_model=ProcessRunResponse)
 async def create_process_run(

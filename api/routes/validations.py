@@ -10,7 +10,7 @@ Este modulo maneja:
 Nota: Los endpoints de versiones (submit, clone) estan en api/routes/documents.py
 """
 
-from fastapi import APIRouter, HTTPException, Body, Depends
+from fastapi import APIRouter, Depends, HTTPException, Body
 from typing import Optional, List
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -22,6 +22,7 @@ from api.workspace_client import (
     WorkspaceSessionContext,
     get_workspace_context,
     resolve_tenant_workspace_id,
+    sync_workspace_access,
 )
 from process_ai_core.db.helpers import (
     create_validation,
@@ -36,7 +37,11 @@ from datetime import datetime, UTC
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/v1", tags=["validations"])
+router = APIRouter(
+    prefix="/api/v1",
+    tags=["validations"],
+    dependencies=[Depends(sync_workspace_access)],
+)
 
 
 # ============================================================

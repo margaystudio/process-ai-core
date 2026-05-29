@@ -45,13 +45,16 @@ from api.workspace_client import (
     get_workspace_context,
     require_process_ai_access,
     resolve_tenant_workspace_id,
+    sync_workspace_access,
 )
 from process_ai_core.db.permissions import has_permission, can_view_folder
 
 router = APIRouter(
     prefix="/api/v1/documents",
     tags=["documents"],
-    dependencies=[Depends(require_process_ai_access)],
+    # sync_workspace_access corre primero: garantiza que User local y WorkspaceMembership
+    # existan antes de que get_current_user_id y has_permission los necesiten.
+    dependencies=[Depends(sync_workspace_access), Depends(require_process_ai_access)],
 )
 
 

@@ -183,6 +183,100 @@ def resolve_tenant_workspace_id(ctx: "WorkspaceSessionContext") -> str:
             # la segunda pasada lo encontrará vía SELECT.
 
 
+async def sync_workspace_access(
+    authorization: Optional[str] = Header(None, alias="Authorization"),
+) -> None:
+    """
+    Dependencia de router (en dependencies=[]) que, por cada request:
+
+      1. Decodifica el JWT para obtener el Supabase sub (external_id del usuario).
+      2. Obtiene el contexto del workspace (con caché de 30 s).
+      3. En una sola transacción DB:
+           a. Crea/recupera el Workspace local para el tenant activo.
+           b. Crea/recupera el User local vinculado al sub (get-or-create por
+              external_id → email → nuevo).
+           c. Crea/actualiza la WorkspaceMembership local (re-sync si cambia el rol).
+
+    Al ejecutarse antes de que los endpoints resuelvan sus propios parámetros
+    (Depends(get_current_user_id)), garantiza que el User local exista en la DB
+    cuando get_current_user_id intente buscarlo.
+
+    Es "best-effort": si el JWT o el workspace service fallan, retorna sin error
+    y deja que las dependencias individuales (get_current_user_id,
+    require_process_ai_access) propaguen el error apropiado.
+
+    No retorna nada (solo produce efectos en la DB).
+    """
+    if not authorization or not authorization.startswith("Bearer "):
+        return
+
+    token = authorization.removeprefix("Bearer ").strip()
+
+    # Decodificar JWT → sub (external_id del usuario local)
+    try:
+        from api.dependencies import _decode_and_verify_supabase_jwt
+        decoded = _decode_and_verify_supabase_jwt(token)
+    except Exception:
+        return
+
+    supabase_sub = decoded.get("sub")
+    if not supabase_sub:
+        return
+
+    # Obtener contexto del workspace (usa caché interna)
+    try:
+        ctx = fetch_workspace_context(token)
+    except Exception:
+        return
+
+    # Sincronizar Workspace + User + Membership en una sola sesión
+    try:
+        from sqlalchemy.exc import IntegrityError
+
+        from process_ai_core.db.database import get_db_session
+        from process_ai_core.db.helpers import (
+            get_or_create_workspace_for_tenant,
+            get_or_create_local_user_from_workspace,
+            sync_membership_from_context,
+        )
+
+        for attempt in range(2):
+            try:
+                with get_db_session() as session:
+                    workspace_id = get_or_create_workspace_for_tenant(
+                        session,
+                        tenant_id=ctx.tenant.id,
+                        tenant_name=ctx.tenant.name,
+                        tenant_slug=ctx.tenant.slug,
+                    )
+                    local_user_id = get_or_create_local_user_from_workspace(
+                        session,
+                        supabase_sub=supabase_sub,
+                        email=ctx.user.email,
+                        first_name=ctx.user.first_name,
+                        last_name=ctx.user.last_name,
+                    )
+                    sync_membership_from_context(
+                        session,
+                        local_user_id=local_user_id,
+                        workspace_id=workspace_id,
+                        tenant_roles=ctx.tenant_roles,
+                        platform_roles=ctx.platform_roles,
+                    )
+                break
+            except IntegrityError:
+                if attempt == 1:
+                    raise
+    except Exception:
+        logger.warning(
+            "sync_workspace_access: error al sincronizar estado local (best-effort); "
+            "tenant=%s user_sub=%s",
+            ctx.tenant.id if ctx else "?",
+            supabase_sub,
+            exc_info=True,
+        )
+
+
 def _get_required_app_key() -> str:
     return os.getenv("PROCESS_AI_APP_KEY", "process_ai")
 

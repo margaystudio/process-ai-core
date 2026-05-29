@@ -10,6 +10,7 @@ Estas funciones facilitan:
 from __future__ import annotations
 
 import json
+import os
 import uuid
 import logging
 from typing import Dict, Any
@@ -2009,6 +2010,139 @@ def accept_invitation(
         logger.info(f"Membresía verificada: id={verify_membership.id}, role={verify_membership.role}")
     
     return invitation
+
+
+# ── Mapeo de roles de workspace → roles de sistema local ────────────────────
+
+#: Orden de prioridad de mayor a menor privilegio (sin superadmin).
+_SYSTEM_ROLE_PRIORITY = ["owner", "admin", "approver", "creator", "viewer"]
+
+def _resolve_system_role_name(
+    tenant_roles: list[str],
+    platform_roles: list[str],
+) -> str:
+    """
+    Devuelve el nombre del rol de sistema local de mayor privilegio dadas las
+    listas de roles del contexto de workspace.
+
+    Mapeo:
+      platform_role "superadmin" → "superadmin"
+      tenant_role "tenant_admin"           → "admin"
+      tenant_role "tenant_member"          → "creator"
+      tenant_role "tenant_external_client" → env TENANT_EXTERNAL_CLIENT_ROLE (default "viewer")
+
+    Si llegan varios tenant_roles, se elige el de mayor privilegio.
+    Si ninguno coincide, se devuelve "viewer" (mínimo privilegio).
+    """
+    if "superadmin" in platform_roles:
+        return "superadmin"
+
+    external_client_role = os.getenv("TENANT_EXTERNAL_CLIENT_ROLE", "viewer")
+    mapping: dict[str, str] = {
+        "tenant_admin": "admin",
+        "tenant_member": "creator",
+        "tenant_external_client": external_client_role,
+    }
+
+    local_roles = [mapping[r] for r in tenant_roles if r in mapping]
+    if not local_roles:
+        return "viewer"
+
+    for candidate in _SYSTEM_ROLE_PRIORITY:
+        if candidate in local_roles:
+            return candidate
+
+    return "viewer"
+
+
+def get_or_create_local_user_from_workspace(
+    session: Session,
+    supabase_sub: str,
+    email: str,
+    first_name: str | None = None,
+    last_name: str | None = None,
+) -> str:
+    """
+    Busca o crea el User local que corresponde al usuario autenticado.
+
+    Estrategia (en orden):
+      1. Buscar por external_id (supabase_sub) — lookup O(1).
+      2. Buscar por email y vincular el external_id (link automático).
+      3. Crear un nuevo User local con los datos del contexto.
+
+    Returns:
+        ID local del User (el que usan las FKs de WorkspaceMembership/etc.)
+    """
+    # 1. Por external_id
+    user = session.query(User).filter_by(external_id=supabase_sub).first()
+    if user:
+        return user.id
+
+    # 2. Por email → link
+    user = session.query(User).filter_by(email=email).first()
+    if user:
+        user.external_id = supabase_sub
+        user.auth_provider = "supabase"
+        session.flush()
+        return user.id
+
+    # 3. Crear nuevo usuario local
+    display_name = " ".join(filter(None, [first_name, last_name])) or email.split("@")[0]
+    user = User(
+        email=email,
+        name=display_name,
+        external_id=supabase_sub,
+        auth_provider="supabase",
+        password_hash="",
+    )
+    session.add(user)
+    session.flush()
+    logger.info(
+        "usuario local creado desde workspace context: id=%s email=%s",
+        user.id,
+        email,
+    )
+    return user.id
+
+
+def sync_membership_from_context(
+    session: Session,
+    local_user_id: str,
+    workspace_id: str,
+    tenant_roles: list[str],
+    platform_roles: list[str],
+) -> WorkspaceMembership:
+    """
+    Crea o actualiza la WorkspaceMembership local según el contexto del workspace.
+
+    Idempotente: llamar N veces con los mismos datos produce el mismo estado.
+    Re-sync: si el rol del tenant cambió, actualiza la membership local.
+
+    Si los roles del sistema no están sembrados (seed_permissions.py no se
+    ejecutó), loguea una advertencia y retorna la membership existente (o None
+    si no existe).
+
+    Raises:
+        ValueError: si el rol de sistema requerido no existe Y no hay membership.
+    """
+    role_name = _resolve_system_role_name(tenant_roles, platform_roles)
+
+    role = session.query(Role).filter_by(name=role_name, is_system=True).first()
+    if not role:
+        logger.warning(
+            "Rol de sistema '%s' no encontrado; seed_permissions.py puede no haberse ejecutado. "
+            "Intentando fallback a 'viewer'.",
+            role_name,
+        )
+        role = session.query(Role).filter_by(name="viewer", is_system=True).first()
+        if not role:
+            raise ValueError(
+                f"Rol '{role_name}' (ni 'viewer') encontrado en la DB. "
+                "Ejecutá python tools/seed_permissions.py primero."
+            )
+
+    # Delegar en el helper existente (ya hace get-or-create + update)
+    return add_user_to_workspace_helper(session, local_user_id, workspace_id, role.name)
 
 
 def add_user_to_workspace_helper(

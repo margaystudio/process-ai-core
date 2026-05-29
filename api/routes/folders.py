@@ -28,13 +28,18 @@ from api.workspace_client import (
     WorkspaceSessionContext,
     get_workspace_context,
     resolve_tenant_workspace_id,
+    sync_workspace_access,
 )
 from ..models.requests import (
     FolderCreateRequest, FolderResponse, FolderUpdateRequest,
     FolderPermissionsUpdateRequest,
 )
 
-router = APIRouter(prefix="/api/v1/folders", tags=["folders"])
+router = APIRouter(
+    prefix="/api/v1/folders",
+    tags=["folders"],
+    dependencies=[Depends(sync_workspace_access)],
+)
 
 
 def _require_workspace_member(session: Session, user_id: str, workspace_id: str) -> None:
