@@ -19,8 +19,63 @@ from process_ai_core.db.permissions import has_permission
 import os
 import logging
 import jwt  # pyjwt
+from jwt import PyJWKClient, PyJWKClientError
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_SUPABASE_JWKS_URL = (
+    "https://nbigcpjmckewuhrqjzrt.supabase.co/auth/v1/.well-known/jwks.json"
+)
+
+_jwks_client: PyJWKClient | None = None
+
+
+def _get_supabase_jwks_url() -> str:
+    explicit = os.getenv("SUPABASE_JWKS_URL", "").strip()
+    if explicit:
+        return explicit
+    base_url = os.getenv("SUPABASE_URL", "").strip().rstrip("/")
+    if base_url:
+        return f"{base_url}/auth/v1/.well-known/jwks.json"
+    return DEFAULT_SUPABASE_JWKS_URL
+
+
+def _get_jwks_client() -> PyJWKClient:
+    """Lazy singleton — no network call until first JWT validation."""
+    global _jwks_client
+    if _jwks_client is None:
+        _jwks_client = PyJWKClient(
+            _get_supabase_jwks_url(),
+            cache_keys=True,
+        )
+    return _jwks_client
+
+
+def _decode_and_verify_supabase_jwt(token: str) -> dict:
+    """
+    Valida firma del JWT contra JWKS de Supabase y devuelve el payload.
+    """
+    try:
+        client = _get_jwks_client()
+        signing_key = client.get_signing_key_from_jwt(token)
+        return jwt.decode(
+            token,
+            signing_key.key,
+            algorithms=["ES256", "RS256"],
+            audience="authenticated",
+            options={"require": ["sub", "exp"]},
+        )
+    except jwt.ExpiredSignatureError:
+        logger.warning("JWT expired")
+        raise HTTPException(status_code=401, detail="Token expired")
+    except (jwt.InvalidTokenError, PyJWKClientError):
+        logger.warning("Invalid JWT")
+        raise HTTPException(status_code=401, detail="Invalid token")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Unexpected JWT validation error: %s", type(exc).__name__)
+        raise HTTPException(status_code=401, detail="Invalid token")
 
 
 def get_db() -> Generator[Session, None, None]:
@@ -73,113 +128,70 @@ async def get_current_user_id(
     Raises:
         HTTPException: Si el token es inválido o el usuario no existe
     """
-    logger.info(f"get_current_user_id llamado, authorization presente: {authorization is not None}")
-    
+    logger.debug("get_current_user_id: authorization header present=%s", authorization is not None)
+
     if not authorization:
-        logger.warning("Authorization header no presente")
+        logger.warning("Authorization header missing")
         raise HTTPException(
             status_code=401,
             detail="Missing Authorization header"
         )
-    
+
     if not authorization.startswith("Bearer "):
-        logger.warning(f"Authorization header no tiene formato Bearer: {authorization[:20]}...")
+        logger.warning("Authorization header is not Bearer format")
         raise HTTPException(
             status_code=401,
             detail="Invalid Authorization header format. Expected 'Bearer <token>'"
         )
-    
+
     token = authorization.replace("Bearer ", "").strip()
-    logger.info(f"Token extraído, longitud: {len(token)}, primeros 20 chars: {token[:20]}...")
-    
-    # Siempre intentar decodificar el JWT, incluso si Supabase no está configurado
-    # El token JWT puede ser decodificado sin necesidad de Supabase
-    logger.info("Decodificando JWT (no requiere Supabase configurado)...")
+    logger.debug("Bearer token present=%s", bool(token))
+
     try:
-        # Decodificar JWT para obtener el user_id (sub)
-        # El service role key no puede usar get_user() directamente con un token JWT
-        logger.info("Intentando decodificar JWT...")
-        try:
-            # Decodificar JWT sin verificar la firma (solo para obtener el sub)
-            # La validación real se hace en el frontend con Supabase
-            decoded = jwt.decode(token, options={"verify_signature": False})
-            logger.info(f"JWT decodificado exitosamente: {list(decoded.keys())}")
-            
-            supabase_user_id = decoded.get("sub")
-            
-            logger.info(f"Token decodificado, supabase_user_id: {supabase_user_id}")
-            
-            if not supabase_user_id:
-                logger.warning("Token no contiene 'sub' (user ID)")
-                logger.warning(f"Campos disponibles en token: {list(decoded.keys())}")
-                raise HTTPException(
-                    status_code=401,
-                    detail="Invalid token: no user ID found"
-                )
-            
-            # Crear una sesión temporal para buscar el usuario
-            # Esto evita conflictos con múltiples dependencias anidadas
-            with get_db_session() as session:
-                # Buscar usuario local por external_id
-                logger.info(f"Buscando usuario con external_id: {supabase_user_id}")
-                local_user = get_user_by_external_id(session, supabase_user_id)
-                
-                # Si no se encuentra por external_id, buscar por email (para usuarios creados localmente antes de vincular con Supabase)
-                if not local_user:
-                    supabase_email = decoded.get("email")
-                    if supabase_email:
-                        logger.info(f"Usuario no encontrado por external_id, buscando por email: {supabase_email}")
-                        from process_ai_core.db.helpers import get_user_by_email
-                        local_user = get_user_by_email(session, supabase_email)
-                        logger.info(f"Usuario encontrado por email: {local_user is not None}")
-                        if local_user:
-                            logger.info(f"Usuario encontrado: {local_user.email} (ID: {local_user.id})")
-                            
-                            # Si se encuentra por email, vincular automáticamente el external_id
-                            logger.info(f"Vinculando usuario {local_user.id} ({local_user.email}) con Supabase user_id {supabase_user_id}")
-                            local_user.external_id = supabase_user_id
-                            local_user.auth_provider = "supabase"
-                            session.commit()
-                            logger.info("Usuario vinculado exitosamente")
-                
-                if local_user:
-                    logger.info(f"Usuario encontrado: {local_user.email} (id: {local_user.id})")
-                    return local_user.id
-                else:
-                    # Listar todos los external_ids para debugging
-                    all_users = session.query(User).all()
-                    external_ids = [u.external_id for u in all_users if u.external_id]
-                    emails = [u.email for u in all_users if u.email]
-                    logger.warning(f"Usuario con external_id {supabase_user_id} no encontrado en BD local")
-                    logger.warning(f"External IDs en BD: {external_ids}")
-                    logger.warning(f"Emails en BD: {emails}")
-                    raise HTTPException(
-                        status_code=404,
-                        detail=f"User not found in local database. Supabase ID: {supabase_user_id}"
-                    )
-        except jwt.DecodeError as e:
-            logger.error(f"Error decodificando JWT: {e}")
-            logger.error(f"Tipo de error: {type(e).__name__}")
+        decoded = _decode_and_verify_supabase_jwt(token)
+        logger.debug("JWT signature verified")
+
+        supabase_user_id = decoded.get("sub")
+
+        if not supabase_user_id:
+            logger.warning("JWT missing subject claim")
             raise HTTPException(
                 status_code=401,
-                detail=f"Invalid token format: {str(e)}"
+                detail="Invalid token: no user ID found",
             )
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"Error inesperado decodificando JWT: {e}")
-            logger.exception("Traceback completo:")
+
+        with get_db_session() as session:
+            local_user = get_user_by_external_id(session, supabase_user_id)
+
+            if not local_user:
+                supabase_email = decoded.get("email")
+                if supabase_email:
+                    logger.debug("Local user lookup by external_id failed; trying email match")
+                    from process_ai_core.db.helpers import get_user_by_email
+
+                    local_user = get_user_by_email(session, supabase_email)
+                    if local_user:
+                        local_user.external_id = supabase_user_id
+                        local_user.auth_provider = "supabase"
+                        session.commit()
+                        logger.debug("Linked local user id=%s to auth provider", local_user.id)
+
+            if local_user:
+                logger.debug("Authenticated local user id=%s", local_user.id)
+                return local_user.id
+
+            logger.warning("Authenticated subject not found in local database")
             raise HTTPException(
-                status_code=401,
-                detail=f"Error procesando token: {str(e)}"
+                status_code=404,
+                detail=f"User not found in local database. Supabase ID: {supabase_user_id}",
             )
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Error obteniendo usuario: {e}")
+        logger.exception("Error obteniendo usuario: %s", type(e).__name__)
         raise HTTPException(
             status_code=500,
-            detail=f"Error obteniendo usuario: {str(e)}"
+            detail=f"Error obteniendo usuario: {str(e)}",
         )
 
 
