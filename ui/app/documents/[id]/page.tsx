@@ -153,6 +153,20 @@ export default function DocumentDetailPage() {
   // Catalog options
   const [audienceOptions, setAudienceOptions] = useState<CatalogOption[]>([])
   const [detailLevelOptions, setDetailLevelOptions] = useState<CatalogOption[]>([])
+
+  const getRelevantPdfVersion = (runId?: string) => {
+    const scopedVersions = runId
+      ? versions.filter((v) => v.run_id === runId)
+      : versions
+
+    return (
+      scopedVersions.find((v) => v.version_status === 'DRAFT' && v.content_type === 'manual_edit') ||
+      scopedVersions.find((v) => v.version_status === 'IN_REVIEW') ||
+      scopedVersions.find((v) => v.version_status === 'APPROVED') ||
+      scopedVersions.find((v) => v.version_status === 'DRAFT') ||
+      null
+    )
+  }
   
   useEffect(() => {
     async function loadDocument() {
@@ -981,9 +995,9 @@ export default function DocumentDetailPage() {
                           
                           {(() => {
                             // PDF desde la versión en revisión (fuente de verdad: content_html o content_markdown)
-                            const inReviewVersion = versions.find(v => v.version_status === 'IN_REVIEW')
-                            if (inReviewVersion) {
-                              const pdfUrl = getVersionPreviewPdfUrl(documentId, inReviewVersion.id)
+                            const relevantPdfVersion = getRelevantPdfVersion()
+                            if (relevantPdfVersion) {
+                              const pdfUrl = getVersionPreviewPdfUrl(documentId, relevantPdfVersion.id)
                               return (
                                 <div className="border border-gray-200 rounded-lg overflow-hidden">
                                   <iframe
@@ -1190,14 +1204,24 @@ export default function DocumentDetailPage() {
               
               {/* Opciones de corrección: en rechazado o en borrador (creador puede modificar contenido) */}
               {(document.status === 'rejected' || (document.status === 'draft' && allowEditMetadata)) && (
-                <div className="mt-6 p-4 bg-yellow-50 rounded-lg border border-yellow-200">
+                <div
+                  className={`mt-6 p-4 rounded-lg border ${
+                    document.status === 'draft'
+                      ? 'bg-blue-50 border-blue-200'
+                      : 'bg-yellow-50 border-yellow-200'
+                  }`}
+                >
                   <div className="flex items-center justify-between mb-4">
                     <h3 className="text-lg font-medium text-gray-900">
                       {document.status === 'draft' ? 'Modificar contenido del documento' : 'Corregir Documento'}
                     </h3>
                     <button
                       onClick={() => setShowCorrectionOptions(!showCorrectionOptions)}
-                      className="px-4 py-2 bg-yellow-600 text-white rounded-md hover:bg-yellow-700 text-sm font-medium"
+                      className={`px-4 py-2 text-white rounded-md text-sm font-medium ${
+                        document.status === 'draft'
+                          ? 'bg-blue-600 hover:bg-blue-700'
+                          : 'bg-yellow-600 hover:bg-yellow-700'
+                      }`}
                     >
                       {showCorrectionOptions ? 'Ocultar' : 'Mostrar Opciones'}
                     </button>
@@ -1395,10 +1419,7 @@ export default function DocumentDetailPage() {
                               onClick={() => {
                                 // Buscar la versión más relevante para este run que tenga el contenido más reciente.
                                 // Prioridad: DRAFT con edición manual > IN_REVIEW > APPROVED.
-                                const relevantVersion =
-                                  versions.find((v) => v.version_status === 'DRAFT' && v.run_id === run.run_id && v.content_type === 'manual_edit') ||
-                                  versions.find((v) => v.version_status === 'IN_REVIEW' && v.run_id === run.run_id) ||
-                                  versions.find((v) => v.version_status === 'APPROVED' && v.run_id === run.run_id)
+                                const relevantVersion = getRelevantPdfVersion(run.run_id)
                                 if (relevantVersion) {
                                   openVersionPreviewPdf(documentId, relevantVersion.id)
                                 } else {

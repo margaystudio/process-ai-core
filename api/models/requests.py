@@ -112,7 +112,18 @@ class WorkspaceResponse(BaseModel):
     name: str = Field(..., description="Nombre del workspace")
     slug: str = Field(..., description="Slug único")
     workspace_type: str = Field(..., description="Tipo: organization|user|community")
+    role: Optional[str] = Field(default=None, description="Rol del usuario actual en el workspace")
+    branding_icon_url: Optional[str] = Field(default=None, description="URL pública del icono personalizado del workspace")
+    branding_primary_color: Optional[str] = Field(default=None, description="Color principal del branding del workspace")
+    branding_secondary_color: Optional[str] = Field(default=None, description="Color secundario del branding del workspace")
     created_at: str = Field(..., description="Fecha de creación")
+
+
+class WorkspaceBrandingUpdateRequest(BaseModel):
+    """Request para actualizar los colores de branding del workspace."""
+
+    primary_color: str = Field(..., description="Color principal hexadecimal, ej: #2563EB")
+    secondary_color: str = Field(..., description="Color secundario hexadecimal, ej: #DC2626")
 
 
 class FolderCreateRequest(BaseModel):

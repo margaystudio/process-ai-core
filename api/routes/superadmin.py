@@ -56,6 +56,16 @@ class InviteAdminRequest(BaseModel):
 # Endpoints
 # ============================================================================
 
+def _serialize_workspace(workspace: Workspace) -> WorkspaceResponse:
+    return WorkspaceResponse(
+        id=workspace.id,
+        name=workspace.name,
+        slug=workspace.slug,
+        workspace_type=workspace.workspace_type,
+        created_at=workspace.created_at.isoformat(),
+    )
+
+
 @router.post("/workspaces", response_model=WorkspaceResponse)
 async def create_b2b_workspace(
     request: CreateB2BWorkspaceRequest,
@@ -131,13 +141,7 @@ async def create_b2b_workspace(
     
     session.commit()
     
-    return WorkspaceResponse(
-        id=workspace.id,
-        name=workspace.name,
-        slug=workspace.slug,
-        workspace_type=workspace.workspace_type,
-        created_at=workspace.created_at.isoformat(),
-    )
+    return _serialize_workspace(workspace)
 
 
 @router.post("/workspaces/{workspace_id}/invite-admin")
@@ -211,15 +215,6 @@ async def list_all_workspaces(
     
     workspaces = query.order_by(Workspace.created_at.desc()).all()
     
-    return [
-        WorkspaceResponse(
-            id=w.id,
-            name=w.name,
-            slug=w.slug,
-            workspace_type=w.workspace_type,
-            created_at=w.created_at.isoformat(),
-        )
-        for w in workspaces
-    ]
+    return [_serialize_workspace(w) for w in workspaces]
 
 

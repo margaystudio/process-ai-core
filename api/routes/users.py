@@ -8,6 +8,7 @@ Este endpoint maneja:
 - POST /api/v1/users/{user_id}/workspaces/{workspace_id}/membership: Agregar usuario a workspace con rol
 """
 
+import json
 import re
 
 from fastapi import APIRouter, HTTPException, Query, Depends
@@ -23,6 +24,30 @@ from process_ai_core.db.permissions import has_permission
 from ..dependencies import get_db, get_current_user_id
 
 router = APIRouter(prefix="/api/v1/users", tags=["users"])
+
+
+def _get_workspace_branding_icon_url(workspace: Workspace) -> str | None:
+    try:
+        metadata = json.loads(workspace.metadata_json) if workspace.metadata_json else {}
+    except json.JSONDecodeError:
+        metadata = {}
+    branding = metadata.get("branding") or {}
+    filename = branding.get("client_icon_filename")
+    if not isinstance(filename, str) or not filename.strip():
+        return None
+    return f"/api/v1/workspaces/{workspace.id}/branding/icon/{filename}"
+
+
+def _get_workspace_branding_color(workspace: Workspace, key: str) -> str | None:
+    try:
+        metadata = json.loads(workspace.metadata_json) if workspace.metadata_json else {}
+    except json.JSONDecodeError:
+        metadata = {}
+    branding = metadata.get("branding") or {}
+    color = branding.get(key)
+    if not isinstance(color, str):
+        return None
+    return color
 
 
 @router.post("")
@@ -301,6 +326,9 @@ async def get_user_workspaces(user_id: str, session: Session = Depends(get_db)):
             "slug": workspace.slug,
             "workspace_type": workspace.workspace_type,
             "role": role_name,
+            "branding_icon_url": _get_workspace_branding_icon_url(workspace),
+            "branding_primary_color": _get_workspace_branding_color(workspace, "primary_color"),
+            "branding_secondary_color": _get_workspace_branding_color(workspace, "secondary_color"),
             "created_at": workspace.created_at.isoformat(),
         }
         workspaces.append(workspace_data)
