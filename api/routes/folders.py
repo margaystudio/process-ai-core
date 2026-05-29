@@ -24,6 +24,11 @@ from process_ai_core.db.permissions import (
     has_permission,
 )
 
+from api.workspace_client import (
+    WorkspaceSessionContext,
+    get_workspace_context,
+    resolve_tenant_workspace_id,
+)
 from ..models.requests import (
     FolderCreateRequest, FolderResponse, FolderUpdateRequest,
     FolderPermissionsUpdateRequest,
@@ -47,6 +52,7 @@ async def create_folder_endpoint(
     request: FolderCreateRequest,
     user_id: str = Depends(get_current_user_id),
     session: Session = Depends(get_db),
+    ctx: WorkspaceSessionContext = Depends(get_workspace_context),
 ):
     """
     Crea una nueva carpeta dentro de un workspace.
@@ -61,17 +67,18 @@ async def create_folder_endpoint(
         400: Si el workspace no existe
         500: Error interno del servidor
     """
+    workspace_id = resolve_tenant_workspace_id(ctx)
     try:
         # Verificar que el workspace existe
         from process_ai_core.db.models import Workspace
-        workspace = session.query(Workspace).filter_by(id=request.workspace_id).first()
+        workspace = session.query(Workspace).filter_by(id=workspace_id).first()
         if not workspace:
             raise HTTPException(
                 status_code=400,
-                detail=f"Workspace {request.workspace_id} no encontrado"
+                detail=f"Workspace {workspace_id} no encontrado"
             )
 
-        _require_workspace_member(session, user_id, request.workspace_id)
+        _require_workspace_member(session, user_id, workspace_id)
 
         # Verificar permiso de creación en la carpeta padre (si aplica)
         if request.parent_id:
@@ -81,22 +88,22 @@ async def create_folder_endpoint(
                     status_code=400,
                     detail=f"Carpeta padre {request.parent_id} no encontrada"
                 )
-            if parent.workspace_id != request.workspace_id:
+            if parent.workspace_id != workspace_id:
                 raise HTTPException(
                     status_code=400,
                     detail="La carpeta padre no pertenece al workspace indicado",
                 )
-            if not can_create_in_folder(session, user_id, request.workspace_id, parent.id):
+            if not can_create_in_folder(session, user_id, workspace_id, parent.id):
                 raise HTTPException(
                     status_code=403,
                     detail="No tiene permisos para crear en esta carpeta",
                 )
         else:
             # Para carpetas raíz, exigir permiso global de creación en el workspace.
-            user_role = get_user_role(session, user_id, request.workspace_id)
+            user_role = get_user_role(session, user_id, workspace_id)
             role_name = user_role.name if user_role else None
             if role_name not in ("owner", "admin") and not has_permission(
-                session, user_id, request.workspace_id, "documents.create"
+                session, user_id, workspace_id, "documents.create"
             ):
                 raise HTTPException(
                     status_code=403,
@@ -106,7 +113,7 @@ async def create_folder_endpoint(
         # Crear la carpeta
         folder = create_folder(
             session=session,
-            workspace_id=request.workspace_id,
+            workspace_id=workspace_id,
             name=request.name,
             path=request.path or request.name,
             parent_id=request.parent_id,
@@ -145,25 +152,17 @@ async def create_folder_endpoint(
 
 @router.get("", response_model=list[FolderResponse])
 async def list_folders(
-    workspace_id: str = None,
     user_id: str = Depends(get_current_user_id),
     session: Session = Depends(get_db),
+    ctx: WorkspaceSessionContext = Depends(get_workspace_context),
 ):
     """
-    Lista todas las carpetas de un workspace.
-
-    Args:
-        workspace_id: ID del workspace (query parameter)
+    Lista todas las carpetas del workspace activo del usuario.
 
     Returns:
         Lista de FolderResponse
     """
-    if not workspace_id:
-        raise HTTPException(
-            status_code=400,
-            detail="workspace_id es requerido"
-        )
-
+    workspace_id = resolve_tenant_workspace_id(ctx)
     _require_workspace_member(session, user_id, workspace_id)
 
     folders = get_folders_by_workspace(session, workspace_id)

@@ -23,6 +23,11 @@ from process_ai_core.upload_validation import ALLOWED_UPLOAD_EXTENSIONS
 
 from ..models.requests import ProcessMode, ProcessRunResponse
 from ._branding import get_run_pdf_branding, get_workspace_pdf_branding
+from api.workspace_client import (
+    WorkspaceSessionContext,
+    get_workspace_context,
+    resolve_tenant_workspace_id,
+)
 
 router = APIRouter(prefix="/api/v1/process-runs", tags=["process-runs"])
 
@@ -34,12 +39,12 @@ async def create_process_run(
     context_text: str = Form(None),
     description: str = Form(None),  # Opcional: si no se proporciona, la IA la inferirá
     folder_id: str = Form(...),  # Requerido
-    workspace_id: str = Form(...),  # Requerido
     audio_files: List[UploadFile] = File(default=[]),
     video_files: List[UploadFile] = File(default=[]),
     image_files: List[UploadFile] = File(default=[]),
     text_files: List[UploadFile] = File(default=[]),
     user_id: str = Depends(get_current_user_id),
+    ctx: WorkspaceSessionContext = Depends(get_workspace_context),
 ):
     """
     Crea una nueva corrida del pipeline de documentación.
@@ -60,6 +65,7 @@ async def create_process_run(
         ProcessRunResponse con run_id, status y paths a artefactos generados
     """
     settings = get_settings()
+    workspace_id = resolve_tenant_workspace_id(ctx)
 
     # Validar permisos antes de procesar
     from process_ai_core.db.database import get_db_session
@@ -87,14 +93,10 @@ async def create_process_run(
             status_code=400, detail="Se requiere al menos un archivo de entrada"
         )
     
-    # Validar que folder_id y workspace_id estén presentes
+    # Validar que folder_id esté presente
     if not folder_id:
         raise HTTPException(
             status_code=400, detail="folder_id es requerido"
-        )
-    if not workspace_id:
-        raise HTTPException(
-            status_code=400, detail="workspace_id es requerido"
         )
     
     # Generar run_id temporal para el procesamiento (antes de crear nada en BD)

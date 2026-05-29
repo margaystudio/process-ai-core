@@ -129,7 +129,6 @@ class WorkspaceBrandingUpdateRequest(BaseModel):
 class FolderCreateRequest(BaseModel):
     """Request para crear una carpeta."""
 
-    workspace_id: str = Field(..., description="ID del workspace")
     name: str = Field(..., description="Nombre de la carpeta")
     path: Optional[str] = Field(default=None, description="Path completo de la carpeta")
     parent_id: Optional[str] = Field(default=None, description="ID de la carpeta padre (opcional)")

@@ -18,6 +18,11 @@ from sqlalchemy.orm import Session
 from process_ai_core.db.database import get_db_session
 from process_ai_core.db.models import Document, Validation, Run
 from ..dependencies import get_db, get_current_user_id
+from api.workspace_client import (
+    WorkspaceSessionContext,
+    get_workspace_context,
+    resolve_tenant_workspace_id,
+)
 from process_ai_core.db.helpers import (
     create_validation,
     reject_validation,
@@ -388,8 +393,8 @@ async def reject_document_validation_direct(
 @router.post("/validations/{validation_id}/approve", response_model=ValidationResponse)
 async def approve_document_validation(
     validation_id: str,
-    user_id: str = Body(..., embed=True),
-    workspace_id: str = Body(..., embed=True),
+    user_id: str = Depends(get_current_user_id),
+    ctx: WorkspaceSessionContext = Depends(get_workspace_context),
 ):
     """
     Aprueba una validacion (y su version asociada).
@@ -410,6 +415,7 @@ async def approve_document_validation(
     Returns:
         ValidationResponse con la validacion aprobada
     """
+    workspace_id = resolve_tenant_workspace_id(ctx)
     with get_db_session() as session:
         # Verificar permisos
         from process_ai_core.db.permissions import has_permission

@@ -152,6 +152,18 @@ async def get_workspace_context(
     return fetch_workspace_context(token)
 
 
+def resolve_tenant_workspace_id(ctx: "WorkspaceSessionContext") -> str:
+    """
+    Devuelve el ID de workspace local (process_ai_core) para el tenant activo.
+
+    TODO (1.4b): implementar get-or-create del Workspace local en la DB de
+    process_ai_core, usando ctx.tenant.id/slug como clave de búsqueda.
+    Por ahora asume que ctx.tenant.id coincide con el Workspace.id local.
+    Punto único de resolución: sólo hay que cambiar este helper en 1.4b.
+    """
+    return ctx.tenant.id
+
+
 def _get_required_app_key() -> str:
     return os.getenv("PROCESS_AI_APP_KEY", "process_ai")
 

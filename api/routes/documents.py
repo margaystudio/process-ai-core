@@ -40,7 +40,12 @@ from fastapi.responses import Response
 from ..models.requests import DocumentResponse, DocumentUpdateRequest, ProcessRunResponse
 from ._branding import get_workspace_pdf_branding
 from api.dependencies import get_current_user_id
-from api.workspace_client import require_process_ai_access
+from api.workspace_client import (
+    WorkspaceSessionContext,
+    get_workspace_context,
+    require_process_ai_access,
+    resolve_tenant_workspace_id,
+)
 from process_ai_core.db.permissions import has_permission, can_view_folder
 
 router = APIRouter(
@@ -103,8 +108,8 @@ def _extract_open_questions_metadata(session, doc: Document) -> Optional[dict[st
 
 @router.get("/pending-approval", response_model=list[DocumentResponse])
 async def list_documents_pending_approval(
-    workspace_id: str = Query(..., description="ID del workspace"),
     user_id: str = Depends(get_current_user_id),
+    ctx: WorkspaceSessionContext = Depends(get_workspace_context),
 ):
     """
     Lista documentos pendientes de aprobación para un usuario con rol de aprobador.
@@ -118,6 +123,7 @@ async def list_documents_pending_approval(
     Returns:
         Lista de documentos con status="pending_validation"
     """
+    workspace_id = resolve_tenant_workspace_id(ctx)
     with get_db_session() as session:
         # Verificar permisos usando el sistema de permisos
         from process_ai_core.db.permissions import has_permission
@@ -171,8 +177,8 @@ async def list_documents_pending_approval(
 
 @router.get("/to-review", response_model=list[DocumentResponse])
 async def list_documents_to_review(
-    workspace_id: str = Query(..., description="ID del workspace"),
     user_id: str = Depends(get_current_user_id),
+    ctx: WorkspaceSessionContext = Depends(get_workspace_context),
 ):
     """
     Lista documentos rechazados que el usuario creador debe revisar y corregir.
@@ -184,6 +190,7 @@ async def list_documents_to_review(
     Returns:
         Lista de documentos con status="rejected" creados por el usuario
     """
+    workspace_id = resolve_tenant_workspace_id(ctx)
     with get_db_session() as session:
         # Verificar que el usuario puede ver documentos
         from process_ai_core.db.permissions import has_permission
@@ -219,11 +226,11 @@ async def list_documents_to_review(
 
 @router.get("", response_model=list[DocumentResponse])
 async def list_documents(
-    workspace_id: Optional[str] = Query(None, description="ID del workspace"),
     folder_id: Optional[str] = Query(None, description="ID de la carpeta (opcional)"),
     document_type: str = Query("process", description="Tipo de documento"),
     status: Optional[str] = Query(None, description="Filtrar por estado (draft|pending_validation|approved|rejected|archived)"),
     user_id: str = Depends(get_current_user_id),
+    ctx: WorkspaceSessionContext = Depends(get_workspace_context),
 ):
     """
     Lista documentos de un workspace.
@@ -242,12 +249,7 @@ async def list_documents(
     Returns:
         Lista de DocumentResponse
     """
-    if not workspace_id:
-        raise HTTPException(
-            status_code=400,
-            detail="workspace_id es requerido"
-        )
-    
+    workspace_id = resolve_tenant_workspace_id(ctx)
     with get_db_session() as session:
         # Verificar permiso documents.view en el workspace
         if not has_permission(session, user_id, workspace_id, "documents.view"):
@@ -2314,8 +2316,8 @@ async def get_document_audit_log(document_id: str):
 async def submit_version_for_review_endpoint(
     document_id: str,
     version_id: str,
-    workspace_id: str = Body(..., embed=True),
     user_id: str = Depends(get_current_user_id),
+    ctx: WorkspaceSessionContext = Depends(get_workspace_context),
 ):
     """
     Envía una versión DRAFT a revisión (cambia a IN_REVIEW y crea Validation).
@@ -2326,11 +2328,10 @@ async def submit_version_for_review_endpoint(
         document_id: ID del documento
         version_id: ID de la versión DRAFT a enviar
         user_id: ID del usuario que envía
-        workspace_id: ID del workspace
-    
     Returns:
         Versión actualizada y validación creada
     """
+    workspace_id = resolve_tenant_workspace_id(ctx)
     with get_db_session() as session:
         # Verificar permisos
         from process_ai_core.db.permissions import has_permission
@@ -2400,13 +2401,14 @@ async def submit_version_for_review_endpoint(
 async def cancel_submission_endpoint(
     document_id: str,
     version_id: str,
-    user_id: str = Body(..., embed=True),
-    workspace_id: str = Body(..., embed=True),
+    user_id: str = Depends(get_current_user_id),
+    ctx: WorkspaceSessionContext = Depends(get_workspace_context),
 ):
     """
     Cancela el envío a revisión y vuelve la versión a borrador.
     Solo el creador de la versión (quien la envió) puede cancelar.
     """
+    workspace_id = resolve_tenant_workspace_id(ctx)
     with get_db_session() as session:
         from process_ai_core.db.permissions import has_permission
 
@@ -2443,8 +2445,8 @@ async def cancel_submission_endpoint(
 async def clone_version_to_draft(
     document_id: str,
     version_id: str,
-    user_id: str = Body(..., embed=True),
-    workspace_id: str = Body(..., embed=True),
+    user_id: str = Depends(get_current_user_id),
+    ctx: WorkspaceSessionContext = Depends(get_workspace_context),
 ):
     """
     Crea un nuevo DRAFT clonando una versión APPROVED o REJECTED.
@@ -2455,11 +2457,11 @@ async def clone_version_to_draft(
         document_id: ID del documento
         version_id: ID de la versión a clonar (debe ser APPROVED o REJECTED)
         user_id: ID del usuario que clona
-        workspace_id: ID del workspace
-    
+
     Returns:
         Nueva versión DRAFT creada
     """
+    workspace_id = resolve_tenant_workspace_id(ctx)
     with get_db_session() as session:
         # Verificar permisos
         from process_ai_core.db.permissions import has_permission
