@@ -34,12 +34,6 @@ export default function ClientsPage() {
       <div className="max-w-7xl mx-auto">
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-3xl font-bold">Clientes</h1>
-          <Link
-            href="/clients/new"
-            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 font-medium"
-          >
-            + Nuevo Cliente
-          </Link>
         </div>
 
         {error && (
@@ -57,12 +51,7 @@ export default function ClientsPage() {
           <div className="bg-white rounded-lg shadow-sm p-8">
             <div className="text-center text-gray-500">
               <p className="text-lg mb-4">No hay espacios de trabajo creados</p>
-              <Link
-                href="/clients/new"
-                className="text-blue-600 hover:text-blue-700 underline"
-              >
-                Crear el primer espacio de trabajo
-              </Link>
+              <p className="text-sm">Los workspaces se crean desde el panel de margay-workspace.</p>
             </div>
           </div>
         ) : (

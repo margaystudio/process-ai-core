@@ -36,3 +36,6 @@ next-env.d.ts
 
 
 
+
+# certificados HTTPS locales (generados por scripts/dev-setup)
+.certs/

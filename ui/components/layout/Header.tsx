@@ -59,8 +59,11 @@ export default function Header() {
   // Rutas públicas donde no se muestra el usuario ni la navegación completa
   const isPublicRoute = pathname?.startsWith('/login') || pathname?.startsWith('/auth')
 
-  // Verificar si el usuario es superadmin (tiene un workspace de tipo "system")
-  const isSuperadmin = workspaces.some(ws => ws.workspace_type === 'system')
+  // Verificar si el usuario es platform superadmin.
+  // La detección usa role='superadmin' en lugar de workspace_type='system':
+  // sync_workspace_access asigna el rol 'superadmin' en el workspace activo cuando
+  // el claim platform_roles del contexto de margay-workspace incluye 'superadmin'.
+  const isSuperadmin = workspaces.some(ws => ws.role === 'superadmin')
 
   const isActive = (path: string) => {
     return pathname?.startsWith(path)

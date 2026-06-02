@@ -9,7 +9,6 @@ import {
   getCatalogOptions,
   getDocumentRuns,
   createDocumentRun,
-  getArtifactUrl,
   CatalogOption,
   Document,
   DocumentUpdateRequest,
@@ -554,15 +553,15 @@ export default function DocumentDetailPage() {
       setRevisionNotes('')
       
       // Abrir automáticamente el PDF del run generado para visualización (solo lectura)
-      if (response.run_id && response.artifacts?.pdf) {
-        // Delay más largo para asegurar que el archivo esté disponible y la versión se haya creado
+      if (response.artifacts?.pdf) {
+        // Delay para asegurar que el archivo esté disponible y la versión se haya creado
         setTimeout(() => {
-          openArtifactFromRun(response.run_id, 'process.pdf', 'pdf')
+          openArtifactFromRun(response.artifacts!.pdf!, 'pdf')
         }, 2000)
-      } else if (response.run_id && response.artifacts?.markdown) {
+      } else if (response.artifacts?.markdown) {
         // Si no hay PDF, abrir el markdown
         setTimeout(() => {
-          openArtifactFromRun(response.run_id, 'process.md', 'markdown')
+          openArtifactFromRun(response.artifacts!.markdown!, 'markdown')
         }, 2000)
       }
       
@@ -1417,14 +1416,12 @@ export default function DocumentDetailPage() {
                           {run.artifacts.pdf && (
                             <button
                               onClick={() => {
-                                // Buscar la versión más relevante para este run que tenga el contenido más reciente.
                                 // Prioridad: DRAFT con edición manual > IN_REVIEW > APPROVED.
                                 const relevantVersion = getRelevantPdfVersion(run.run_id)
                                 if (relevantVersion) {
                                   openVersionPreviewPdf(documentId, relevantVersion.id)
                                 } else {
-                                  const filename = run.artifacts.pdf!.split('/').pop() || 'process.pdf'
-                                  openArtifactFromRun(run.run_id, filename, 'pdf')
+                                  openArtifactFromRun(run.artifacts.pdf!, 'pdf')
                                 }
                               }}
                               className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm font-medium inline-flex items-center gap-2"
@@ -1434,10 +1431,7 @@ export default function DocumentDetailPage() {
                           )}
                           {run.artifacts.md && (
                             <button
-                              onClick={() => {
-                                const filename = run.artifacts.md!.split('/').pop() || 'process.md'
-                                openArtifactFromRun(run.run_id, filename, 'markdown')
-                              }}
+                              onClick={() => openArtifactFromRun(run.artifacts.md!, 'markdown')}
                               className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 text-sm font-medium inline-flex items-center gap-2"
                             >
                               📝 Ver Markdown
@@ -1445,10 +1439,7 @@ export default function DocumentDetailPage() {
                           )}
                           {run.artifacts.json && (
                             <button
-                              onClick={() => {
-                                const filename = run.artifacts.json!.split('/').pop() || 'process.json'
-                                openArtifactFromRun(run.run_id, filename, 'json')
-                              }}
+                              onClick={() => openArtifactFromRun(run.artifacts.json!, 'json')}
                               className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 text-sm font-medium inline-flex items-center gap-2"
                             >
                               📄 Ver JSON

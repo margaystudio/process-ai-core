@@ -80,6 +80,7 @@ def test_get_document_devuelve_preguntas_abiertas_en_metadata(monkeypatch, sessi
     monkeypatch.setattr(documents_route, "get_db_session", fake_db_session)
     monkeypatch.setattr(documents_route, "has_permission", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(documents_route, "can_view_folder", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(documents_route, "resolve_tenant_workspace_id", lambda _ctx: workspace.id)
     import process_ai_core.db.permissions as permissions_module
 
     monkeypatch.setattr(
@@ -88,6 +89,6 @@ def test_get_document_devuelve_preguntas_abiertas_en_metadata(monkeypatch, sessi
         lambda *_args, **_kwargs: SimpleNamespace(name="viewer"),
     )
 
-    response = asyncio.run(documents_route.get_document(doc.id, user_id="test-user"))
+    response = asyncio.run(documents_route.get_document(doc.id, user_id="test-user", ctx=None))
 
     assert response.metadata == {"preguntas_abiertas": approved_question}

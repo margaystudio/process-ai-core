@@ -12,3 +12,6 @@ output/
 var/
 archivos/
 data/*.sqlite
+
+.DS_Store
+**/.DS_Store

@@ -39,6 +39,7 @@ from fastapi.responses import Response
 
 from ..models.requests import DocumentResponse, DocumentUpdateRequest, ProcessRunResponse
 from ._branding import get_workspace_pdf_branding
+from ..artifact_signing import sign_artifact_url
 from api.dependencies import get_current_user_id
 from api.workspace_client import (
     WorkspaceSessionContext,
@@ -56,6 +57,12 @@ router = APIRouter(
     # existan antes de que get_current_user_id y has_permission los necesiten.
     dependencies=[Depends(sync_workspace_access), Depends(require_process_ai_access)],
 )
+
+
+def _assert_doc_in_active_workspace(doc_workspace_id: str, active_workspace_id: str, document_id: str) -> None:
+    """Lanza 404 si el documento no pertenece al workspace activo del contexto."""
+    if doc_workspace_id != active_workspace_id:
+        raise HTTPException(status_code=404, detail=f"Documento {document_id} no encontrado")
 
 
 def _extract_open_questions_metadata(session, doc: Document) -> Optional[dict[str, Any]]:
@@ -304,6 +311,7 @@ async def list_documents(
 async def get_document(
     document_id: str,
     user_id: str = Depends(get_current_user_id),
+    ctx: WorkspaceSessionContext = Depends(get_workspace_context),
 ):
     """
     Obtiene un documento por su ID.
@@ -329,6 +337,7 @@ async def get_document(
                 status_code=404,
                 detail=f"Documento {document_id} no encontrado"
             )
+        _assert_doc_in_active_workspace(doc.workspace_id, resolve_tenant_workspace_id(ctx), document_id)
 
         # Verificar permiso documents.view en el workspace del documento
         if not has_permission(session, user_id, doc.workspace_id, "documents.view"):
@@ -380,6 +389,7 @@ async def update_document(
     document_id: str,
     request: DocumentUpdateRequest,
     user_id: str = Depends(get_current_user_id),
+    ctx: WorkspaceSessionContext = Depends(get_workspace_context),
 ):
     """
     Actualiza un documento.
@@ -402,6 +412,7 @@ async def update_document(
                 status_code=404,
                 detail=f"Documento {document_id} no encontrado"
             )
+        _assert_doc_in_active_workspace(doc.workspace_id, resolve_tenant_workspace_id(ctx), document_id)
         
         if not has_permission(session, user_id, doc.workspace_id, "documents.edit"):
             raise HTTPException(
@@ -505,6 +516,7 @@ async def update_document(
 async def delete_document_endpoint(
     document_id: str,
     user_id: str = Depends(get_current_user_id),
+    ctx: WorkspaceSessionContext = Depends(get_workspace_context),
 ):
     """
     Elimina un documento y todos sus datos asociados.
@@ -547,6 +559,7 @@ async def delete_document_endpoint(
                 status_code=404,
                 detail=f"Documento {document_id} no encontrado"
             )
+        _assert_doc_in_active_workspace(doc.workspace_id, resolve_tenant_workspace_id(ctx), document_id)
         
         # Verificar permiso documents.delete en el workspace del documento
         if not has_permission(session, user_id, doc.workspace_id, "documents.delete"):
@@ -610,6 +623,7 @@ async def delete_document_endpoint(
 async def get_process_details(
     document_id: str,
     user_id: str = Depends(get_current_user_id),
+    ctx: WorkspaceSessionContext = Depends(get_workspace_context),
 ):
     """
     Obtiene los campos específicos de un Process.
@@ -623,6 +637,7 @@ async def get_process_details(
                 status_code=404,
                 detail=f"Documento {document_id} no encontrado"
             )
+        _assert_doc_in_active_workspace(doc.workspace_id, resolve_tenant_workspace_id(ctx), document_id)
         
         from process_ai_core.db.permissions import can_view_folder
         if not can_view_folder(session, user_id, doc.workspace_id, doc.folder_id):
@@ -657,6 +672,7 @@ async def get_process_details(
 async def get_document_runs(
     document_id: str,
     user_id: str = Depends(get_current_user_id),
+    ctx: WorkspaceSessionContext = Depends(get_workspace_context),
 ):
     """
     Obtiene todos los runs asociados a un documento.
@@ -670,6 +686,7 @@ async def get_document_runs(
                 status_code=404,
                 detail=f"Documento {document_id} no encontrado"
             )
+        _assert_doc_in_active_workspace(doc.workspace_id, resolve_tenant_workspace_id(ctx), document_id)
         
         from process_ai_core.db.permissions import can_view_folder
         if not can_view_folder(session, user_id, doc.workspace_id, doc.folder_id):
@@ -680,16 +697,14 @@ async def get_document_runs(
         
         runs = session.query(Run).filter_by(document_id=document_id).order_by(Run.created_at.desc()).all()
         
+        doc_workspace_id = doc.workspace_id
         result = []
         for run in runs:
             artifacts = session.query(Artifact).filter_by(run_id=run.id).all()
             artifact_dict = {}
             for artifact in artifacts:
-                # Construir URL del artifact
-                # El path puede ser "output/{run_id}/process.pdf" o solo el filename
                 filename = artifact.path.split('/')[-1]
-                artifact_url = f"/api/v1/artifacts/{run.id}/{filename}"
-                artifact_dict[artifact.type] = artifact_url
+                artifact_dict[artifact.type] = sign_artifact_url(run.id, filename, doc_workspace_id)
             
             result.append({
                 "run_id": run.id,
@@ -710,6 +725,7 @@ async def create_document_run(
     revision_notes: str = Form(""),
     reuse_previous_files: bool = Form(False),
     user_id: str = Depends(get_current_user_id),
+    ctx: WorkspaceSessionContext = Depends(get_workspace_context),
 ):
     """
     Crea un nuevo run para un documento existente.
@@ -741,6 +757,7 @@ async def create_document_run(
                 status_code=404,
                 detail=f"Documento {document_id} no encontrado"
             )
+        _assert_doc_in_active_workspace(doc.workspace_id, resolve_tenant_workspace_id(ctx), document_id)
         
         from process_ai_core.db.permissions import can_create_in_folder
         if not can_create_in_folder(session, user_id, doc.workspace_id, doc.folder_id):
@@ -950,13 +967,13 @@ async def create_document_run(
             except Exception as pdf_error:
                 pass
             
-            # Construir paths relativos a los artefactos
+            # Construir URLs firmadas para los artefactos
             artifacts = {
-                "json": f"/api/v1/artifacts/{run_id}/process.json",
-                "markdown": f"/api/v1/artifacts/{run_id}/process.md",
+                "json": sign_artifact_url(run_id, "process.json", doc.workspace_id),
+                "markdown": sign_artifact_url(run_id, "process.md", doc.workspace_id),
             }
             if pdf_generated:
-                artifacts["pdf"] = f"/api/v1/artifacts/{run_id}/process.pdf"
+                artifacts["pdf"] = sign_artifact_url(run_id, "process.pdf", doc.workspace_id)
             
             # Persistir Artifacts en la base de datos y crear versión IN_REVIEW automáticamente
             with get_db_session() as db_session:
@@ -1078,6 +1095,7 @@ async def update_document_content(
     document_id: str,
     content_json: str = Body(..., embed=True),
     user_id: str = Depends(get_current_user_id),
+    ctx: WorkspaceSessionContext = Depends(get_workspace_context),
 ):
     """
     Edita manualmente el contenido de un documento.
@@ -1100,6 +1118,7 @@ async def update_document_content(
                 status_code=404,
                 detail=f"Documento {document_id} no encontrado"
             )
+        _assert_doc_in_active_workspace(doc.workspace_id, resolve_tenant_workspace_id(ctx), document_id)
         
         from process_ai_core.db.permissions import can_create_in_folder
         if not can_create_in_folder(session, user_id, doc.workspace_id, doc.folder_id):
@@ -1223,11 +1242,20 @@ def _markdown_to_html(md: str) -> str:
         return "".join(f"<p>{html_mod.escape(line)}</p>" for line in md.splitlines())
 
 
-def _rewrite_img_src_to_absolute(html_content: str, run_id: Optional[str], api_base: str) -> str:
+def _rewrite_img_src_to_absolute(
+    html_content: str,
+    run_id: Optional[str],
+    api_base: str,
+    workspace_id: Optional[str] = None,
+) -> str:
     """
-    Reescribe rutas de imágenes relativas en HTML a URLs absolutas.
-    - src="assets/..." → {api_base}/api/v1/artifacts/{run_id}/assets/...
+    Reescribe rutas de imágenes relativas en HTML a URLs absolutas con token firmado.
+    - src="assets/..." → {api_base}/api/v1/artifacts/{run_id}/assets/...?token=...
     - src="/api/v1/..." o src="http..." → sin cambios
+
+    Args:
+        workspace_id: Cuando se provee, genera URLs firmadas (HMAC). Si es None,
+                      genera URLs sin token (solo para compatibilidad legacy).
     """
     if not html_content:
         return html_content
@@ -1238,6 +1266,9 @@ def _rewrite_img_src_to_absolute(html_content: str, run_id: Optional[str], api_b
             return m.group(0)
         if run_id and (src.startswith("assets/") or src.startswith("./assets/")):
             clean = src.lstrip("./")
+            if workspace_id:
+                signed = sign_artifact_url(run_id, clean, workspace_id)
+                return f'src="{api_base}{signed}"'
             return f'src="{api_base}/api/v1/artifacts/{run_id}/{clean}"'
         return m.group(0)
 
@@ -1272,6 +1303,7 @@ def _looks_like_markdown(text: str) -> bool:
 async def get_editable_content(
     document_id: str,
     user_id: str = Depends(get_current_user_id),
+    ctx: WorkspaceSessionContext = Depends(get_workspace_context),
 ):
     """
     Obtiene el contenido editable (HTML) de la versión DRAFT para edición manual.
@@ -1281,6 +1313,7 @@ async def get_editable_content(
         doc = session.query(Document).filter_by(id=document_id).first()
         if not doc:
             raise HTTPException(status_code=404, detail="Documento no encontrado")
+        _assert_doc_in_active_workspace(doc.workspace_id, resolve_tenant_workspace_id(ctx), document_id)
         
         if not can_view_folder(session, user_id, doc.workspace_id, doc.folder_id):
             raise HTTPException(status_code=403, detail="No tiene acceso a la carpeta de este documento")
@@ -1321,11 +1354,13 @@ async def get_editable_content(
         # Limpiar artefactos LaTeX que puedan haber quedado en content_html de versiones anteriores
         html_content = _strip_latex_artifacts(html_content)
 
-        # Reescribir rutas relativas de imágenes a URLs absolutas para que el editor las muestre
+        # Reescribir rutas relativas de imágenes a URLs absolutas (con token firmado)
         settings = get_settings()
         api_base = settings.api_base_url.rstrip("/")
         draft_run_id = getattr(draft, "run_id", None) if draft else None
-        html_content = _rewrite_img_src_to_absolute(html_content, draft_run_id, api_base)
+        html_content = _rewrite_img_src_to_absolute(
+            html_content, draft_run_id, api_base, workspace_id=doc.workspace_id
+        )
 
         return {
             "version_id": draft.id,
@@ -1346,7 +1381,7 @@ def _generate_draft_pdf_background(
 ) -> None:
     """Genera y guarda draft_preview.pdf en segundo plano. No lanza excepciones."""
     try:
-        html_for_pdf = _rewrite_img_src_to_absolute(content_html, run_id, api_base)
+        html_for_pdf = _rewrite_img_src_to_absolute(content_html, run_id, api_base, workspace_id=workspace_id)
         branding = None
         with get_db_session() as session:
             branding = get_workspace_pdf_branding(session, workspace_id)
@@ -1392,6 +1427,7 @@ async def save_editable_content(
     background_tasks: BackgroundTasks,
     content_html: str = Body(..., embed=True),
     user_id: str = Depends(get_current_user_id),
+    ctx: WorkspaceSessionContext = Depends(get_workspace_context),
 ):
     """
     Guarda el HTML del editor manual en la versión DRAFT (borrador).
@@ -1400,6 +1436,7 @@ async def save_editable_content(
         doc = session.query(Document).filter_by(id=document_id).first()
         if not doc:
             raise HTTPException(status_code=404, detail="Documento no encontrado")
+        _assert_doc_in_active_workspace(doc.workspace_id, resolve_tenant_workspace_id(ctx), document_id)
         
         from process_ai_core.db.permissions import can_create_in_folder
         if not can_create_in_folder(session, user_id, doc.workspace_id, doc.folder_id):
@@ -1475,6 +1512,7 @@ async def upload_editor_image(
     document_id: str,
     file: UploadFile = File(...),
     user_id: str = Depends(get_current_user_id),
+    ctx: WorkspaceSessionContext = Depends(get_workspace_context),
 ):
     """
     Sube una imagen para el editor manual. Guarda en output/editor-uploads/{document_id}/.
@@ -1487,6 +1525,7 @@ async def upload_editor_image(
         doc = session.query(Document).filter_by(id=document_id).first()
         if not doc:
             raise HTTPException(status_code=404, detail="Documento no encontrado")
+        _assert_doc_in_active_workspace(doc.workspace_id, resolve_tenant_workspace_id(ctx), document_id)
         
         from process_ai_core.db.permissions import can_create_in_folder
         if not can_create_in_folder(session, user_id, doc.workspace_id, doc.folder_id):
@@ -1538,6 +1577,7 @@ async def patch_document_with_ai(
     observations: str = Body(..., embed=True),
     run_id: str | None = Body(None, embed=True),
     user_id: str = Depends(get_current_user_id),
+    ctx: WorkspaceSessionContext = Depends(get_workspace_context),
 ):
     """
     Aplica un patch por IA usando observaciones de validación.
@@ -1563,6 +1603,7 @@ async def patch_document_with_ai(
                     status_code=404,
                     detail=f"Documento {document_id} no encontrado"
                 )
+            _assert_doc_in_active_workspace(doc.workspace_id, resolve_tenant_workspace_id(ctx), document_id)
             
             from process_ai_core.db.permissions import can_create_in_folder
             if not can_create_in_folder(session, user_id, doc.workspace_id, doc.folder_id):
@@ -1591,6 +1632,7 @@ async def patch_document_with_ai(
             # Guardar valores necesarios antes de salir del contexto
             process_audience = process.audience or "operativo"
             document_name = doc.name
+            patch_workspace_id = doc.workspace_id
             logger.info(f"Documento encontrado: {document_name}, audience: {process_audience}")
             
             # Determinar qué documento usar como base
@@ -1955,13 +1997,13 @@ Responde SOLO con el JSON corregido, sin texto adicional.
             logger.info(f"Run {new_run_id} creado exitosamente")
             # Commit se hace automáticamente al salir del with
         
-        # Construir respuesta
+        # Construir URLs firmadas para los artefactos
         artifacts = {
-            "json": f"/api/v1/artifacts/{new_run_id}/process.json",
-            "markdown": f"/api/v1/artifacts/{new_run_id}/process.md",
+            "json": sign_artifact_url(new_run_id, "process.json", patch_workspace_id),
+            "markdown": sign_artifact_url(new_run_id, "process.md", patch_workspace_id),
         }
         if pdf_generated:
-            artifacts["pdf"] = f"/api/v1/artifacts/{new_run_id}/process.pdf"
+            artifacts["pdf"] = sign_artifact_url(new_run_id, "process.pdf", patch_workspace_id)
         
         logger.info(f"Patch completado exitosamente, run_id: {new_run_id}")
         
@@ -1985,7 +2027,10 @@ Responde SOLO con el JSON corregido, sin texto adicional.
 
 
 @router.get("/{document_id}/versions")
-async def get_document_versions(document_id: str):
+async def get_document_versions(
+    document_id: str,
+    ctx: WorkspaceSessionContext = Depends(get_workspace_context),
+):
     """
     Obtiene todas las versiones de un documento.
     
@@ -2002,6 +2047,7 @@ async def get_document_versions(document_id: str):
                 status_code=404,
                 detail=f"Documento {document_id} no encontrado"
             )
+        _assert_doc_in_active_workspace(doc.workspace_id, resolve_tenant_workspace_id(ctx), document_id)
         
         from process_ai_core.db.models import DocumentVersion
         
@@ -2033,7 +2079,11 @@ async def get_document_versions(document_id: str):
 
 
 @router.get("/{document_id}/versions/{version_id}/preview-pdf")
-async def get_version_preview_pdf(document_id: str, version_id: str):
+async def get_version_preview_pdf(
+    document_id: str,
+    version_id: str,
+    ctx: WorkspaceSessionContext = Depends(get_workspace_context),
+):
     """
     Genera y devuelve el PDF de una versión usando la fuente de verdad
     (content_html si existe, si no content_markdown).
@@ -2044,12 +2094,14 @@ async def get_version_preview_pdf(document_id: str, version_id: str):
     settings = get_settings()
     api_base = settings.api_base_url.rstrip("/")
     with get_db_session() as session:
+        document = session.query(Document).filter_by(id=document_id).first()
+        if document:
+            _assert_doc_in_active_workspace(document.workspace_id, resolve_tenant_workspace_id(ctx), document_id)
         version = (
             session.query(DocumentVersion)
             .filter_by(id=version_id, document_id=document_id)
             .first()
         )
-        document = session.query(Document).filter_by(id=document_id).first()
         if not version:
             raise HTTPException(
                 status_code=404,
@@ -2115,9 +2167,12 @@ async def get_version_preview_pdf(document_id: str, version_id: str):
     # draft_preview.pdf viejo guardado en disco.
 
     # Post-procesar HTML: limpiar artefactos LaTeX y reescribir URLs de imágenes
+    version_workspace_id = document.workspace_id if document else None
     if fmt == "html":
         content = _strip_latex_artifacts(content)
-        content = _rewrite_img_src_to_absolute(content, version_run_id, api_base)
+        content = _rewrite_img_src_to_absolute(
+            content, version_run_id, api_base, workspace_id=version_workspace_id
+        )
 
     # Mismo directorio que el original cuando la versión tiene run_id (assets/, etc.)
     run_dir = None
@@ -2224,7 +2279,10 @@ async def get_version_preview_pdf(document_id: str, version_id: str):
 
 
 @router.get("/{document_id}/current-version")
-async def get_current_document_version(document_id: str):
+async def get_current_document_version(
+    document_id: str,
+    ctx: WorkspaceSessionContext = Depends(get_workspace_context),
+):
     """
     Obtiene la versión actual aprobada del documento.
     
@@ -2243,6 +2301,7 @@ async def get_current_document_version(document_id: str):
                 status_code=404,
                 detail=f"Documento {document_id} no encontrado"
             )
+        _assert_doc_in_active_workspace(doc.workspace_id, resolve_tenant_workspace_id(ctx), document_id)
         
         from process_ai_core.db.models import DocumentVersion
         
@@ -2272,7 +2331,10 @@ async def get_current_document_version(document_id: str):
 
 
 @router.get("/{document_id}/audit-log")
-async def get_document_audit_log(document_id: str):
+async def get_document_audit_log(
+    document_id: str,
+    ctx: WorkspaceSessionContext = Depends(get_workspace_context),
+):
     """
     Obtiene el historial completo de cambios (audit log) de un documento.
     
@@ -2289,6 +2351,7 @@ async def get_document_audit_log(document_id: str):
                 status_code=404,
                 detail=f"Documento {document_id} no encontrado"
             )
+        _assert_doc_in_active_workspace(doc.workspace_id, resolve_tenant_workspace_id(ctx), document_id)
         
         from process_ai_core.db.models import AuditLog
         
@@ -2353,11 +2416,7 @@ async def submit_version_for_review_endpoint(
                 detail=f"Documento {document_id} no encontrado"
             )
         
-        if doc.workspace_id != workspace_id:
-            raise HTTPException(
-                status_code=403,
-                detail="Documento no pertenece a este workspace"
-            )
+        _assert_doc_in_active_workspace(doc.workspace_id, workspace_id, document_id)
         
         # Verificar que la versión existe y pertenece al documento
         from process_ai_core.db.models import DocumentVersion
@@ -2423,8 +2482,7 @@ async def cancel_submission_endpoint(
         doc = session.query(Document).filter_by(id=document_id).first()
         if not doc:
             raise HTTPException(status_code=404, detail="Documento no encontrado")
-        if doc.workspace_id != workspace_id:
-            raise HTTPException(status_code=403, detail="Documento no pertenece a este workspace")
+        _assert_doc_in_active_workspace(doc.workspace_id, workspace_id, document_id)
         try:
             updated_version = cancel_submission(
                 session=session,
@@ -2483,11 +2541,7 @@ async def clone_version_to_draft(
                 detail=f"Documento {document_id} no encontrado"
             )
         
-        if doc.workspace_id != workspace_id:
-            raise HTTPException(
-                status_code=403,
-                detail="Documento no pertenece a este workspace"
-            )
+        _assert_doc_in_active_workspace(doc.workspace_id, workspace_id, document_id)
         
         # Verificar que la versión existe y pertenece al documento
         from process_ai_core.db.models import DocumentVersion

@@ -1,14 +1,27 @@
 #!/usr/bin/env python3
 """
-Script para crear un usuario super admin.
+DEPRECATED — NO EJECUTAR.
 
-Por defecto crea sdalto@margaystudio.io. Puede agregar otros super admins
-pasando email y nombre como argumentos.
+Este script creaba el workspace "sistema" y le asignaba la membership de superadmin al usuario.
+En la arquitectura actual, el superadmin se detecta por el claim platform_roles=['superadmin']
+del contexto de margay-workspace. No se necesita workspace "sistema" ni membership local.
 
-Ejecutar:
-    python tools/create_super_admin.py
-    python tools/create_super_admin.py ignacioazaso@gmail.com "Ignacio Azareto"
+Para limpiar el residuo, ejecutá: python tools/cleanup_workspace_sistema.py
 """
+
+import sys
+
+print(
+    "ERROR: Este script está deprecado y no debe ejecutarse.\n"
+    "El superadmin ahora se gestiona desde margay-workspace (platform_roles).\n"
+    "Para limpiar el workspace 'sistema', ejecutá: python tools/cleanup_workspace_sistema.py",
+    file=sys.stderr,
+)
+sys.exit(1)
+
+# ---- Código original preservado solo como referencia histórica (no se ejecuta) ----
+# flake8: noqa
+if False:  # pragma: no cover
 
 import sys
 import uuid

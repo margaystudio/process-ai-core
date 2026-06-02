@@ -3,8 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "dev:local": "next dev",
+    "dev:setup": "bash scripts/dev-setup.sh",
+    "dev:setup:win": "powershell -ExecutionPolicy Bypass -File scripts/dev-setup.ps1",
+    "dev": "next dev -p 3000 -H process.local.margaystudio.io --experimental-https --experimental-https-key .certs/local-margay-key.pem --experimental-https-cert .certs/local-margay.pem",
+    "dev:plain": "next dev",
     "dev:test": "cross-env NODE_ENV=test next dev --port 3001",
     "build": "next build",
     "build:test": "cross-env NODE_ENV=test next build",

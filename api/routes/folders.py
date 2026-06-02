@@ -52,6 +52,12 @@ def _require_workspace_member(session: Session, user_id: str, workspace_id: str)
         )
 
 
+def _assert_folder_in_active_workspace(folder_workspace_id: str, active_workspace_id: str, folder_id: str) -> None:
+    """Lanza 404 si la carpeta no pertenece al workspace activo del contexto."""
+    if folder_workspace_id != active_workspace_id:
+        raise HTTPException(status_code=404, detail=f"Carpeta {folder_id} no encontrada")
+
+
 @router.post("", response_model=FolderResponse)
 async def create_folder_endpoint(
     request: FolderCreateRequest,
@@ -195,6 +201,7 @@ async def get_folder_permissions(
     folder_id: str,
     user_id: str = Depends(get_current_user_id),
     session: Session = Depends(get_db),
+    ctx: WorkspaceSessionContext = Depends(get_workspace_context),
 ):
     """
     Obtiene los permisos de una carpeta (roles operativos con acceso).
@@ -203,6 +210,7 @@ async def get_folder_permissions(
     folder = session.query(Folder).filter_by(id=folder_id).first()
     if not folder:
         raise HTTPException(status_code=404, detail="Carpeta no encontrada")
+    _assert_folder_in_active_workspace(folder.workspace_id, resolve_tenant_workspace_id(ctx), folder_id)
 
     # Superadmin tiene acceso global a la configuración.
     if is_superadmin(user_id, session):
@@ -240,6 +248,7 @@ async def update_folder_permissions(
     request: FolderPermissionsUpdateRequest,
     user_id: str = Depends(get_current_user_id),
     session: Session = Depends(get_db),
+    ctx: WorkspaceSessionContext = Depends(get_workspace_context),
 ):
     """
     Actualiza los permisos de una carpeta (herencia y roles operativos con acceso).
@@ -248,6 +257,7 @@ async def update_folder_permissions(
     folder = session.query(Folder).filter_by(id=folder_id).first()
     if not folder:
         raise HTTPException(status_code=404, detail="Carpeta no encontrada")
+    _assert_folder_in_active_workspace(folder.workspace_id, resolve_tenant_workspace_id(ctx), folder_id)
     role = get_user_role(session, user_id, folder.workspace_id)
     if not role or role.name not in ("owner", "admin"):
         raise HTTPException(status_code=403, detail="Se requiere rol owner o admin")
@@ -274,6 +284,7 @@ async def get_folder(
     folder_id: str,
     user_id: str = Depends(get_current_user_id),
     session: Session = Depends(get_db),
+    ctx: WorkspaceSessionContext = Depends(get_workspace_context),
 ):
     """
     Obtiene una carpeta por su ID.
@@ -293,6 +304,7 @@ async def get_folder(
             status_code=404,
             detail=f"Carpeta {folder_id} no encontrada"
         )
+    _assert_folder_in_active_workspace(folder.workspace_id, resolve_tenant_workspace_id(ctx), folder_id)
 
     _require_workspace_member(session, user_id, folder.workspace_id)
     if not can_view_folder(session, user_id, folder.workspace_id, folder.id):
@@ -319,6 +331,7 @@ async def update_folder_endpoint(
     request: FolderUpdateRequest,
     user_id: str = Depends(get_current_user_id),
     session: Session = Depends(get_db),
+    ctx: WorkspaceSessionContext = Depends(get_workspace_context),
 ):
     """
     Actualiza una carpeta existente.
@@ -342,6 +355,7 @@ async def update_folder_endpoint(
                 status_code=404,
                 detail=f"Carpeta {folder_id} no encontrada",
             )
+        _assert_folder_in_active_workspace(existing.workspace_id, resolve_tenant_workspace_id(ctx), folder_id)
 
         _require_workspace_member(session, user_id, existing.workspace_id)
         if not can_create_in_folder(session, user_id, existing.workspace_id, existing.id):
@@ -414,6 +428,7 @@ async def delete_folder_endpoint(
     move_documents_to: str = None,
     user_id: str = Depends(get_current_user_id),
     session: Session = Depends(get_db),
+    ctx: WorkspaceSessionContext = Depends(get_workspace_context),
 ):
     """
     Elimina una carpeta.
@@ -437,6 +452,7 @@ async def delete_folder_endpoint(
                 status_code=404,
                 detail=f"Carpeta {folder_id} no encontrada",
             )
+        _assert_folder_in_active_workspace(folder.workspace_id, resolve_tenant_workspace_id(ctx), folder_id)
 
         _require_workspace_member(session, user_id, folder.workspace_id)
         if not can_create_in_folder(session, user_id, folder.workspace_id, folder.id):

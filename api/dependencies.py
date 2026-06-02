@@ -53,8 +53,11 @@ def _get_jwks_client() -> PyJWKClient:
 
 def _decode_and_verify_supabase_jwt(token: str) -> dict:
     """
-    Valida firma del JWT contra JWKS de Supabase y devuelve el payload.
+    Valida firma del JWT contra JWKS de Supabase (ES256/RS256) y devuelve el payload.
+    Si el proyecto usa firma simétrica (HS256), intenta como fallback con SUPABASE_JWT_SECRET.
     """
+    # ── Intento 1: JWKS asimétrico (ES256 / RS256) ───────────────────────────
+    jwks_error: Exception | None = None
     try:
         client = _get_jwks_client()
         signing_key = client.get_signing_key_from_jwt(token)
@@ -68,14 +71,59 @@ def _decode_and_verify_supabase_jwt(token: str) -> dict:
     except jwt.ExpiredSignatureError:
         logger.warning("JWT expired")
         raise HTTPException(status_code=401, detail="Token expired")
-    except (jwt.InvalidTokenError, PyJWKClientError):
-        logger.warning("Invalid JWT")
+    except PyJWKClientError as exc:
+        # No se encontró la clave en JWKS — puede ser token HS256 (firma simétrica)
+        logger.debug("JWKS key not found (%s), trying HS256 fallback", type(exc).__name__)
+        jwks_error = exc
+    except jwt.InvalidAudienceError as exc:
+        logger.warning("JWT audience inválido: %s", exc)
+        raise HTTPException(status_code=401, detail="Invalid token")
+    except jwt.InvalidTokenError as exc:
+        logger.warning("JWT inválido (%s)", type(exc).__name__)
         raise HTTPException(status_code=401, detail="Invalid token")
     except HTTPException:
         raise
     except Exception as exc:
-        logger.error("Unexpected JWT validation error: %s", type(exc).__name__)
+        logger.error("Error inesperado al validar JWT: %s", type(exc).__name__)
         raise HTTPException(status_code=401, detail="Invalid token")
+
+    # ── Intento 2: HS256 con SUPABASE_JWT_SECRET (proyectos con firma simétrica) ─
+    jwt_secret = os.getenv("SUPABASE_JWT_SECRET", "").strip()
+    if jwt_secret:
+        try:
+            return jwt.decode(
+                token,
+                jwt_secret,
+                algorithms=["HS256"],
+                audience="authenticated",
+                options={"require": ["sub", "exp"]},
+            )
+        except jwt.ExpiredSignatureError:
+            logger.warning("JWT expired (HS256)")
+            raise HTTPException(status_code=401, detail="Token expired")
+        except jwt.InvalidTokenError as exc:
+            logger.warning("JWT inválido en fallback HS256 (%s)", type(exc).__name__)
+            raise HTTPException(status_code=401, detail="Invalid token")
+
+    # ── Intento 3: Supabase SDK — verifica server-side (requiere SUPABASE_SERVICE_ROLE_KEY) ─
+    # Útil cuando el proyecto usa HS256 pero no tenemos el JWT secret local.
+    if supabase is not None:
+        try:
+            response = supabase.auth.get_user(token)
+            if response and response.user:
+                u = response.user
+                payload: dict = {
+                    "sub": u.id,
+                    "email": getattr(u, "email", None),
+                    "aud": "authenticated",
+                }
+                return payload
+        except Exception as exc:
+            logger.warning("Supabase SDK token validation failed: %s", type(exc).__name__)
+            raise HTTPException(status_code=401, detail="Invalid token")
+
+    logger.warning("Invalid JWT: JWKS key not found, SUPABASE_JWT_SECRET no configurado y Supabase SDK no disponible")
+    raise HTTPException(status_code=401, detail="Invalid token")
 
 
 def get_db() -> Generator[Session, None, None]:

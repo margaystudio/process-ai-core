@@ -6,8 +6,8 @@ import ArtifactViewerModal from '@/components/processes/ArtifactViewerModal'
 
 interface ViewerModalState {
   isOpen: boolean
-  runId: string
-  filename: string
+  /** URL ya firmada del artifact (viene del backend). */
+  artifactUrl: string
   type: 'json' | 'markdown' | 'pdf'
   versionPreviewPdf: { documentId: string; versionId: string } | null
 }
@@ -17,7 +17,8 @@ interface UsePdfViewerReturn {
   /** Abre el PDF más actualizado del documento: usa preview-pdf si hay versión IN_REVIEW o DRAFT con edición manual, si no usa el artifact original. */
   openLatestPdf: (document: Document) => Promise<void>
   openArtifact: (document: Document, artifactType: 'json' | 'markdown' | 'pdf', artifactPath?: string) => Promise<void>
-  openArtifactFromRun: (runId: string, filename: string, type: 'json' | 'markdown' | 'pdf') => void
+  /** Abre un artifact directamente desde una URL ya firmada que viene del backend. */
+  openArtifactFromRun: (artifactUrl: string, type: 'json' | 'markdown' | 'pdf') => void
   /** Abre el PDF del borrador actual (incluye edición manual). Usa el mismo modal; la petición va con cookies. */
   openVersionPreviewPdf: (documentId: string, versionId: string) => void
   closeModal: () => void
@@ -32,8 +33,7 @@ interface UsePdfViewerReturn {
 export function usePdfViewer(): UsePdfViewerReturn {
   const [viewerModal, setViewerModal] = useState<ViewerModalState>({
     isOpen: false,
-    runId: '',
-    filename: '',
+    artifactUrl: '',
     type: 'pdf',
     versionPreviewPdf: null,
   })
@@ -42,11 +42,9 @@ export function usePdfViewer(): UsePdfViewerReturn {
     try {
       const runs = await getDocumentRuns(document.id)
       if (runs.length > 0 && runs[0].artifacts.pdf) {
-        const filename = runs[0].artifacts.pdf.split('/').pop() || 'process.pdf'
         setViewerModal({
           isOpen: true,
-          runId: runs[0].run_id,
-          filename,
+          artifactUrl: runs[0].artifacts.pdf,
           type: 'pdf',
           versionPreviewPdf: null,
         })
@@ -76,8 +74,7 @@ export function usePdfViewer(): UsePdfViewerReturn {
       if (relevant) {
         setViewerModal({
           isOpen: true,
-          runId: '',
-          filename: 'preview.pdf',
+          artifactUrl: '',
           type: 'pdf',
           versionPreviewPdf: { documentId: document.id, versionId: relevant.id },
         })
@@ -102,34 +99,31 @@ export function usePdfViewer(): UsePdfViewerReturn {
       }
 
       const run = runs[0]
-      let filename = ''
-      let artifactUrl = ''
+      let signedUrl = ''
 
       switch (artifactType) {
         case 'pdf':
-          artifactUrl = run.artifacts.pdf || ''
+          signedUrl = run.artifacts.pdf || ''
           break
         case 'markdown':
-          artifactUrl = run.artifacts.md || ''
+          signedUrl = run.artifacts.md || ''
           break
         case 'json':
-          artifactUrl = run.artifacts.json || ''
+          signedUrl = run.artifacts.json || ''
           break
       }
 
-      if (!artifactUrl && !artifactPath) {
+      // artifactPath es un fallback legacy; la URL firmada del backend tiene prioridad.
+      const resolvedUrl = signedUrl || artifactPath || ''
+
+      if (!resolvedUrl) {
         alert(`No hay ${artifactType.toUpperCase()} disponible para este documento`)
         return
       }
 
-      filename = artifactPath 
-        ? artifactPath.split('/').pop() || `process.${artifactType === 'json' ? 'json' : artifactType === 'markdown' ? 'md' : 'pdf'}`
-        : artifactUrl.split('/').pop() || `process.${artifactType === 'json' ? 'json' : artifactType === 'markdown' ? 'md' : 'pdf'}`
-
       setViewerModal({
         isOpen: true,
-        runId: run.run_id,
-        filename,
+        artifactUrl: resolvedUrl,
         type: artifactType,
         versionPreviewPdf: null,
       })
@@ -143,18 +137,15 @@ export function usePdfViewer(): UsePdfViewerReturn {
   }
 
   /**
-   * Abre un artifact directamente desde un run conocido.
-   * Útil cuando ya tienes el runId y filename.
+   * Abre un artifact directamente desde su URL firmada (viene del backend).
    */
   const openArtifactFromRun = (
-    runId: string,
-    filename: string,
+    artifactUrl: string,
     type: 'json' | 'markdown' | 'pdf'
   ) => {
     setViewerModal({
       isOpen: true,
-      runId,
-      filename,
+      artifactUrl,
       type,
       versionPreviewPdf: null,
     })
@@ -164,8 +155,7 @@ export function usePdfViewer(): UsePdfViewerReturn {
   const openVersionPreviewPdf = (documentId: string, versionId: string) => {
     setViewerModal({
       isOpen: true,
-      runId: '',
-      filename: 'preview.pdf',
+      artifactUrl: '',
       type: 'pdf',
       versionPreviewPdf: { documentId, versionId },
     })
@@ -176,8 +166,7 @@ export function usePdfViewer(): UsePdfViewerReturn {
       <ArtifactViewerModal
         isOpen={viewerModal.isOpen}
         onClose={closeModal}
-        runId={viewerModal.runId}
-        filename={viewerModal.filename}
+        artifactUrl={viewerModal.artifactUrl}
         type={viewerModal.type}
         versionPreviewPdf={viewerModal.versionPreviewPdf}
       />

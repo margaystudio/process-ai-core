@@ -1,12 +1,25 @@
 #!/usr/bin/env python3
 """
-Migración: Actualizar workspace "sistema" para usar columna description.
+DEPRECATED — NO EJECUTAR.
 
-Mueve description de metadata_json a la columna description.
+Este script migraba la descripción del workspace "sistema" desde metadata_json a la columna
+description. Ese workspace ya no debe existir en la nueva arquitectura.
 
-Ejecutar:
-    python tools/migrate_workspace_sistema_description.py
+Para limpiar el workspace 'sistema', ejecutá: python tools/cleanup_workspace_sistema.py
 """
+
+import sys
+
+print(
+    "ERROR: Este script está deprecado y no debe ejecutarse.\n"
+    "El workspace 'sistema' ya no es parte de la arquitectura.\n"
+    "Para limpiarlo, ejecutá: python tools/cleanup_workspace_sistema.py",
+    file=sys.stderr,
+)
+sys.exit(1)
+
+# ---- Código original preservado solo como referencia histórica (no se ejecuta) ----
+if False:  # pragma: no cover
 
 import sys
 import json

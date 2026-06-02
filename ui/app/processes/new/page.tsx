@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { createProcessRun, getArtifactUrl } from '@/lib/api'
+import { createProcessRun } from '@/lib/api'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
 import { useLoading } from '@/contexts/LoadingContext'
 import ProcessNameInput from '@/components/processes/ProcessNameInput'
@@ -65,13 +65,9 @@ export default function NewProcessPage() {
         formData.append('mode', mode)
         
         // Campos requeridos
-        if (!selectedWorkspaceId) {
-          throw new Error('Debes seleccionar un espacio de trabajo en el header')
-        }
         if (!folderId) {
           throw new Error('Debes seleccionar una carpeta')
         }
-        formData.append('workspace_id', selectedWorkspaceId)
         formData.append('folder_id', folderId)
         
         // Campos opcionales (solo si tienen valor)
@@ -231,7 +227,7 @@ export default function NewProcessPage() {
                     <div className="mt-4 space-y-2">
                       {result.artifacts.json && (
                         <button
-                          onClick={() => openArtifactFromRun(result.run_id, 'process.json', 'json')}
+                          onClick={() => openArtifactFromRun(result.artifacts.json!, 'json')}
                           className="block text-blue-600 hover:underline text-left"
                         >
                           📄 Ver JSON
@@ -239,7 +235,7 @@ export default function NewProcessPage() {
                       )}
                       {result.artifacts.markdown && (
                         <button
-                          onClick={() => openArtifactFromRun(result.run_id, 'process.md', 'markdown')}
+                          onClick={() => openArtifactFromRun(result.artifacts.markdown!, 'markdown')}
                           className="block text-blue-600 hover:underline text-left"
                         >
                           📝 Ver Markdown
@@ -247,7 +243,7 @@ export default function NewProcessPage() {
                       )}
                       {result.artifacts.pdf && (
                         <button
-                          onClick={() => openArtifactFromRun(result.run_id, 'process.pdf', 'pdf')}
+                          onClick={() => openArtifactFromRun(result.artifacts.pdf!, 'pdf')}
                           className="block text-blue-600 hover:underline text-left"
                         >
                           📑 Ver PDF

@@ -140,7 +140,6 @@ export interface DocumentUpdateRequest {
 }
 
 export interface FolderCreateRequest {
-  workspace_id: string;
   name: string;
   path?: string;
   parent_id?: string;
@@ -808,13 +807,13 @@ export async function createCatalogOption(
 }
 
 /**
- * Lista todas las carpetas de un workspace.
+ * Lista todas las carpetas del workspace activo (derivado del contexto de sesión).
  */
-export async function listFolders(workspaceId: string): Promise<Folder[]> {
+export async function listFolders(workspaceId?: string): Promise<Folder[]> {
   const { getAuthHeaders } = await import('@/lib/api-auth')
   const headers = await getAuthHeaders({})
 
-  const response = await fetch(`${API_URL}/api/v1/folders?workspace_id=${workspaceId}`, { headers });
+  const response = await fetch(`${API_URL}/api/v1/folders`, { headers });
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
@@ -1048,17 +1047,16 @@ export async function assignOperationalRolesToMembership(
 }
 
 /**
- * Lista documentos de un workspace.
+ * Lista documentos del workspace activo (derivado del contexto de sesión).
  * Requiere autenticación. El backend filtra por rol (viewers solo ven aprobados).
  */
-export async function listDocuments(workspaceId: string, folderId?: string, documentType: string = 'process', status?: string): Promise<Document[]> {
+export async function listDocuments(workspaceId?: string, folderId?: string, documentType: string = 'process', status?: string): Promise<Document[]> {
   const { getAccessToken } = await import('@/lib/api-auth');
   const token = await getAccessToken();
   const headers: HeadersInit = {};
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
   const url = new URL(`${API_URL}/api/v1/documents`);
-  url.searchParams.append('workspace_id', workspaceId);
   url.searchParams.append('document_type', documentType);
   if (folderId) {
     url.searchParams.append('folder_id', folderId);
@@ -1239,11 +1237,11 @@ export async function approveValidation(
   validationId: string,
   request?: ValidationApproveRequest
 ): Promise<{ message: string; version_id: string }> {
+  const { getAuthHeaders } = await import('@/lib/api-auth');
+  const headers = await getAuthHeaders({ 'Content-Type': 'application/json' });
   const response = await fetch(`${API_URL}/api/v1/validations/${validationId}/approve`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers,
     body: JSON.stringify(request || {}),
   });
 
@@ -1373,8 +1371,8 @@ export async function rejectDocumentValidation(
 export async function cancelDocumentSubmission(
   documentId: string,
   versionId: string,
-  userId: string,
-  workspaceId: string
+  userId?: string,
+  workspaceId?: string
 ): Promise<{ message: string; version: { id: string; version_number: number; version_status: string } }> {
   const { getAuthHeaders } = await import('@/lib/api-auth');
   const headers = await getAuthHeaders({ 'Content-Type': 'application/json' });
@@ -1383,7 +1381,7 @@ export async function cancelDocumentSubmission(
     {
       method: 'POST',
       headers,
-      body: JSON.stringify({ user_id: userId, workspace_id: workspaceId }),
+      body: JSON.stringify({}),
     }
   );
   if (!response.ok) {
@@ -1399,8 +1397,8 @@ export async function cancelDocumentSubmission(
 export async function submitVersionForReview(
   documentId: string,
   versionId: string,
-  userId: string,
-  workspaceId: string
+  userId?: string,
+  workspaceId?: string
 ): Promise<{ message: string; version: { id: string; version_number: number; version_status: string; validation_id: string }; validation: { id: string; status: string; document_id: string; created_at: string } }> {
   const { getAuthHeaders } = await import('@/lib/api-auth');
   const headers = await getAuthHeaders({ 'Content-Type': 'application/json' });
@@ -1409,7 +1407,7 @@ export async function submitVersionForReview(
     {
       method: 'POST',
       headers,
-      body: JSON.stringify({ user_id: userId, workspace_id: workspaceId }),
+      body: JSON.stringify({}),
     }
   );
   if (!response.ok) {
@@ -1657,38 +1655,6 @@ export async function patchDocumentWithAI(
 // User & Role API
 // ============================================================
 
-/**
- * Obtiene el rol de un usuario en un workspace.
- */
-export async function syncUser(userData: {
-  supabase_user_id: string
-  email: string
-  name: string
-  auth_provider?: string
-  metadata?: Record<string, any>
-}): Promise<{ user_id: string; email: string; name: string; created: boolean }> {
-  const response = await fetch(`${API_URL}/api/v1/auth/sync-user`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      supabase_user_id: userData.supabase_user_id,
-      email: userData.email,
-      name: userData.name,
-      auth_provider: userData.auth_provider || 'supabase',
-      metadata: userData.metadata || {},
-    }),
-  })
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }))
-    throw new Error(error.detail || `HTTP ${response.status}`)
-  }
-
-  return response.json()
-}
-
 export async function getUserRole(
   userId: string,
   workspaceId: string
@@ -1737,10 +1703,10 @@ export async function checkPermission(
 // ============================================================
 
 /**
- * Lista documentos pendientes de aprobación (para aprobadores).
+ * Lista documentos pendientes de aprobación del workspace activo (para aprobadores).
  */
 export async function listDocumentsPendingApproval(
-  workspaceId: string,
+  workspaceId?: string,
   _userId?: string
 ): Promise<Document[]> {
   const { getAccessToken } = await import('@/lib/api-auth');
@@ -1749,7 +1715,7 @@ export async function listDocumentsPendingApproval(
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
   const response = await fetch(
-    `${API_URL}/api/v1/documents/pending-approval?workspace_id=${workspaceId}`,
+    `${API_URL}/api/v1/documents/pending-approval`,
     { headers }
   );
 
@@ -1762,10 +1728,10 @@ export async function listDocumentsPendingApproval(
 }
 
 /**
- * Lista documentos rechazados a revisar (para creadores).
+ * Lista documentos rechazados a revisar del workspace activo (para creadores).
  */
 export async function listDocumentsToReview(
-  workspaceId: string,
+  workspaceId?: string,
   _userId?: string
 ): Promise<Document[]> {
   const { getAccessToken } = await import('@/lib/api-auth');
@@ -1774,7 +1740,7 @@ export async function listDocumentsToReview(
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
   const response = await fetch(
-    `${API_URL}/api/v1/documents/to-review?workspace_id=${workspaceId}`,
+    `${API_URL}/api/v1/documents/to-review`,
     { headers }
   );
 
@@ -1791,7 +1757,7 @@ export async function listDocumentsToReview(
  * Filtra en el servidor con status=approved.
  */
 export async function listApprovedDocuments(
-  workspaceId: string,
+  workspaceId?: string,
   folderId?: string
 ): Promise<Document[]> {
   return listDocuments(workspaceId, folderId, 'process', 'approved');
@@ -1824,123 +1790,7 @@ export async function deleteDocument(documentId: string): Promise<{ message: str
   return response.json()
 }
 
-// ============================================================================
-// SUPERADMIN
-// ============================================================================
-
-export interface CreateB2BWorkspaceRequest {
-  name: string;
-  slug: string;
-  country?: string;
-  business_type?: string;
-  language_style?: string;
-  default_audience?: string;
-  context_text?: string;
-  plan_name?: string;
-  admin_email: string;
-  message?: string;
-}
-
-/**
- * Crea un workspace B2B (solo superadmin).
- */
-export async function createB2BWorkspace(
-  request: CreateB2BWorkspaceRequest,
-  token: string
-): Promise<WorkspaceResponse> {
-  const response = await fetch(`${API_URL}/api/v1/superadmin/workspaces`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`,
-    },
-    body: JSON.stringify({
-      name: request.name,
-      slug: request.slug,
-      country: request.country || 'UY',
-      business_type: request.business_type,
-      language_style: request.language_style || 'es_uy_formal',
-      default_audience: request.default_audience || 'operativo',
-      context_text: request.context_text,
-      plan_name: request.plan_name || 'b2b_trial',
-      admin_email: request.admin_email,
-      message: request.message,
-    }),
-  });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
-    throw new Error(error.detail || `HTTP ${response.status}`);
-  }
-
-  const data = await response.json()
-  return normalizeWorkspaceResponse(data)
-}
-
-/**
- * Lista todos los workspaces (solo superadmin).
- */
-export async function listAllWorkspaces(
-  workspaceType?: string,
-  token?: string
-): Promise<WorkspaceResponse[]> {
-  const url = new URL(`${API_URL}/api/v1/superadmin/workspaces`);
-  if (workspaceType) {
-    url.searchParams.append('workspace_type', workspaceType);
-  }
-
-  const headers: HeadersInit = {};
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-
-  const response = await fetch(url.toString(), {
-    headers,
-  });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
-    throw new Error(error.detail || `HTTP ${response.status}`);
-  }
-
-  const data = await response.json()
-  return data.map(normalizeWorkspaceResponse)
-}
-
-// ============================================================================
-// INVITACIONES
-// ============================================================================
-
-export interface InvitationResponse {
-  id: string;
-  workspace_id: string;
-  workspace_name?: string; // Nombre del workspace (opcional para compatibilidad)
-  invited_by_user_id: string;
-  email: string;
-  role_id: string;
-  role_name: string;
-  status: string;
-  expires_at: string;
-  accepted_at?: string;
-  message?: string;
-  created_at: string;
-  invitation_url?: string; // URL para aceptar la invitación
-  token?: string; // Token de la invitación (para uso directo)
-}
-
-/**
- * Verifica si un email existe en la base de datos.
- */
-export async function checkEmailExists(email: string): Promise<{ exists: boolean; user_id: string | null }> {
-  const response = await fetch(`${API_URL}/api/v1/auth/check-email/${encodeURIComponent(email)}`)
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }))
-    throw new Error(error.detail || `HTTP ${response.status}`)
-  }
-
-  return response.json()
-}
+// SUPERADMIN (createB2BWorkspace y listAllWorkspaces eliminados — endpoints removidos)
 
 /**
  * Actualiza el perfil de un usuario (nombre).
@@ -1966,169 +1816,6 @@ export async function updateUserProfile(
     const error = await response.json().catch(() => ({ detail: 'Error desconocido' }))
     throw new Error(error.detail || `HTTP ${response.status}`)
   }
-}
-
-/**
- * Lista invitaciones de un workspace.
- */
-export async function listWorkspaceInvitations(
-  workspaceId: string,
-  status?: string,
-  token?: string
-): Promise<InvitationResponse[]> {
-  const url = new URL(`${API_URL}/api/v1/workspaces/${workspaceId}/invitations`);
-  if (status) {
-    url.searchParams.append('status', status);
-  }
-
-  const headers: HeadersInit = {};
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-
-  const response = await fetch(url.toString(), {
-    headers,
-  });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
-    throw new Error(error.detail || `HTTP ${response.status}`);
-  }
-
-  return response.json();
-}
-
-/**
- * Crea una invitación para unirse a un workspace.
- */
-export async function createWorkspaceInvitation(
-  workspaceId: string,
-  request: {
-    email: string;
-    role_id?: string;
-    role_name?: string;
-    message?: string;
-    expires_in_days?: number;
-  },
-  token: string
-): Promise<InvitationResponse> {
-  const response = await fetch(
-    `${API_URL}/api/v1/workspaces/${workspaceId}/invitations`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        email: request.email,
-        role_id: request.role_id,
-        role_name: request.role_name,
-        message: request.message,
-        expires_in_days: request.expires_in_days || 7,
-      }),
-    }
-  );
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
-    throw new Error(error.detail || `HTTP ${response.status}`);
-  }
-
-  return response.json();
-}
-
-/**
- * Obtiene información de una invitación por token (público, sin autenticación).
- */
-export async function getInvitationByToken(
-  token: string
-): Promise<InvitationResponse> {
-  const response = await fetch(
-    `${API_URL}/api/v1/invitations/token/${token}`,
-    {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    }
-  );
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
-    throw new Error(error.detail || `HTTP ${response.status}`);
-  }
-
-  return response.json();
-}
-
-/**
- * Obtiene invitaciones pendientes por email (público, sin autenticación).
- */
-export async function getPendingInvitationsByEmail(
-  email: string
-): Promise<InvitationResponse[]> {
-  const response = await fetch(
-    `${API_URL}/api/v1/invitations/pending/${encodeURIComponent(email)}`,
-    {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    }
-  );
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
-    throw new Error(error.detail || `HTTP ${response.status}`);
-  }
-
-  return response.json();
-}
-
-/**
- * Acepta una invitación por token (público).
- */
-export interface AcceptInvitationResponse {
-  message: string
-  status: 'accepted' | 'already_accepted' | 'already_member'
-  user_id: string
-  workspace_id: string
-  membership_id: string
-  role: string | null
-}
-
-export async function acceptInvitationByToken(
-  token: string,
-  userId?: string | null,
-  authToken?: string | null
-): Promise<AcceptInvitationResponse> {
-  const headers: HeadersInit = {
-    'Content-Type': 'application/json',
-  }
-  
-  // Incluir token de autenticación si está disponible
-  if (authToken) {
-    headers['Authorization'] = `Bearer ${authToken}`
-  }
-
-  const response = await fetch(
-    `${API_URL}/api/v1/invitations/token/${token}/accept`,
-    {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        user_id: userId || null,  // Enviar null si no hay userId (el backend lo creará)
-      }),
-    }
-  );
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
-    throw new Error(error.detail || `HTTP ${response.status}`);
-  }
-
-  return response.json();
 }
 
 // ============================================================================

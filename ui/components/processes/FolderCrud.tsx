@@ -53,16 +53,7 @@ export default function FolderCrud({ workspaceId, folders, onFoldersChange, pare
         }
       }
       
-      console.log('Creando carpeta:', {
-        workspace_id: workspaceId,
-        name: newFolderName.trim(),
-        path: finalPath,
-        parent_id: actualParentId,
-        sort_order: filteredFolders.length,
-      })
-      
       const created = await createFolder({
-        workspace_id: workspaceId,
         name: newFolderName.trim(),
         path: finalPath,
         parent_id: actualParentId || undefined,

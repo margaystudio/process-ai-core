@@ -9,9 +9,6 @@ import {
   SubscriptionPlanResponse,
   WorkspaceSubscriptionResponse,
   WorkspaceLimitsResponse,
-  listWorkspaceInvitations,
-  InvitationResponse,
-  createWorkspaceInvitation,
   listOperationalRoles,
   createOperationalRole,
   deleteOperationalRole,
@@ -51,8 +48,10 @@ export default function WorkspaceSettingsPage() {
   const currentWorkspace = workspaces.find((ws) => ws.id === workspaceId) || null
   const workspaceRole = currentWorkspace?.role ?? role
   
-  // Verificar si el usuario es superadmin (tiene un workspace de tipo "system")
-  const isSuperadmin = workspaces.some(ws => ws.workspace_type === 'system')
+  // Verificar si el usuario es platform superadmin.
+  // Usa role='superadmin' en lugar de workspace_type='system': sync_workspace_access
+  // asigna este rol cuando platform_roles del contexto de margay-workspace incluye 'superadmin'.
+  const isSuperadmin = workspaces.some(ws => ws.role === 'superadmin')
   
   // Superadmin tiene acceso a la configuración de cualquier workspace
   const hasAccess = isSuperadmin || canEditWorkspace || workspaceRole === 'owner' || workspaceRole === 'admin'
@@ -71,14 +70,6 @@ export default function WorkspaceSettingsPage() {
   const [subscription, setSubscription] = useState<WorkspaceSubscriptionResponse | null>(null)
   const [limits, setLimits] = useState<WorkspaceLimitsResponse | null>(null)
   const [availablePlans, setAvailablePlans] = useState<SubscriptionPlanResponse[]>([])
-
-  // Invitations data
-  const [invitations, setInvitations] = useState<InvitationResponse[]>([])
-  const [showInviteForm, setShowInviteForm] = useState(false)
-  const [inviteEmail, setInviteEmail] = useState('')
-  const [inviteRole, setInviteRole] = useState('creator')
-  const [inviteMessage, setInviteMessage] = useState('')
-  const [lastInvitationUrl, setLastInvitationUrl] = useState<string | null>(null)
 
   // Roles operativos
   const [operationalRoles, setOperationalRoles] = useState<OperationalRoleResponse[]>([])
@@ -243,11 +234,10 @@ export default function WorkspaceSettingsPage() {
         setError(null)
 
         // Load subscription and limits
-        const [subData, limitsData, plansData, invitationsData] = await Promise.all([
+        const [subData, limitsData, plansData] = await Promise.all([
           getWorkspaceSubscription(workspaceId).catch(() => null),
           getWorkspaceLimits(workspaceId).catch(() => null),
           listSubscriptionPlans('b2b'),
-          loadInvitations(),
         ])
 
         setSubscription(subData)
@@ -273,70 +263,6 @@ export default function WorkspaceSettingsPage() {
     } catch (err) {
       console.error('Error cargando roles operativos o miembros:', err)
     }
-  }
-
-  const loadInvitations = async () => {
-    if (!workspaceId) return []
-
-    try {
-      const supabase = createClient()
-      const { data: { session } } = await supabase.auth.getSession()
-      const token = session?.access_token || ''
-
-      const data = await listWorkspaceInvitations(workspaceId, undefined, token)
-      setInvitations(data)
-      return data
-    } catch (err) {
-      console.error('Error cargando invitaciones:', err)
-      return []
-    }
-  }
-
-  const handleInviteUser = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!workspaceId || !inviteEmail.trim()) {
-      setError('Email es requerido')
-      return
-    }
-
-    await withLoading(async () => {
-      try {
-        setError(null)
-
-        const supabase = createClient()
-        const { data: { session } } = await supabase.auth.getSession()
-        const token = session?.access_token || ''
-
-        // Necesitamos obtener el role_id del rol seleccionado
-        // Por ahora, usamos un endpoint que acepta role_name
-        // TODO: Implementar endpoint que acepte role_name o crear helper para obtener role_id
-
-        const invitation = await createWorkspaceInvitation(
-          workspaceId,
-          {
-            email: inviteEmail.trim(),
-            role_name: inviteRole, // Usar role_name en lugar de role_id
-            message: inviteMessage || undefined,
-          },
-          token
-        )
-
-        // Guardar el link de invitación
-        if (invitation.invitation_url) {
-          setLastInvitationUrl(invitation.invitation_url)
-        }
-
-        // Reset form
-        setInviteEmail('')
-        setInviteMessage('')
-        setShowInviteForm(false)
-
-        // Reload invitations
-        await loadInvitations()
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Error al crear invitación')
-      }
-    })
   }
 
   const handleCreateRole = async (e: React.FormEvent) => {
@@ -819,163 +745,15 @@ export default function WorkspaceSettingsPage() {
             {/* Users Tab */}
             {activeTab === 'users' && hasAccess && (
               <div>
-                <div className="flex justify-between items-center mb-4">
-                  <h2 className="text-xl font-semibold">Usuarios e Invitaciones</h2>
-                  {canManageUsers && (
-                    <button
-                      onClick={() => setShowInviteForm(!showInviteForm)}
-                      className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-md"
-                    >
-                      {showInviteForm ? 'Cancelar' : '+ Invitar Usuario'}
-                    </button>
-                  )}
+                <div className="mb-6">
+                  <h2 className="text-xl font-semibold mb-4">Usuarios</h2>
+                  <p className="text-sm text-slate-500 mb-4">
+                    Las invitaciones se gestionan desde el hub de administración.
+                  </p>
                 </div>
 
-                {showInviteForm && (
-                  <div className="bg-gray-50 rounded-lg p-4 mb-6">
-                    <form onSubmit={handleInviteUser} className="space-y-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Email del Usuario *
-                        </label>
-                        <input
-                          type="email"
-                          value={inviteEmail}
-                          onChange={(e) => setInviteEmail(e.target.value)}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                          required
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Rol
-                        </label>
-                        <select
-                          value={inviteRole}
-                          onChange={(e) => setInviteRole(e.target.value)}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                        >
-                          <option value="owner">Owner</option>
-                          <option value="admin">Admin</option>
-                          <option value="approver">Approver</option>
-                          <option value="creator">Creator</option>
-                          <option value="viewer">Viewer</option>
-                        </select>
-                        {/* Descripción dinámica del rol */}
-                        <p className="mt-1 text-xs text-gray-500">
-                          {inviteRole === 'owner' && 'Dueño del workspace. Tiene todos los permisos, incluyendo eliminar documentos.'}
-                          {inviteRole === 'admin' && 'Puede administrar usuarios y configurar el espacio de trabajo.'}
-                          {inviteRole === 'approver' && 'Puede revisar y aprobar procesos.'}
-                          {inviteRole === 'creator' && 'Puede crear y editar procesos, pero no aprobarlos.'}
-                          {inviteRole === 'viewer' && 'Puede consultar procesos aprobados. Ideal para operarios.'}
-                        </p>
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Mensaje (opcional)
-                        </label>
-                        <textarea
-                          value={inviteMessage}
-                          onChange={(e) => setInviteMessage(e.target.value)}
-                          rows={3}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                        />
-                      </div>
-
-                      <div className="flex justify-end">
-                        <button
-                          type="submit"
-                          className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-md"
-                        >
-                          Enviar Invitación
-                        </button>
-                      </div>
-                    </form>
-                  </div>
-                )}
-
-                {lastInvitationUrl && (
-                  <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                    <p className="text-sm font-medium text-blue-900 mb-2">
-                      ✅ Invitación creada exitosamente
-                    </p>
-                    <p className="text-xs text-blue-700 mb-3">
-                      Copiá este link y enviáselo al usuario invitado (el sistema de emails aún no está configurado):
-                    </p>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="text"
-                        readOnly
-                        value={lastInvitationUrl}
-                        className="flex-1 px-3 py-2 bg-white border border-blue-300 rounded-md text-sm font-mono"
-                      />
-                      <button
-                        onClick={() => {
-                          navigator.clipboard.writeText(lastInvitationUrl)
-                          alert('Link copiado al portapapeles')
-                        }}
-                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-md"
-                      >
-                        Copiar
-                      </button>
-                      <button
-                        onClick={() => setLastInvitationUrl(null)}
-                        className="px-3 py-2 text-blue-600 hover:text-blue-800 text-sm"
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  </div>
-                )}
-
                 <div className="space-y-4">
-                  <h3 className="text-lg font-medium">Invitaciones Pendientes</h3>
-                  {invitations.filter((inv) => inv.status === 'pending').length === 0 ? (
-                    <p className="text-gray-500">No hay invitaciones pendientes</p>
-                  ) : (
-                    <div className="divide-y divide-gray-200">
-                      {invitations
-                        .filter((inv) => inv.status === 'pending')
-                        .map((invitation) => (
-                          <div key={invitation.id} className="py-4 border-b border-gray-200 last:border-b-0">
-                            <div className="flex items-start justify-between gap-4">
-                              <div className="flex-1">
-                                <p className="font-medium">{invitation.email}</p>
-                                <p className="text-sm text-gray-500">
-                                  Rol: {invitation.role_name} • Expira: {new Date(invitation.expires_at).toLocaleDateString()}
-                                </p>
-                                {invitation.invitation_url && (
-                                  <div className="mt-3 flex items-center gap-2">
-                                    <input
-                                      type="text"
-                                      readOnly
-                                      value={invitation.invitation_url}
-                                      className="flex-1 px-3 py-1.5 bg-gray-50 border border-gray-300 rounded-md text-xs font-mono"
-                                    />
-                                    <button
-                                      onClick={() => {
-                                        navigator.clipboard.writeText(invitation.invitation_url!)
-                                        alert('Link copiado al portapapeles')
-                                      }}
-                                      className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-md whitespace-nowrap"
-                                    >
-                                      Copiar Link
-                                    </button>
-                                  </div>
-                                )}
-                              </div>
-                              <span className="px-3 py-1 text-xs font-medium rounded-full bg-yellow-100 text-yellow-800 whitespace-nowrap">
-                                Pendiente
-                              </span>
-                            </div>
-                          </div>
-                        ))}
-                    </div>
-                  )}
-
-                  <h3 className="text-lg font-medium mt-6">Miembros del workspace</h3>
+                  <h3 className="text-lg font-medium">Miembros del workspace</h3>
                   {members.length === 0 ? (
                     <p className="text-gray-500">Cargando miembros...</p>
                   ) : (
@@ -1039,31 +817,6 @@ export default function WorkspaceSettingsPage() {
                           Cancelar
                         </button>
                       </div>
-                    </div>
-                  )}
-
-                  <h3 className="text-lg font-medium mt-6">Invitaciones Aceptadas</h3>
-                  {invitations.filter((inv) => inv.status === 'accepted').length === 0 ? (
-                    <p className="text-gray-500">No hay invitaciones aceptadas</p>
-                  ) : (
-                    <div className="divide-y divide-gray-200">
-                      {invitations
-                        .filter((inv) => inv.status === 'accepted')
-                        .map((invitation) => (
-                          <div key={invitation.id} className="py-4">
-                            <div className="flex items-center justify-between">
-                              <div>
-                                <p className="font-medium">{invitation.email}</p>
-                                <p className="text-sm text-gray-500">
-                                  Rol: {invitation.role_name} • Aceptada: {invitation.accepted_at ? new Date(invitation.accepted_at).toLocaleDateString() : 'N/A'}
-                                </p>
-                              </div>
-                              <span className="px-3 py-1 text-xs font-medium rounded-full bg-green-100 text-green-800">
-                                Aceptada
-                              </span>
-                            </div>
-                          </div>
-                        ))}
                     </div>
                   )}
                 </div>

@@ -120,7 +120,6 @@ function FolderTreeNode({
       setCrudError(null)
       const parentPath = node.folder.path || node.folder.name
       await createFolder({
-        workspace_id: workspaceId,
         name: newSubfolderName.trim(),
         path: `${parentPath}/${newSubfolderName.trim()}`,
         parent_id: node.folder.id,

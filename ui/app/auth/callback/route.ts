@@ -1,71 +1,98 @@
 /**
- * Callback route para OAuth y Magic Links de Supabase.
- * 
- * Esta ruta maneja:
- * - Callbacks de OAuth (Google, Facebook, etc.)
- * - Magic links enviados por email
- * - Verificación de tokens
+ * Callback de Supabase para process-ai.
+ *
+ * Intercambia el code por una sesión y emite la cookie en el dominio padre
+ * (.margaystudio.io en prod) para que hub y process-ai compartan la sesión.
+ *
+ * El parámetro `next` puede ser:
+ *   - URL absoluta (ej. https://process.margaystudio.io/workspace) → redirect directo
+ *   - Path relativo (ej. /workspace) → redirect dentro de process-ai
  */
 
-import { createClient } from '@/lib/supabase/server'
-import { NextResponse } from 'next/server'
-import { syncUser } from '@/lib/api'
+import { createServerClient, type CookieOptions } from '@supabase/ssr'
+import { NextRequest, NextResponse } from 'next/server'
 
-export async function GET(request: Request) {
+const PROD_COOKIE_DOMAIN = '.margaystudio.io'
+
+const ALLOWED_ORIGINS = [
+  'https://process.margaystudio.io',
+  'https://hub.margaystudio.io',
+  'http://localhost:3000',
+  'http://localhost:3001',
+  'https://process.local.margaystudio.io:3000',
+  'https://hub.local.margaystudio.io:3001',
+]
+
+export async function GET(request: NextRequest) {
   const requestUrl = new URL(request.url)
   const code = requestUrl.searchParams.get('code')
-  const next = requestUrl.searchParams.get('next') || '/workspace'
+  const accessToken = requestUrl.searchParams.get('access_token')
+  const refreshToken = requestUrl.searchParams.get('refresh_token')
+  const nextParam = requestUrl.searchParams.get('next') || '/'
 
-  if (code) {
-    const supabase = await createClient()
-    
-    // Intercambiar código por sesión
-    const { data, error } = await supabase.auth.exchangeCodeForSession(code)
+  const HUB_URL = process.env.NEXT_PUBLIC_HUB_URL ?? 'https://hub.margaystudio.io'
+  const cookieDomain = process.env.NEXT_PUBLIC_COOKIE_DOMAIN
+    ?? (process.env.NODE_ENV === 'production' ? PROD_COOKIE_DOMAIN : undefined)
 
-    if (error) {
-      console.error('Error intercambiando código:', error)
-      return NextResponse.redirect(new URL(`/login?error=${encodeURIComponent(error.message)}`, requestUrl.origin))
-    }
-
-    if (data.user) {
-      // Sincronizar usuario con backend
-      try {
-        const metadata = data.user.user_metadata || {}
-        const appMetadata = data.user.app_metadata || {}
-        const providers = appMetadata.providers || []
-        const authProvider = providers.length > 0 ? providers[0] : 'supabase'
-
-        const syncResponse = await syncUser({
-          supabase_user_id: data.user.id,
-          email: data.user.email || '',
-          name: metadata.name || metadata.full_name || data.user.email?.split('@')[0] || 'Usuario',
-          auth_provider: authProvider,
-          metadata: {
-            avatar_url: metadata.avatar_url,
-            ...metadata,
-          },
-        })
-        
-        // Guardar userId en la URL para que el cliente lo pueda leer y guardar en localStorage
-        // Esto es necesario porque el callback es server-side y no puede acceder a localStorage directamente
-        if (syncResponse.user_id) {
-          const nextUrl = new URL(next, requestUrl.origin)
-          nextUrl.searchParams.set('user_id', syncResponse.user_id)
-          return NextResponse.redirect(nextUrl)
-        }
-      } catch (err) {
-        console.error('Error sincronizando usuario:', err)
-        // No redirigir a error, el usuario ya está autenticado
-      }
-    }
-
-    // Redirigir a la página solicitada, o a onboarding si no tiene workspaces
-    // Por ahora redirigimos a workspace, que manejará el caso de no tener workspaces
-    return NextResponse.redirect(new URL(next, requestUrl.origin))
+  // Resolver URL de destino segura
+  let redirectTarget: URL
+  try {
+    const parsed = new URL(nextParam)
+    redirectTarget = (['http:', 'https:'].includes(parsed.protocol) && ALLOWED_ORIGINS.includes(parsed.origin))
+      ? parsed
+      : new URL('/', requestUrl.origin)
+  } catch {
+    const safePath = nextParam.startsWith('/') && !nextParam.startsWith('//') ? nextParam : '/'
+    redirectTarget = new URL(safePath, requestUrl.origin)
   }
 
-  // Si no hay código, redirigir a login
-  return NextResponse.redirect(new URL('/login', requestUrl.origin))
+  let response = NextResponse.next({ request: { headers: request.headers } })
+
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() { return request.cookies.getAll() },
+        setAll(cookiesToSet: Array<{ name: string; value: string; options?: CookieOptions }>) {
+          cookiesToSet.forEach(({ name, value, options }) => {
+            response.cookies.set(name, value, {
+              ...options,
+              httpOnly: options?.httpOnly ?? true,
+              secure: options?.secure ?? isProd,
+              sameSite: options?.sameSite ?? 'lax',
+              path: options?.path ?? '/',
+              ...(cookieDomain ? { domain: cookieDomain } : {}),
+            })
+          })
+        },
+      },
+    }
+  )
+
+  if (accessToken && refreshToken) {
+    // El hub ya hizo el exchange PKCE y nos pasa los tokens directamente.
+    // Usamos setSession para establecer la sesión local sin necesitar el code verifier.
+    const { error } = await supabase.auth.setSession({
+      access_token: accessToken,
+      refresh_token: refreshToken,
+    })
+    if (error) {
+      console.error('[callback] setSession error:', error.message)
+      return NextResponse.redirect(`${HUB_URL}/login?error=${encodeURIComponent(error.message)}`)
+    }
+  } else if (code) {
+    // Flujo directo: el callback llega con un code (mismo dominio o dev sin hub).
+    const { error } = await supabase.auth.exchangeCodeForSession(code)
+    if (error) {
+      console.error('[callback] exchange error:', error.message)
+      return NextResponse.redirect(`${HUB_URL}/login?error=${encodeURIComponent(error.message)}`)
+    }
+  } else {
+    return NextResponse.redirect(`${HUB_URL}/login?error=no_code`)
+  }
+
+  const redirect = NextResponse.redirect(redirectTarget)
+  response.cookies.getAll().forEach((cookie) => redirect.cookies.set(cookie))
+  return redirect
 }
-
-

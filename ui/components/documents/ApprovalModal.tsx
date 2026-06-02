@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Document, getDocumentRuns, getArtifactUrl } from '@/lib/api'
+import { Document, getDocumentRuns } from '@/lib/api'
 import { formatDate } from '@/utils/dateFormat'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'

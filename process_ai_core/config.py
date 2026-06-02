@@ -95,6 +95,12 @@ class Settings:
     # URL base de la API (para construir URLs absolutas en HTML/PDF)
     api_base_url: str = "http://localhost:8000"
 
+    # Firma de URLs de artefactos (HMAC-SHA256)
+    # En producción DEBE setearse con ARTIFACT_SIGNING_SECRET; vacío solo se acepta en local/test.
+    artifact_signing_secret: str = ""
+    # TTL de las URLs firmadas en segundos (default: 15 minutos)
+    artifact_url_ttl_seconds: int = 900
+
 
 @lru_cache
 def get_settings() -> Settings:
@@ -126,6 +132,8 @@ def get_settings() -> Settings:
     return Settings(
         openai_api_key=os.getenv("OPENAI_API_KEY", ""),
         api_base_url=os.getenv("API_BASE_URL", "http://localhost:8000"),
+        artifact_signing_secret=os.getenv("ARTIFACT_SIGNING_SECRET", ""),
+        artifact_url_ttl_seconds=int(os.getenv("ARTIFACT_URL_TTL_SECONDS", "900")),
         openai_model_text=os.getenv(
             "OPENAI_MODEL_TEXT",
             "gpt-4.1-mini"

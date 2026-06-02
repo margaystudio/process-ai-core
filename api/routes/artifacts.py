@@ -3,32 +3,52 @@ Endpoint para servir artefactos generados (JSON, Markdown, PDF).
 
 Este endpoint permite descargar los archivos generados por el pipeline.
 Para PDFs, se sirven inline para poder visualizarlos en iframes.
+
+Autenticación: URLs firmadas con HMAC-SHA256. Como el endpoint es consumido por
+<iframe> y window.open (que no pueden enviar el header Authorization), la
+autenticación se realiza mediante un token firmado en la query string.
+El token es generado por el backend al construir la URL del artefacto
+(api/artifact_signing.py) y expira según ARTIFACT_URL_TTL_SECONDS (default: 15 min).
 """
 
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse, Response
 
 from process_ai_core.config import get_settings
+from ..artifact_signing import verify_artifact_token
 
 router = APIRouter(prefix="/api/v1/artifacts", tags=["artifacts"])
 
 
 @router.get("/{run_id}/{filename:path}")
-async def get_artifact(run_id: str, filename: str, download: bool = False):
+async def get_artifact(
+    run_id: str,
+    filename: str,
+    token: str = Query(..., description="Token HMAC firmado por el backend"),
+    download: bool = False,
+):
     """
     Sirve un artefacto generado (JSON, Markdown, PDF o imágenes/assets).
 
+    Requiere un token HMAC firmado generado por el backend (sign_artifact_url).
+    Token inválido, expirado o para otro run/filename → 404 (no revela existencia).
+
     Args:
-        run_id: ID de la corrida
+        run_id  : ID de la corrida
         filename: Ruta relativa del archivo dentro del directorio del run
-                  (puede incluir subdirectorios, p.ej. assets/frames_vid1/step01_1.png)
-        download: Si es True, fuerza la descarga del archivo (default: False, se abre inline)
+                  (puede incluir subdirectorios, ej. assets/frames_vid1/step01_1.png)
+        token   : Token HMAC firmado (?token=...)
+        download: Si es True, fuerza la descarga del archivo (default: False, inline)
 
     Returns:
-        Archivo solicitado o 404 si no existe
+        Archivo solicitado o 404 si token inválido/expirado o el archivo no existe
     """
+    # Verificar token ANTES de tocar el filesystem
+    if not verify_artifact_token(token, run_id, filename):
+        raise HTTPException(status_code=404, detail="Artefacto no encontrado")
+
     settings = get_settings()
     artifact_path = Path(settings.output_dir) / run_id / filename
 

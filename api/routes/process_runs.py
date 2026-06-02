@@ -23,6 +23,7 @@ from process_ai_core.upload_validation import ALLOWED_UPLOAD_EXTENSIONS
 
 from ..models.requests import ProcessMode, ProcessRunResponse
 from ._branding import get_run_pdf_branding, get_workspace_pdf_branding
+from ..artifact_signing import sign_artifact_url
 from api.workspace_client import (
     WorkspaceSessionContext,
     get_workspace_context,
@@ -244,13 +245,13 @@ async def create_process_run(
                 # PDF opcional, no fallamos si no se puede generar
                 pass
 
-            # Construir paths relativos a los artefactos
+            # Construir URLs firmadas para los artefactos
             artifacts = {
-                "json": f"/api/v1/artifacts/{run_id}/process.json",
-                "markdown": f"/api/v1/artifacts/{run_id}/process.md",
+                "json": sign_artifact_url(run_id, "process.json", workspace_id),
+                "markdown": sign_artifact_url(run_id, "process.md", workspace_id),
             }
             if pdf_generated:
-                artifacts["pdf"] = f"/api/v1/artifacts/{run_id}/process.pdf"
+                artifacts["pdf"] = sign_artifact_url(run_id, "process.pdf", workspace_id)
 
             # SOLO AHORA crear Document, Run y Artifacts en BD (transacción atómica)
             # Si algo falla aquí, el pipeline ya se ejecutó exitosamente
@@ -479,9 +480,18 @@ async def generate_pdf_from_run(run_id: str):
     try:
         from process_ai_core.export import export_pdf
         from process_ai_core.db.database import get_db_session
+        from process_ai_core.db.models import Run, Document
 
+        # Obtener workspace_id del run para firmar la URL
+        workspace_id_for_signing: str | None = None
         with get_db_session() as session:
             pdf_branding = get_run_pdf_branding(session, run_id)
+            run_obj = session.query(Run).filter_by(id=run_id).first()
+            if run_obj and run_obj.document_id:
+                doc_obj = session.query(Document).filter_by(id=run_obj.document_id).first()
+                if doc_obj:
+                    workspace_id_for_signing = doc_obj.workspace_id
+
         pdf_path = export_pdf(
             run_dir=run_dir,
             md_path=md_path,
@@ -489,10 +499,16 @@ async def generate_pdf_from_run(run_id: str):
             branding=pdf_branding,
         )
 
+        if workspace_id_for_signing:
+            pdf_url = sign_artifact_url(run_id, "process.pdf", workspace_id_for_signing)
+        else:
+            # Run no está en BD (caso legacy): URL sin firma, el endpoint devolverá 404 con token faltante
+            pdf_url = f"/api/v1/artifacts/{run_id}/process.pdf"
+
         return {
             "run_id": run_id,
             "status": "completed",
-            "pdf_url": f"/api/v1/artifacts/{run_id}/process.pdf",
+            "pdf_url": pdf_url,
             "message": "PDF generado exitosamente",
         }
 

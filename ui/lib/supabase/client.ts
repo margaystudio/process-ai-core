@@ -1,10 +1,13 @@
 /**
  * Cliente de Supabase para uso en componentes del cliente (Client Components).
- * 
- * Este cliente se usa en componentes que tienen 'use client' y se ejecutan en el navegador.
+ *
+ * En producción, la cookie de sesión se emite en el dominio padre `.margaystudio.io`
+ * para que hub y process-ai compartan la sesión sin re-login.
  */
 
 import { createBrowserClient } from '@supabase/ssr'
+
+const PROD_COOKIE_DOMAIN = '.margaystudio.io'
 
 export function createClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -16,6 +19,13 @@ export function createClient() {
     )
   }
 
-  return createBrowserClient(supabaseUrl, supabaseKey)
+  const cookieDomain = process.env.NEXT_PUBLIC_COOKIE_DOMAIN
+    ?? (process.env.NODE_ENV === 'production' ? PROD_COOKIE_DOMAIN : undefined)
+
+  return createBrowserClient(supabaseUrl, supabaseKey, {
+    cookieOptions: cookieDomain
+      ? { domain: cookieDomain, sameSite: 'lax', secure: true, path: '/' }
+      : undefined,
+  })
 }
 

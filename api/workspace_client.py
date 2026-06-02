@@ -117,10 +117,13 @@ def fetch_workspace_context(token: str) -> WorkspaceSessionContext:
 
     ctx = WorkspaceSessionContext.model_validate(response.json())
     _cache_set(token, ctx)
-    logger.debug(
-        "workspace context fetched: tenant_id=%s user_id=%s",
+    logger.info(
+        "workspace context: tenant=%s user=%s tenant_roles=%s platform_roles=%s app_keys=%s",
         ctx.tenant.id,
         ctx.user.id,
+        ctx.tenant_roles,
+        ctx.platform_roles,
+        [a.key for a in ctx.applications],
     )
     return ctx
 
@@ -299,7 +302,13 @@ async def require_process_ai_access(
     """
     required_key = _get_required_app_key()
     app_keys = {app.key for app in ctx.applications}
-    if required_key not in app_keys:
+
+    # tenant_admin y platform superadmin tienen acceso a todos los módulos
+    # habilitados en su tenant sin necesidad de asignación explícita por usuario.
+    is_tenant_admin = "tenant_admin" in ctx.tenant_roles
+    is_platform_superadmin = "superadmin" in ctx.platform_roles
+
+    if required_key not in app_keys and not is_tenant_admin and not is_platform_superadmin:
         logger.warning(
             "process_ai access denied: tenant=%s user=%s app_keys=%s",
             ctx.tenant.id,
@@ -311,6 +320,10 @@ async def require_process_ai_access(
             detail=f"Access to '{required_key}' not granted for this tenant",
         )
     logger.debug(
-        "process_ai access granted: tenant=%s user=%s", ctx.tenant.id, ctx.user.id
+        "process_ai access granted: tenant=%s user=%s (tenant_admin=%s superadmin=%s)",
+        ctx.tenant.id,
+        ctx.user.id,
+        is_tenant_admin,
+        is_platform_superadmin,
     )
     return ctx

@@ -1,15 +1,20 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { getArtifactUrl, getVersionPreviewPdfUrl } from '@/lib/api'
+import { getVersionPreviewPdfUrl } from '@/lib/api'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
 interface ArtifactViewerModalProps {
   isOpen: boolean
   onClose: () => void
-  runId: string
-  filename: string
+  /**
+   * URL ya firmada del artifact (viene del backend). Usar cuando se dispone de ella.
+   * Si no se provee, se usa runId + filename como fallback (deprecated).
+   */
+  artifactUrl?: string
+  runId?: string
+  filename?: string
   type: 'json' | 'markdown' | 'pdf'
   /** Cuando está definido, para type 'pdf' se usa esta URL (PDF del borrador actual) en lugar del artifact del run. */
   versionPreviewPdf?: { documentId: string; versionId: string } | null
@@ -18,8 +23,9 @@ interface ArtifactViewerModalProps {
 export default function ArtifactViewerModal({
   isOpen,
   onClose,
-  runId,
-  filename,
+  artifactUrl,
+  runId = '',
+  filename = '',
   type,
   versionPreviewPdf,
 }: ArtifactViewerModalProps) {
@@ -53,9 +59,12 @@ export default function ArtifactViewerModal({
         let absoluteUrl: string
         if (type === 'pdf' && versionPreviewPdf) {
           absoluteUrl = getVersionPreviewPdfUrl(versionPreviewPdf.documentId, versionPreviewPdf.versionId)
-        } else {
-          const artifactUrl = getArtifactUrl(runId, filename)
+        } else if (artifactUrl) {
+          // URL ya firmada que viene del backend — usarla directamente.
           absoluteUrl = artifactUrl.startsWith('http') ? artifactUrl : `${API_URL}${artifactUrl}`
+        } else {
+          // Fallback deprecated: reconstruir desde runId + filename (sin token → 404 en prod).
+          absoluteUrl = `${API_URL}/api/v1/artifacts/${runId}/${filename}`
         }
 
         if (type === 'pdf') {

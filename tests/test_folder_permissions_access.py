@@ -39,16 +39,18 @@ def _create_workspace_and_folder(session, *, workspace_type: str = "organization
 
 
 def test_superadmin_puede_ver_permissions(session, monkeypatch):
-    _, folder = _create_workspace_and_folder(session)
+    workspace, folder = _create_workspace_and_folder(session)
 
     monkeypatch.setattr(folders_route, "is_superadmin", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(folders_route, "get_user_role", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(folders_route, "resolve_tenant_workspace_id", lambda _ctx: workspace.id)
 
     resp = asyncio.run(
         folders_route.get_folder_permissions(
             folder_id=folder.id,
             user_id="superadmin-user",
             session=session,
+            ctx=None,
         )
     )
 
@@ -57,10 +59,11 @@ def test_superadmin_puede_ver_permissions(session, monkeypatch):
 
 
 def test_viewer_miembro_devuelve_403(session, monkeypatch):
-    _, folder = _create_workspace_and_folder(session)
+    workspace, folder = _create_workspace_and_folder(session)
 
     monkeypatch.setattr(folders_route, "is_superadmin", lambda *_args, **_kwargs: False)
     monkeypatch.setattr(folders_route, "get_user_role", lambda *_args, **_kwargs: SimpleNamespace(name="viewer"))
+    monkeypatch.setattr(folders_route, "resolve_tenant_workspace_id", lambda _ctx: workspace.id)
 
     with pytest.raises(HTTPException) as exc:
         asyncio.run(
@@ -68,6 +71,7 @@ def test_viewer_miembro_devuelve_403(session, monkeypatch):
                 folder_id=folder.id,
                 user_id="viewer-user",
                 session=session,
+                ctx=None,
             )
         )
 
@@ -75,16 +79,18 @@ def test_viewer_miembro_devuelve_403(session, monkeypatch):
 
 
 def test_admin_miembro_devuelve_200(session, monkeypatch):
-    _, folder = _create_workspace_and_folder(session)
+    workspace, folder = _create_workspace_and_folder(session)
 
     monkeypatch.setattr(folders_route, "is_superadmin", lambda *_args, **_kwargs: False)
     monkeypatch.setattr(folders_route, "get_user_role", lambda *_args, **_kwargs: SimpleNamespace(name="admin"))
+    monkeypatch.setattr(folders_route, "resolve_tenant_workspace_id", lambda _ctx: workspace.id)
 
     resp = asyncio.run(
         folders_route.get_folder_permissions(
             folder_id=folder.id,
             user_id="admin-user",
             session=session,
+            ctx=None,
         )
     )
 

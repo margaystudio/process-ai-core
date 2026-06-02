@@ -7,7 +7,6 @@ import {
   listApprovedDocuments,
   Document,
   getDocumentRuns,
-  getArtifactUrl,
 } from '@/lib/api'
 import DocumentCard from '@/components/documents/DocumentCard'
 import FolderTree from '@/components/processes/FolderTree'

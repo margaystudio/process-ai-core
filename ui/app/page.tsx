@@ -6,7 +6,6 @@ import { useWorkspace } from '@/contexts/WorkspaceContext'
 import { useUserRole } from '@/hooks/useUserRole'
 import { useUserValidation } from '@/hooks/useUserValidation'
 import { createClient } from '@/lib/supabase/client'
-import { getPendingInvitationsByEmail } from '@/lib/api'
 
 export default function Home() {
   const router = useRouter()
@@ -15,7 +14,6 @@ export default function Home() {
   const userValidation = useUserValidation()
   const [authLoading, setAuthLoading] = useState(true)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
-  const [checkingInvitations, setCheckingInvitations] = useState(false)
 
   // Verificar autenticación primero
   useEffect(() => {
@@ -26,9 +24,7 @@ export default function Home() {
         const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
         const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
-        // Si Supabase no está configurado, permitir acceso (modo desarrollo)
         if (!supabaseUrl || !supabaseKey) {
-          console.log('Supabase no configurado, permitiendo acceso')
           if (isMounted) {
             setIsAuthenticated(true)
             setAuthLoading(false)
@@ -36,12 +32,9 @@ export default function Home() {
           return
         }
 
-        console.log('Verificando sesión de Supabase...')
         const supabase = createClient()
         
-        // Agregar timeout para evitar que se cuelgue (6s, igual que useUserId/useUserValidation)
         const timeoutId = setTimeout(() => {
-          console.error('Timeout verificando autenticación (6 segundos)')
           if (isMounted) {
             setAuthLoading(false)
             router.push('/login')
@@ -52,30 +45,13 @@ export default function Home() {
           const { data: { session }, error } = await supabase.auth.getSession()
           clearTimeout(timeoutId)
           
-          if (error) {
-            console.error('Error obteniendo sesión:', error)
-            if (isMounted) {
-              router.push('/login')
-            }
+          if (error || !session?.user) {
+            if (isMounted) router.push('/login')
             return
           }
           
-          console.log('Sesión obtenida:', session ? 'Sí' : 'No')
-          
-          if (!isMounted) {
-            console.log('Componente desmontado, cancelando')
-            return
-          }
-          
-          if (session?.user) {
-            console.log('Usuario autenticado, estableciendo estado...')
+          if (isMounted) {
             setIsAuthenticated(true)
-            console.log('Estado de autenticación establecido')
-          } else {
-            console.log('No hay usuario en la sesión, redirigiendo a login')
-            // No autenticado, redirigir a login
-            router.push('/login')
-            return
           }
         } catch (sessionError) {
           clearTimeout(timeoutId)
@@ -83,14 +59,9 @@ export default function Home() {
         }
       } catch (err) {
         console.error('Error verificando autenticación:', err)
-        // Si hay error, redirigir a login por seguridad
-        if (isMounted) {
-          router.push('/login')
-        }
+        if (isMounted) router.push('/login')
       } finally {
-        if (isMounted) {
-          setAuthLoading(false)
-        }
+        if (isMounted) setAuthLoading(false)
       }
     }
 
@@ -101,131 +72,22 @@ export default function Home() {
     }
   }, [router])
 
-  // Verificar validación del usuario y redirigir según el estado
+  // Redirigir según el estado del usuario y su rol
   useEffect(() => {
-    // Esperar a que termine la verificación de autenticación
-    if (authLoading) {
-      return
-    }
+    if (authLoading || !isAuthenticated) return
+    if (userValidation.isValid === null) return
+    if (userValidation.isValid === false) return
 
-    // Si no está autenticado, el efecto anterior ya redirigió a login
-    if (!isAuthenticated) {
-      return
-    }
-
-    // Esperar a que termine la validación del usuario
-    if (userValidation.isValid === null) {
-      return
-    }
-
-    // Si el usuario no es válido (no existe en BD local), mostrar error
-    if (userValidation.isValid === false) {
-      console.log('Usuario no válido, mostrando error')
-      // El error se mostrará en el render
-      return
-    }
-
-    console.log('Usuario válido, verificando workspaces...')
-    
-    // Si el usuario no tiene workspaces, verificar si hay invitaciones pendientes
-    if (userValidation.hasWorkspaces === false) {
-      console.log('Usuario no tiene workspaces, verificando invitaciones...')
-      // Solo verificar una vez
-      if (checkingInvitations) {
-        return
-      }
-      
-      // Verificar si hay invitaciones pendientes
-      async function checkPendingInvitations() {
-        setCheckingInvitations(true)
-        try {
-          const supabase = createClient()
-          const { data: { session } } = await supabase.auth.getSession()
-          
-          if (!session?.user?.email) {
-            console.log('No hay email en la sesión, redirigiendo a onboarding')
-            router.push('/onboarding')
-            return
-          }
-          
-          console.log('Verificando invitaciones pendientes para:', session.user.email)
-          const invitations = await getPendingInvitationsByEmail(session.user.email)
-          console.log('Invitaciones encontradas:', invitations.length)
-          
-          if (invitations.length > 0) {
-            // Hay invitaciones pendientes, redirigir a la primera
-            const invitation = invitations[0]
-            
-            // Intentar usar el token directamente si está disponible
-            let token = invitation.token
-            
-            // Si no está disponible, extraerlo de la URL
-            if (!token && invitation.invitation_url) {
-              const urlParts = invitation.invitation_url.split('/invitations/accept/')
-              if (urlParts.length > 1) {
-                token = urlParts[1].split('?')[0].split('#')[0] // Remover query params y hash
-              }
-            }
-            
-            console.log('Token de invitación:', token)
-            
-            if (token) {
-              router.push(`/invitations/accept/${token}`)
-              return
-            }
-            
-            // Si no se pudo obtener el token, redirigir a onboarding
-            console.warn('No se pudo obtener el token de la invitación, redirigiendo a onboarding')
-            router.push('/onboarding')
-            return
-          }
-          
-          // No hay invitaciones pendientes
-          // Verificar si el usuario es superadmin antes de redirigir a onboarding
-          const isSuperadmin = workspaces.some(ws => ws.workspace_type === 'system')
-          
-          if (isSuperadmin) {
-            console.log('Usuario es superadmin, redirigiendo a /clients')
-            router.push('/clients')
-          } else {
-            console.log('No hay invitaciones pendientes, redirigiendo a onboarding')
-            router.push('/onboarding')
-          }
-        } catch (err) {
-          console.error('Error verificando invitaciones pendientes:', err)
-          // Si hay error, verificar si es superadmin antes de redirigir
-          const isSuperadmin = workspaces.some(ws => ws.workspace_type === 'system')
-          if (isSuperadmin) {
-            router.push('/clients')
-          } else {
-            router.push('/onboarding')
-          }
-        } finally {
-          setCheckingInvitations(false)
-        }
-      }
-      
-      checkPendingInvitations()
-      return
-    }
-
-    // Esperar a que se carguen los workspaces
-    if (workspaceLoading) {
-      return
-    }
-
-    // Si no hay workspace seleccionado, redirigir a la página de workspaces
+    // Sin workspace asignado → ir al selector de workspaces
+    if (workspaceLoading) return
     if (!selectedWorkspaceId) {
       router.push('/workspace')
       return
     }
 
-    // Esperar a que se cargue el rol
-    if (roleLoading) {
-      return
-    }
+    if (roleLoading) return
 
-    // Redirigir según el rol
+    // Redirigir según rol
     if (role === 'owner' || role === 'admin' || role === 'approver') {
       router.push('/dashboard/approval-queue')
     } else if (role === 'creator') {
@@ -233,10 +95,9 @@ export default function Home() {
     } else if (role === 'viewer') {
       router.push('/dashboard/view')
     } else {
-      // Si no tiene rol o es null, redirigir a workspace
       router.push('/workspace')
     }
-  }, [authLoading, isAuthenticated, userValidation, workspaceLoading, selectedWorkspaceId, roleLoading, role, router, checkingInvitations])
+  }, [authLoading, isAuthenticated, userValidation, workspaceLoading, selectedWorkspaceId, roleLoading, role, router])
 
   // Mostrar error si el usuario no es válido
   if (userValidation.isValid === false) {
@@ -269,7 +130,6 @@ export default function Home() {
     )
   }
 
-  // Mostrar loading mientras se verifica autenticación o se determina el rol
   return (
     <div className="flex items-center justify-center min-h-screen">
       <div className="text-center">
@@ -279,15 +139,8 @@ export default function Home() {
             ? 'Verificando autenticación...'
             : userValidation.isValid === null
             ? 'Validando usuario...'
-            : checkingInvitations
-            ? 'Verificando invitaciones...'
             : 'Determinando tu rol...'}
         </p>
-        {authLoading && (
-          <p className="text-sm text-gray-500 mt-2">
-            Si esto tarda mucho, verifica la consola del navegador
-          </p>
-        )}
       </div>
     </div>
   )

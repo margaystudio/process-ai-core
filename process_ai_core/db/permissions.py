@@ -23,22 +23,32 @@ def has_permission(
     user_id: str,
     workspace_id: str,
     permission_name: str,
+    platform_is_superadmin: bool = False,
 ) -> bool:
     """
     Verifica si un usuario tiene un permiso específico en un workspace.
-    
+
     Los superadmins tienen todos los permisos automáticamente.
-    
+
     Args:
         session: Sesión de base de datos
         user_id: ID del usuario
         workspace_id: ID del workspace
         permission_name: Nombre del permiso (ej: "documents.approve")
-    
+        platform_is_superadmin: True si el claim platform_roles del contexto incluye
+            'superadmin'. Cuando se pasa True, el bypass es inmediato y no se consulta
+            la membership local. Preferir este parámetro sobre la membership local para
+            el superadmin de plataforma.
+
     Returns:
         True si el usuario tiene el permiso, False en caso contrario
     """
-    # Verificar si el usuario es superadmin (tiene rol superadmin en algún workspace)
+    # Superadmin de plataforma: bypass inmediato por claim del contexto
+    if platform_is_superadmin:
+        return True
+
+    # Fallback legacy: superadmin por membership local (workspace 'sistema')
+    # Se mantiene para compatibilidad mientras se ejecuta el script de cleanup.
     superadmin_role = session.query(Role).filter_by(name="superadmin", is_system=True).first()
     if superadmin_role:
         superadmin_membership = session.query(WorkspaceMembership).filter_by(
@@ -46,7 +56,6 @@ def has_permission(
             role_id=superadmin_role.id,
         ).first()
         if superadmin_membership:
-            # Superadmin tiene todos los permisos
             return True
     
     # Obtener membership en el workspace específico
@@ -264,8 +273,21 @@ def assign_permission_to_role(
 # --- Roles operativos y permisos por carpeta ---
 
 
-def _is_superadmin(session: Session, user_id: str) -> bool:
-    """True si el usuario es superadmin (rol superadmin en cualquier workspace)."""
+def _is_superadmin(
+    session: Session,
+    user_id: str,
+    platform_is_superadmin: bool = False,
+) -> bool:
+    """
+    True si el usuario es superadmin.
+
+    Orden de verificación:
+      1. platform_is_superadmin=True → bypass inmediato por claim del contexto.
+      2. Membership local con rol 'superadmin' → fallback legacy (workspace 'sistema').
+         Se mantiene para compatibilidad hasta que se ejecute cleanup_workspace_sistema.py.
+    """
+    if platform_is_superadmin:
+        return True
     superadmin_role = session.query(Role).filter_by(name="superadmin", is_system=True).first()
     if not superadmin_role:
         return False
@@ -342,58 +364,70 @@ def _has_folder_access_by_operational_roles(
 
 
 def can_view_folder(
-    session: Session, user_id: str, workspace_id: str, folder_id: str
+    session: Session,
+    user_id: str,
+    workspace_id: str,
+    folder_id: str,
+    platform_is_superadmin: bool = False,
 ) -> bool:
     """
     Verifica si un usuario puede ver (acceder a) una carpeta.
     superadmin/owner/admin: bypass. Luego: membership + acceso por rol operativo + permiso documents.view.
     """
-    if _is_superadmin(session, user_id):
+    if _is_superadmin(session, user_id, platform_is_superadmin):
         return True
     role_name = _get_user_system_role_name(session, user_id, workspace_id)
     if role_name in ("owner", "admin"):
         return True
     if not role_name:
         return False
-    if not has_permission(session, user_id, workspace_id, "documents.view"):
+    if not has_permission(session, user_id, workspace_id, "documents.view", platform_is_superadmin):
         return False
     return _has_folder_access_by_operational_roles(session, user_id, workspace_id, folder_id)
 
 
 def can_create_in_folder(
-    session: Session, user_id: str, workspace_id: str, folder_id: str
+    session: Session,
+    user_id: str,
+    workspace_id: str,
+    folder_id: str,
+    platform_is_superadmin: bool = False,
 ) -> bool:
     """
     Verifica si un usuario puede crear documentos en una carpeta.
     superadmin/owner/admin: bypass. Luego: acceso por rol operativo + permiso documents.create.
     """
-    if _is_superadmin(session, user_id):
+    if _is_superadmin(session, user_id, platform_is_superadmin):
         return True
     role_name = _get_user_system_role_name(session, user_id, workspace_id)
     if role_name in ("owner", "admin"):
         return True
     if not role_name:
         return False
-    if not has_permission(session, user_id, workspace_id, "documents.create"):
+    if not has_permission(session, user_id, workspace_id, "documents.create", platform_is_superadmin):
         return False
     return _has_folder_access_by_operational_roles(session, user_id, workspace_id, folder_id)
 
 
 def can_approve_in_folder(
-    session: Session, user_id: str, workspace_id: str, folder_id: str
+    session: Session,
+    user_id: str,
+    workspace_id: str,
+    folder_id: str,
+    platform_is_superadmin: bool = False,
 ) -> bool:
     """
     Verifica si un usuario puede aprobar/rechazar documentos en una carpeta.
     superadmin/owner/admin: bypass. Luego: acceso por rol operativo + permiso documents.approve.
     """
-    if _is_superadmin(session, user_id):
+    if _is_superadmin(session, user_id, platform_is_superadmin):
         return True
     role_name = _get_user_system_role_name(session, user_id, workspace_id)
     if role_name in ("owner", "admin"):
         return True
     if not role_name:
         return False
-    if not has_permission(session, user_id, workspace_id, "documents.approve"):
+    if not has_permission(session, user_id, workspace_id, "documents.approve", platform_is_superadmin):
         return False
     return _has_folder_access_by_operational_roles(session, user_id, workspace_id, folder_id)
 

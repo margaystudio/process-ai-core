@@ -96,7 +96,16 @@ def main():
             '--host', api_host,
             '--port', api_port
         ]
-        
+
+        # HTTPS local: si existen los certificados de mkcert, levantar con SSL.
+        # Necesario para que el frontend (HTTPS en *.local.margaystudio.io) pueda
+        # llamar al backend sin error de "mixed content".
+        ssl_key = os.getenv('SSL_KEYFILE', 'ui/.certs/local-margay-key.pem')
+        ssl_cert = os.getenv('SSL_CERTFILE', 'ui/.certs/local-margay.pem')
+        if env == 'local' and Path(ssl_key).exists() and Path(ssl_cert).exists():
+            cmd += ['--ssl-keyfile', ssl_key, '--ssl-certfile', ssl_cert]
+            print(f"🔒 HTTPS habilitado con certificados locales")
+
         subprocess.run(cmd, check=True)
     except KeyboardInterrupt:
         print("\n👋 Deteniendo servidor...")

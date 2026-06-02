@@ -79,6 +79,7 @@ class ValidationResponse(BaseModel):
 async def create_document_validation(
     document_id: str,
     request: ValidationCreateRequest = Body(...),
+    ctx: WorkspaceSessionContext = Depends(get_workspace_context),
 ):
     """
     Crea una nueva validacion para un documento.
@@ -97,6 +98,8 @@ async def create_document_validation(
                 status_code=404,
                 detail=f"Documento {document_id} no encontrado"
             )
+        if doc.workspace_id != resolve_tenant_workspace_id(ctx):
+            raise HTTPException(status_code=404, detail=f"Documento {document_id} no encontrado")
         
         # Validar run_id si se proporciona
         if request.run_id:
@@ -171,6 +174,7 @@ async def approve_document_validation_direct(
     request: ValidationApproveRequest = Body(...),
     user_id: str = Depends(get_current_user_id),
     session: Session = Depends(get_db),
+    ctx: WorkspaceSessionContext = Depends(get_workspace_context),
 ):
     """
     Aprueba directamente una version IN_REVIEW del documento (one-shot validation).
@@ -203,6 +207,8 @@ async def approve_document_validation_direct(
         )
     
     workspace_id = doc.workspace_id
+    if workspace_id != resolve_tenant_workspace_id(ctx):
+        raise HTTPException(status_code=404, detail=f"Documento {document_id} no encontrado")
     
     # Verificar permisos
     if not has_permission(session, user_id, workspace_id, "documents.approve"):
@@ -283,6 +289,7 @@ async def reject_document_validation_direct(
     request: ValidationRejectDirectRequest = Body(...),
     user_id: str = Depends(get_current_user_id),
     session: Session = Depends(get_db),
+    ctx: WorkspaceSessionContext = Depends(get_workspace_context),
 ):
     """
     Rechaza directamente una version IN_REVIEW del documento (one-shot validation).
@@ -324,6 +331,8 @@ async def reject_document_validation_direct(
         )
     
     workspace_id = doc.workspace_id
+    if workspace_id != resolve_tenant_workspace_id(ctx):
+        raise HTTPException(status_code=404, detail=f"Documento {document_id} no encontrado")
     
     # Verificar permisos
     if not has_permission(session, user_id, workspace_id, "documents.reject"):
@@ -448,8 +457,8 @@ async def approve_document_validation(
         
         if doc.workspace_id != workspace_id:
             raise HTTPException(
-                status_code=403,
-                detail="Documento no pertenece a este workspace"
+                status_code=404,
+                detail=f"Validacion {validation_id} no encontrada"
             )
         from process_ai_core.db.permissions import can_approve_in_folder
         if not can_approve_in_folder(session, user_id, workspace_id, doc.folder_id):
@@ -495,6 +504,7 @@ async def reject_document_validation(
     request: ValidationRejectRequest = Body(...),
     user_id: str = Depends(get_current_user_id),
     session: Session = Depends(get_db),
+    ctx: WorkspaceSessionContext = Depends(get_workspace_context),
 ):
     """
     Rechaza una validacion (y su version asociada) con observaciones.
@@ -535,6 +545,8 @@ async def reject_document_validation(
         )
     
     workspace_id = doc.workspace_id
+    if workspace_id != resolve_tenant_workspace_id(ctx):
+        raise HTTPException(status_code=404, detail=f"Validacion {validation_id} no encontrada")
     
     # Verificar permisos
     if not has_permission(session, user_id, workspace_id, "documents.reject"):
@@ -658,7 +670,10 @@ async def reject_document_validation(
 
 
 @router.get("/documents/{document_id}/validations", response_model=list[ValidationResponse])
-async def get_document_validations(document_id: str):
+async def get_document_validations(
+    document_id: str,
+    ctx: WorkspaceSessionContext = Depends(get_workspace_context),
+):
     """
     Obtiene todas las validaciones de un documento.
     
@@ -675,6 +690,8 @@ async def get_document_validations(document_id: str):
                 status_code=404,
                 detail=f"Documento {document_id} no encontrado"
             )
+        if doc.workspace_id != resolve_tenant_workspace_id(ctx):
+            raise HTTPException(status_code=404, detail=f"Documento {document_id} no encontrado")
         
         validations = (
             session.query(Validation)
