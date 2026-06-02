@@ -59,7 +59,7 @@ export async function GET(request: NextRequest) {
             response.cookies.set(name, value, {
               ...options,
               httpOnly: options?.httpOnly ?? true,
-              secure: options?.secure ?? isProd,
+              secure: options?.secure ?? (process.env.NODE_ENV === 'production'),
               sameSite: options?.sameSite ?? 'lax',
               path: options?.path ?? '/',
               ...(cookieDomain ? { domain: cookieDomain } : {}),

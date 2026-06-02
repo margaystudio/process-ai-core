@@ -95,7 +95,7 @@ def _mock_decode_jwt(token: str) -> dict:
     raise HTTPException(status_code=401, detail="Invalid token")
 
 
-def _mock_fetch_ctx(token: str) -> WorkspaceSessionContext:
+def _mock_fetch_ctx(token: str, active_tenant_id: str | None = None) -> WorkspaceSessionContext:
     if token in _CONTEXTS:
         return _CONTEXTS[token]
     from fastapi import HTTPException
@@ -511,7 +511,7 @@ def _mock_decode_jwt_multi(token: str) -> dict:
     raise HTTPException(status_code=401, detail="Invalid token")
 
 
-def _mock_fetch_ctx_multi(token: str) -> WorkspaceSessionContext:
+def _mock_fetch_ctx_multi(token: str, active_tenant_id: str | None = None) -> WorkspaceSessionContext:
     if token in _MULTI_CONTEXTS:
         return _MULTI_CONTEXTS[token]
     from fastapi import HTTPException

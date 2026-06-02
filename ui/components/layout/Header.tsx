@@ -13,7 +13,13 @@ import { createClient } from '@/lib/supabase/client'
 export default function Header() {
   const pathname = usePathname()
   const router = useRouter()
-  const { workspaces, selectedWorkspaceId, setSelectedWorkspaceId, selectedWorkspace } = useWorkspace()
+  const {
+    workspaces,
+    selectedWorkspaceId,
+    activeTenantId,
+    setActiveTenantId,
+    selectedWorkspace,
+  } = useWorkspace()
   const user = useUser()
   const userId = useUserId()
   const [profileName, setProfileName] = useState<string | null>(null)
@@ -58,12 +64,6 @@ export default function Header() {
 
   // Rutas públicas donde no se muestra el usuario ni la navegación completa
   const isPublicRoute = pathname?.startsWith('/login') || pathname?.startsWith('/auth')
-
-  // Verificar si el usuario es platform superadmin.
-  // La detección usa role='superadmin' en lugar de workspace_type='system':
-  // sync_workspace_access asigna el rol 'superadmin' en el workspace activo cuando
-  // el claim platform_roles del contexto de margay-workspace incluye 'superadmin'.
-  const isSuperadmin = workspaces.some(ws => ws.role === 'superadmin')
 
   const isActive = (path: string) => {
     return pathname?.startsWith(path)
@@ -225,33 +225,24 @@ export default function Header() {
                   </div>
                 )}
               </div>
-              {isSuperadmin && (
-                <Link
-                  href="/clients"
-                  className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                    isActive('/clients')
-                      ? 'bg-blue-100 text-blue-700'
-                      : 'text-gray-700 hover:bg-gray-100'
-                  }`}
-                >
-                  Clientes
-                </Link>
-              )}
             </nav>
           )}
 
           {/* Selector de workspace, menú de usuario y menú móvil */}
           <div className="flex items-center space-x-4">
-            {!isPublicRoute && workspaces.length > 0 && selectedWorkspaceId && (
+            {!isPublicRoute && workspaces.length > 0 && activeTenantId && selectedWorkspaceId && (
               <div className="hidden lg:flex items-center space-x-2">
                 <select
-                  value={selectedWorkspaceId}
-                  onChange={(e) => setSelectedWorkspaceId(e.target.value || null)}
+                  value={activeTenantId}
+                  onChange={(e) => {
+                    const tenantId = e.target.value
+                    if (tenantId) void setActiveTenantId(tenantId)
+                  }}
                   className="px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
-                  title="Seleccionar espacio de trabajo"
+                  title="Seleccionar organización (tenant)"
                 >
                   {workspaces.map((ws) => (
-                    <option key={ws.id} value={ws.id}>
+                    <option key={ws.tenant_id} value={ws.tenant_id}>
                       {ws.name}
                     </option>
                   ))}
@@ -395,32 +386,22 @@ export default function Header() {
               >
                 Contexto
               </Link>
-              {isSuperadmin && (
-                <Link
-                  href="/clients"
-                  onClick={() => setMobileMenuOpen(false)}
-                  className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                    isActive('/clients')
-                      ? 'bg-blue-100 text-blue-700'
-                      : 'text-gray-700 hover:bg-gray-100'
-                  }`}
-                >
-                  Clientes
-                </Link>
-              )}
-              {workspaces.length > 0 && selectedWorkspaceId && (
+              {workspaces.length > 0 && activeTenantId && selectedWorkspaceId && (
                 <div className="px-4 py-2 space-y-2">
                   <div>
                     <label className="block text-xs font-medium text-gray-500 mb-1">
-                      Espacio de trabajo
+                      Organización
                     </label>
                     <select
-                      value={selectedWorkspaceId}
-                      onChange={(e) => setSelectedWorkspaceId(e.target.value || null)}
+                      value={activeTenantId}
+                      onChange={(e) => {
+                        const tenantId = e.target.value
+                        if (tenantId) void setActiveTenantId(tenantId)
+                      }}
                       className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
                     >
                       {workspaces.map((ws) => (
-                        <option key={ws.id} value={ws.id}>
+                        <option key={ws.tenant_id} value={ws.tenant_id}>
                           {ws.name}
                         </option>
                       ))}

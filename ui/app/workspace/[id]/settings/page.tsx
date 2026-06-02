@@ -31,6 +31,7 @@ import { useWorkspace } from '@/contexts/WorkspaceContext'
 import { useCanEditWorkspace, useCanManageUsers } from '@/hooks/useHasPermission'
 import { useUserRole } from '@/hooks/useUserRole'
 import { createClient } from '@/lib/supabase/client'
+import GeneralSettingsTab from '@/components/workspace/GeneralSettingsTab'
 
 const DEFAULT_PRIMARY_BRAND_COLOR = '#2563EB'
 const DEFAULT_SECONDARY_BRAND_COLOR = '#1D4ED8'
@@ -40,24 +41,58 @@ export default function WorkspaceSettingsPage() {
   const params = useParams()
   const { withLoading } = useLoading()
   const userId = useUserId()
-  const { selectedWorkspaceId, workspaces, refreshWorkspaces } = useWorkspace()
-  const workspaceId = (params?.id as string) || selectedWorkspaceId
+  const { selectedWorkspaceId, workspaces, platformRoles, refreshWorkspaces, activeTenantId } =
+    useWorkspace()
+  const paramWorkspaceId = params?.id as string | undefined
+  // El tenant activo en el header es la fuente de verdad; el id en la URL puede quedar desactualizado.
+  const workspaceId = selectedWorkspaceId || paramWorkspaceId || null
+
+  useEffect(() => {
+    if (!selectedWorkspaceId || !paramWorkspaceId || paramWorkspaceId === selectedWorkspaceId) {
+      return
+    }
+    const search = typeof window !== 'undefined' ? window.location.search : ''
+    router.replace(`/workspace/${selectedWorkspaceId}/settings${search}`)
+  }, [selectedWorkspaceId, paramWorkspaceId, router])
+
+  useEffect(() => {
+    setError(null)
+    setBrandingMessage(null)
+    setSubscription(null)
+    setLimits(null)
+    setOperationalRoles([])
+    setMembers([])
+    setFolders([])
+    setEditingMemberId(null)
+    setFolderPermissionsModal(null)
+  }, [workspaceId, activeTenantId])
   const { hasPermission: canEditWorkspace, loading: loadingEditPerm } = useCanEditWorkspace()
   const { hasPermission: canManageUsers, loading: loadingManagePerm } = useCanManageUsers()
   const { role, loading: loadingRole } = useUserRole()
   const currentWorkspace = workspaces.find((ws) => ws.id === workspaceId) || null
   const workspaceRole = currentWorkspace?.role ?? role
   
-  // Verificar si el usuario es platform superadmin.
-  // Usa role='superadmin' en lugar de workspace_type='system': sync_workspace_access
-  // asigna este rol cuando platform_roles del contexto de margay-workspace incluye 'superadmin'.
-  const isSuperadmin = workspaces.some(ws => ws.role === 'superadmin')
+  const isSuperadmin = platformRoles.includes('superadmin')
   
   // Superadmin tiene acceso a la configuración de cualquier workspace
   const hasAccess = isSuperadmin || canEditWorkspace || workspaceRole === 'owner' || workspaceRole === 'admin'
   const canManageBranding = workspaceRole === 'owner' || workspaceRole === 'creator'
+  const canEditGeneralSettings =
+    isSuperadmin ||
+    workspaceRole === 'owner' ||
+    workspaceRole === 'creator' ||
+    workspaceRole === 'admin'
+  const hubUrl = process.env.NEXT_PUBLIC_HUB_URL
 
   const [activeTab, setActiveTab] = useState<'general' | 'users' | 'subscription' | 'limits' | 'roles' | 'folders' | 'branding'>('general')
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const tab = new URLSearchParams(window.location.search).get('tab')
+    if (tab === 'general' && (isSuperadmin || canEditWorkspace || workspaceRole === 'owner' || workspaceRole === 'admin')) {
+      setActiveTab('general')
+    }
+  }, [isSuperadmin, canEditWorkspace, workspaceRole])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [brandingIconUrl, setBrandingIconUrl] = useState<string | null>(null)
@@ -167,10 +202,10 @@ export default function WorkspaceSettingsPage() {
   }
 
   useEffect(() => {
-    if (workspaceId) {
+    if (workspaceId && (activeTab === 'subscription' || activeTab === 'limits')) {
       loadData()
     }
-  }, [workspaceId])
+  }, [workspaceId, activeTab])
 
   useEffect(() => {
     if (workspaceId && (activeTab === 'users' || activeTab === 'roles' || activeTab === 'folders')) {
@@ -464,11 +499,13 @@ export default function WorkspaceSettingsPage() {
 
           <div className="p-6">
             {/* General Tab */}
-            {activeTab === 'general' && hasAccess && (
-              <div>
-                <h2 className="text-xl font-semibold mb-4">Configuración General</h2>
-                <p className="text-gray-600">Configuración general del espacio de trabajo (próximamente)</p>
-              </div>
+            {activeTab === 'general' && hasAccess && workspaceId && (
+              <GeneralSettingsTab
+                key={workspaceId}
+                workspaceId={workspaceId}
+                canEdit={canEditGeneralSettings}
+                hubUrl={hubUrl}
+              />
             )}
 
             {/* Roles operativos Tab */}

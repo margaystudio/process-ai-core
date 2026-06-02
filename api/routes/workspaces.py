@@ -28,14 +28,21 @@ from process_ai_core.db.helpers import (
 from process_ai_core.config import get_settings
 from process_ai_core.db.models import Workspace, WorkspaceMembership, User, Role
 from process_ai_core.db.models import UserOperationalRole
-from ..dependencies import get_current_user_id
-from ..models.requests import WorkspaceResponse, WorkspaceBrandingUpdateRequest
+from ..dependencies import get_current_user_id, is_superadmin
+from ..models.requests import (
+    WorkspaceResponse,
+    WorkspaceBrandingUpdateRequest,
+    WorkspaceSettingsUpdateRequest,
+)
 
 router = APIRouter(prefix="/api/v1/workspaces", tags=["workspaces"])
 
 ALLOWED_BRANDING_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".svg"}
 MAX_BRANDING_ICON_SIZE_BYTES = 2 * 1024 * 1024
 HEX_COLOR_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
+ALLOWED_COUNTRY_CODES = frozenset({"UY", "AR", "BR", "CL", "CO", "MX", "ES"})
+MAX_CONTEXT_TEXT_LENGTH = 8000
+MAX_DESCRIPTION_LENGTH = 500
 
 
 def _get_workspace_branding(workspace: Workspace) -> dict:
@@ -76,7 +83,15 @@ def _serialize_workspace(workspace: Workspace, role: str | None = None) -> Works
         name=workspace.name,
         slug=workspace.slug,
         workspace_type=workspace.workspace_type,
+        tenant_id=workspace.tenant_id,
         role=role,
+        country=workspace.country,
+        business_type=workspace.business_type,
+        language_style=workspace.language_style,
+        default_audience=workspace.default_audience,
+        default_detail_level=workspace.default_detail_level,
+        context_text=workspace.context_text,
+        description=workspace.description,
         branding_icon_url=_build_branding_icon_url(workspace.id, filename),
         branding_primary_color=_get_workspace_branding_color(workspace, "primary_color"),
         branding_secondary_color=_get_workspace_branding_color(workspace, "secondary_color"),
@@ -105,6 +120,32 @@ def _require_workspace_branding_access(session: Session, user_id: str, workspace
             status_code=403,
             detail="Solo los roles owner o creator pueden personalizar el icono del workspace",
         )
+
+
+def _require_workspace_settings_access(session: Session, user_id: str, workspace_id: str) -> None:
+    if is_superadmin(user_id, session):
+        return
+    role_name = _get_workspace_role_name(session, user_id, workspace_id)
+    if role_name in {"owner", "creator", "admin"}:
+        return
+    raise HTTPException(
+        status_code=403,
+        detail="Solo los roles owner, creator o admin pueden editar la configuración del workspace",
+    )
+
+
+def _normalize_optional_str(value: str | None, *, max_length: int | None = None) -> str | None:
+    if value is None:
+        return None
+    trimmed = value.strip()
+    if not trimmed:
+        return None
+    if max_length is not None and len(trimmed) > max_length:
+        raise HTTPException(
+            status_code=400,
+            detail=f"El texto no puede superar {max_length} caracteres",
+        )
+    return trimmed
 
 
 def _save_workspace_branding(workspace: Workspace, branding: dict) -> None:
@@ -174,6 +215,58 @@ async def get_workspace_members(
             "operational_role_ids": op_role_ids,
         })
     return {"workspace_id": workspace_id, "members": out}
+
+
+@router.patch("/{workspace_id}/settings", response_model=WorkspaceResponse)
+async def update_workspace_settings(
+    workspace_id: str,
+    request: WorkspaceSettingsUpdateRequest,
+    user_id: str = Depends(get_current_user_id),
+    session: Session = Depends(get_db),
+):
+    """
+    Actualiza preferencias generales del workspace (país, estilo, defaults de documentación).
+    Solo owner, creator o superadmin local.
+    """
+    workspace = session.query(Workspace).filter_by(id=workspace_id).first()
+    if not workspace:
+        raise HTTPException(status_code=404, detail="Workspace no encontrado")
+
+    _require_workspace_settings_access(session, user_id, workspace_id)
+
+    if request.country is not None:
+        code = request.country.strip().upper()
+        if code and code not in ALLOWED_COUNTRY_CODES:
+            raise HTTPException(status_code=400, detail="Código de país no válido")
+        workspace.country = code or None
+
+    if request.business_type is not None:
+        workspace.business_type = _normalize_optional_str(request.business_type, max_length=50)
+
+    if request.language_style is not None:
+        workspace.language_style = _normalize_optional_str(request.language_style, max_length=50)
+
+    if request.default_audience is not None:
+        workspace.default_audience = _normalize_optional_str(request.default_audience, max_length=50)
+
+    if request.default_detail_level is not None:
+        workspace.default_detail_level = _normalize_optional_str(
+            request.default_detail_level, max_length=50
+        )
+
+    if request.context_text is not None:
+        workspace.context_text = _normalize_optional_str(
+            request.context_text, max_length=MAX_CONTEXT_TEXT_LENGTH
+        )
+
+    if request.description is not None:
+        workspace.description = _normalize_optional_str(
+            request.description, max_length=MAX_DESCRIPTION_LENGTH
+        )
+
+    session.flush()
+    role_name = _get_workspace_role_name(session, user_id, workspace_id)
+    return _serialize_workspace(workspace, role=role_name)
 
 
 @router.get("/{workspace_id}", response_model=WorkspaceResponse)

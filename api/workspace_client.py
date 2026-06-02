@@ -60,19 +60,23 @@ def _get_workspace_url() -> str:
     return os.getenv("WORKSPACE_URL", DEFAULT_WORKSPACE_URL).rstrip("/")
 
 
-def _cache_get(token: str) -> Optional[WorkspaceSessionContext]:
-    entry = _cache.get(token)
+def _cache_key(token: str, active_tenant_id: Optional[str] = None) -> str:
+    return f"{active_tenant_id or ''}:{token}"
+
+
+def _cache_get(token: str, active_tenant_id: Optional[str] = None) -> Optional[WorkspaceSessionContext]:
+    entry = _cache.get(_cache_key(token, active_tenant_id))
     if entry is None:
         return None
     ctx, ts = entry
     if time.monotonic() - ts < _CACHE_TTL_SECONDS:
         return ctx
-    del _cache[token]
+    del _cache[_cache_key(token, active_tenant_id)]
     return None
 
 
-def _cache_set(token: str, ctx: WorkspaceSessionContext) -> None:
-    _cache[token] = (ctx, time.monotonic())
+def _cache_set(token: str, ctx: WorkspaceSessionContext, active_tenant_id: Optional[str] = None) -> None:
+    _cache[_cache_key(token, active_tenant_id)] = (ctx, time.monotonic())
 
 
 def _cache_clear() -> None:
@@ -82,21 +86,8 @@ def _cache_clear() -> None:
 
 # ── Cliente HTTP ─────────────────────────────────────────────────────────────
 
-def fetch_workspace_context(token: str) -> WorkspaceSessionContext:
-    """
-    Llama a GET {WORKSPACE_URL}/api/session/context con el JWT del usuario.
-
-    Propagación de errores:
-      - 401 workspace → 401 aquí
-      - 404 workspace → 401 aquí (usuario no registrado en workspace)
-      - otros 4xx/5xx  → 503 aquí
-    """
-    cached = _cache_get(token)
-    if cached is not None:
-        logger.debug("workspace context: cache hit")
-        return cached
-
-    url = f"{_get_workspace_url()}/api/session/context"
+def _fetch_session_context_http(token: str, url: str) -> WorkspaceSessionContext:
+    """GET /api/session/context y valida la respuesta."""
     try:
         with httpx.Client(timeout=5.0) as client:
             response = client.get(url, headers={"Authorization": f"Bearer {token}"})
@@ -106,6 +97,8 @@ def fetch_workspace_context(token: str) -> WorkspaceSessionContext:
 
     if response.status_code == 401:
         raise HTTPException(status_code=401, detail="Unauthorized")
+    if response.status_code == 403:
+        raise HTTPException(status_code=403, detail="Tenant not accessible")
     if response.status_code == 404:
         logger.debug("workspace 404: user not registered in workspace")
         raise HTTPException(status_code=401, detail="User not registered in workspace")
@@ -115,8 +108,80 @@ def fetch_workspace_context(token: str) -> WorkspaceSessionContext:
             status_code=503, detail=f"Workspace error: {response.status_code}"
         )
 
-    ctx = WorkspaceSessionContext.model_validate(response.json())
-    _cache_set(token, ctx)
+    return WorkspaceSessionContext.model_validate(response.json())
+
+
+def _normalize_active_tenant_id(active_tenant_id: Optional[str]) -> Optional[str]:
+    """Ignora valores no-string (p. ej. Header() cuando se llama la dependencia sin FastAPI)."""
+    if not isinstance(active_tenant_id, str):
+        return None
+    value = active_tenant_id.strip()
+    return value or None
+
+
+def fetch_workspace_context(
+    token: str,
+    active_tenant_id: Optional[str] = None,
+) -> WorkspaceSessionContext:
+    """
+    Llama a GET {WORKSPACE_URL}/api/session/context con el JWT del usuario.
+
+    Si active_tenant_id está seteado:
+      1. Intenta ?tenant_id= (workspace desplegado con soporte de switch).
+      2. Si el remoto sigue devolviendo otro tenant (API vieja en Cloud Run),
+         hace override local de ctx.tenant usando ctx.tenants (lista completa).
+    """
+    active_tenant_id = _normalize_active_tenant_id(active_tenant_id)
+
+    cached = _cache_get(token, active_tenant_id)
+    if cached is not None:
+        logger.debug("workspace context: cache hit")
+        return cached
+
+    base_url = f"{_get_workspace_url()}/api/session/context"
+
+    if not active_tenant_id:
+        ctx = _fetch_session_context_http(token, base_url)
+        _cache_set(token, ctx, None)
+        _log_context(ctx)
+        return ctx
+
+    # Siempre obtener la lista completa de tenants (sin param)
+    ctx_base = _fetch_session_context_http(token, base_url)
+    selected = next((t for t in ctx_base.tenants if t.id == active_tenant_id), None)
+    if not selected:
+        raise HTTPException(status_code=403, detail="Tenant not accessible")
+
+    if ctx_base.tenant.id == active_tenant_id:
+        ctx = ctx_base
+    else:
+        # Intentar switch remoto (margay-workspace con ?tenant_id=)
+        ctx_hinted = _fetch_session_context_http(
+            token, f"{base_url}?tenant_id={active_tenant_id}"
+        )
+        if ctx_hinted.tenant.id == active_tenant_id:
+            ctx = ctx_hinted
+        else:
+            logger.info(
+                "workspace context: override local de tenant activo "
+                "(pedido=%s remoto=%s); desplegá margay-workspace con ?tenant_id= "
+                "para roles/apps por tenant",
+                active_tenant_id,
+                ctx_hinted.tenant.id,
+            )
+            ctx = ctx_base.model_copy(
+                update={
+                    "tenant": selected,
+                    "tenants": ctx_base.tenants,
+                }
+            )
+
+    _cache_set(token, ctx, active_tenant_id)
+    _log_context(ctx)
+    return ctx
+
+
+def _log_context(ctx: WorkspaceSessionContext) -> None:
     logger.info(
         "workspace context: tenant=%s user=%s tenant_roles=%s platform_roles=%s app_keys=%s",
         ctx.tenant.id,
@@ -125,13 +190,13 @@ def fetch_workspace_context(token: str) -> WorkspaceSessionContext:
         ctx.platform_roles,
         [a.key for a in ctx.applications],
     )
-    return ctx
 
 
 # ── Dependencias FastAPI ─────────────────────────────────────────────────────
 
 async def get_workspace_context(
     authorization: Optional[str] = Header(None, alias="Authorization"),
+    active_tenant_id: Optional[str] = Header(None, alias="X-Active-Tenant-Id"),
 ) -> WorkspaceSessionContext:
     """
     Dependencia FastAPI que devuelve el contexto de sesión del workspace.
@@ -152,7 +217,10 @@ async def get_workspace_context(
             status_code=401, detail="Invalid Authorization header format"
         )
     token = authorization.removeprefix("Bearer ").strip()
-    return fetch_workspace_context(token)
+    return fetch_workspace_context(
+        token,
+        active_tenant_id=_normalize_active_tenant_id(active_tenant_id),
+    )
 
 
 def resolve_tenant_workspace_id(ctx: "WorkspaceSessionContext") -> str:
@@ -188,6 +256,7 @@ def resolve_tenant_workspace_id(ctx: "WorkspaceSessionContext") -> str:
 
 async def sync_workspace_access(
     authorization: Optional[str] = Header(None, alias="Authorization"),
+    active_tenant_id: Optional[str] = Header(None, alias="X-Active-Tenant-Id"),
 ) -> None:
     """
     Dependencia de router (en dependencies=[]) que, por cada request:
@@ -210,6 +279,8 @@ async def sync_workspace_access(
 
     No retorna nada (solo produce efectos en la DB).
     """
+    active_tenant_id = _normalize_active_tenant_id(active_tenant_id)
+
     if not authorization or not authorization.startswith("Bearer "):
         return
 
@@ -228,7 +299,7 @@ async def sync_workspace_access(
 
     # Obtener contexto del workspace (usa caché interna)
     try:
-        ctx = fetch_workspace_context(token)
+        ctx = fetch_workspace_context(token, active_tenant_id=active_tenant_id)
     except Exception:
         return
 

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { listFolders, listDocuments, createFolder, updateFolder, deleteFolder, Folder, Document as DocumentType } from '@/lib/api'
+import { useWorkspace } from '@/contexts/WorkspaceContext'
 import FolderCrud from './FolderCrud'
 
 interface FolderTreeProps {
@@ -425,6 +426,7 @@ export default function FolderTree({
   showCrud = false,
   showDocuments = true
 }: FolderTreeProps) {
+  const { activeTenantId } = useWorkspace()
   const [folders, setFolders] = useState<Folder[]>([])
   const [documents, setDocuments] = useState<DocumentType[]>([])
   const [loading, setLoading] = useState(true)
@@ -461,8 +463,11 @@ export default function FolderTree({
   }
 
   useEffect(() => {
+    setFolders([])
+    setDocuments([])
     loadFolders()
-  }, [workspaceId])
+    // activeTenantId: el backend filtra por tenant del header, no solo por workspaceId local
+  }, [workspaceId, activeTenantId])
 
   if (!workspaceId) {
     return (

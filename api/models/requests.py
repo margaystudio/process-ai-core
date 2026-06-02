@@ -112,11 +112,31 @@ class WorkspaceResponse(BaseModel):
     name: str = Field(..., description="Nombre del workspace")
     slug: str = Field(..., description="Slug único")
     workspace_type: str = Field(..., description="Tipo: organization|user|community")
+    tenant_id: Optional[str] = Field(default=None, description="ID del tenant en margay-workspace")
     role: Optional[str] = Field(default=None, description="Rol del usuario actual en el workspace")
+    country: Optional[str] = Field(default=None, description="País ISO2")
+    business_type: Optional[str] = Field(default=None, description="Tipo de negocio (catálogo)")
+    language_style: Optional[str] = Field(default=None, description="Estilo de idioma (catálogo)")
+    default_audience: Optional[str] = Field(default=None, description="Audiencia por defecto")
+    default_detail_level: Optional[str] = Field(default=None, description="Nivel de detalle por defecto")
+    context_text: Optional[str] = Field(default=None, description="Contexto libre del negocio para IA")
+    description: Optional[str] = Field(default=None, description="Descripción corta del workspace")
     branding_icon_url: Optional[str] = Field(default=None, description="URL pública del icono personalizado del workspace")
     branding_primary_color: Optional[str] = Field(default=None, description="Color principal del branding del workspace")
     branding_secondary_color: Optional[str] = Field(default=None, description="Color secundario del branding del workspace")
     created_at: str = Field(..., description="Fecha de creación")
+
+
+class WorkspaceSettingsUpdateRequest(BaseModel):
+    """Request para actualizar preferencias generales del workspace (Process AI)."""
+
+    country: Optional[str] = Field(default=None, description="Código de país ISO2")
+    business_type: Optional[str] = Field(default=None, description="Tipo de negocio (valor de catálogo)")
+    language_style: Optional[str] = Field(default=None, description="Estilo de idioma")
+    default_audience: Optional[str] = Field(default=None, description="Audiencia por defecto")
+    default_detail_level: Optional[str] = Field(default=None, description="Nivel de detalle por defecto")
+    context_text: Optional[str] = Field(default=None, description="Contexto libre del negocio")
+    description: Optional[str] = Field(default=None, description="Descripción corta")
 
 
 class WorkspaceBrandingUpdateRequest(BaseModel):

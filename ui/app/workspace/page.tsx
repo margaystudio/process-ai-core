@@ -12,10 +12,20 @@ import { usePdfViewer } from '@/hooks/usePdfViewer'
 import { useDocumentFilter } from '@/hooks/useDocumentFilter'
 import { useCanApproveDocuments, useCanRejectDocuments, useCanEditWorkspace } from '@/hooks/useHasPermission'
 import { useUserRole } from '@/hooks/useUserRole'
+import { useWorkspaceProfileIncomplete } from '@/hooks/useWorkspaceProfileIncomplete'
+import WorkspaceProfileBanner from '@/components/workspace/WorkspaceProfileBanner'
 
 export default function WorkspacePage() {
-  const { selectedWorkspaceId, selectedWorkspace } = useWorkspace()
+  const { selectedWorkspaceId, selectedWorkspace, activeTenantId, platformRoles } = useWorkspace()
   const { role, loading: roleLoading } = useUserRole()
+  const workspaceRole = selectedWorkspace?.role ?? role
+  const { incomplete: profileIncomplete, loading: profileCheckLoading } =
+    useWorkspaceProfileIncomplete(selectedWorkspaceId, workspaceRole, platformRoles)
+  const canEditGeneralSettings =
+    platformRoles.includes('superadmin') ||
+    workspaceRole === 'owner' ||
+    workspaceRole === 'creator' ||
+    workspaceRole === 'admin'
   const router = useRouter()
   const [documents, setDocuments] = useState<Document[]>([])
   const [loading, setLoading] = useState(true)
@@ -45,12 +55,17 @@ export default function WorkspacePage() {
     }
   }, [role, roleLoading, router])
 
+  // Al cambiar de tenant, limpiar carpeta seleccionada
+  useEffect(() => {
+    setSelectedFolderId(null)
+  }, [activeTenantId])
+
   // Cargar documentos (no cargar si es viewer, será redirigido)
   useEffect(() => {
     if (role === 'viewer') return
 
     async function loadDocuments() {
-      if (!selectedWorkspaceId) {
+      if (!selectedWorkspaceId || !activeTenantId) {
         setLoading(false)
         return
       }
@@ -73,7 +88,7 @@ export default function WorkspacePage() {
     }
 
     loadDocuments()
-  }, [selectedWorkspaceId, selectedFolderId, role])
+  }, [selectedWorkspaceId, activeTenantId, selectedFolderId, role])
 
   // Filtrar documentos por búsqueda, carpeta y estado
   const filteredDocuments = useDocumentFilter(documents, searchQuery, selectedFolderId, statusFilter)
@@ -185,6 +200,14 @@ export default function WorkspacePage() {
             )}
           </div>
 
+          {!profileCheckLoading && profileIncomplete && selectedWorkspaceId && (
+            <WorkspaceProfileBanner
+              workspaceId={selectedWorkspaceId}
+              canEditSettings={canEditGeneralSettings}
+              className="mb-4"
+            />
+          )}
+
           {/* Barra de búsqueda */}
           <div className="bg-white rounded-lg border border-gray-200 p-4">
             <div className="mb-4">
@@ -217,6 +240,7 @@ export default function WorkspacePage() {
                 Estructura de Carpetas
               </h2>
               <FolderTree
+                key={activeTenantId ?? 'no-tenant'}
                 workspaceId={selectedWorkspaceId}
                 selectedFolderId={selectedFolderId || undefined}
                 onSelectFolder={(id) => setSelectedFolderId(id)}

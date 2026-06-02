@@ -6,6 +6,22 @@
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
+function formatApiErrorDetail(detail: unknown, fallback: string): string {
+  if (typeof detail === 'string' && detail.trim()) return detail
+  if (Array.isArray(detail)) {
+    const parts = detail
+      .map((item) => {
+        if (item && typeof item === 'object' && 'msg' in item) {
+          return String((item as { msg?: string }).msg ?? '')
+        }
+        return ''
+      })
+      .filter(Boolean)
+    if (parts.length) return parts.join('; ')
+  }
+  return fallback
+}
+
 export interface ProcessRunRequest {
   process_name: string;
   mode: 'operativo' | 'gestion';
@@ -43,14 +59,33 @@ export interface WorkspaceCreateRequest {
 
 export interface WorkspaceResponse {
   id: string;
+  tenant_id?: string | null;
   name: string;
   slug: string;
   workspace_type: string;
   role?: string | null;
+  is_active?: boolean;
+  country?: string | null;
+  business_type?: string | null;
+  language_style?: string | null;
+  default_audience?: string | null;
+  default_detail_level?: string | null;
+  context_text?: string | null;
+  description?: string | null;
   branding_icon_url?: string | null;
   branding_primary_color?: string | null;
   branding_secondary_color?: string | null;
   created_at: string;
+}
+
+export interface WorkspaceSettingsUpdateRequest {
+  country?: string;
+  business_type?: string;
+  language_style?: string;
+  default_audience?: string;
+  default_detail_level?: string;
+  context_text?: string;
+  description?: string;
 }
 
 function normalizeWorkspaceResponse(workspace: WorkspaceResponse): WorkspaceResponse {
@@ -308,37 +343,44 @@ export async function createWorkspace(
   return response.json();
 }
 
-/**
- * Lista todos los workspaces.
- */
-export async function listWorkspaces(): Promise<WorkspaceResponse[]> {
-  const response = await fetch(`${API_URL}/api/v1/workspaces`);
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
-    throw new Error(error.detail || `HTTP ${response.status}`);
+export interface CurrentUserResponse {
+  user: {
+    id: string
+    email: string
+    name: string | null
   }
-
-  const data = await response.json()
-  return data.map(normalizeWorkspaceResponse)
+  active_tenant: {
+    id: string
+    name: string
+    slug: string
+  }
+  platform_roles: string[]
+  tenant_roles: string[]
+  workspaces: WorkspaceResponse[]
 }
 
 /**
- * Obtiene los workspaces de un usuario específico.
+ * Perfil + tenants desde margay-workspace (vía backend).
+ * Respeta active_tenant_id en localStorage (header X-Active-Tenant-Id).
  */
-export async function getUserWorkspaces(userId: string): Promise<WorkspaceResponse[]> {
-  console.log('[getUserWorkspaces] Obteniendo workspaces para userId:', userId)
-  const response = await fetch(`${API_URL}/api/v1/users/${userId}/workspaces`);
+export async function getCurrentUser(): Promise<CurrentUserResponse> {
+  const { getAuthHeaders } = await import('@/lib/api-auth')
+  const headers = await getAuthHeaders({})
+  const response = await fetch(`${API_URL}/api/v1/users/me`, { headers })
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
-    console.error('[getUserWorkspaces] Error obteniendo workspaces:', error)
-    throw new Error(error.detail || `HTTP ${response.status}`);
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }))
+    throw new Error(error.detail || `HTTP ${response.status}`)
   }
 
   const data = await response.json()
-  console.log('[getUserWorkspaces] Workspaces obtenidos:', data.length, data.map((ws: any) => ws.name))
-  return data.map(normalizeWorkspaceResponse)
+  return {
+    user: data.user,
+    active_tenant: data.active_tenant,
+    platform_roles: data.platform_roles ?? [],
+    tenant_roles: data.tenant_roles ?? [],
+    workspaces: (data.workspaces ?? []).map(normalizeWorkspaceResponse),
+  }
 }
 
 export async function uploadWorkspaceBrandingIcon(
@@ -508,11 +550,36 @@ export async function addUserToWorkspace(
  * Obtiene un workspace por ID.
  */
 export async function getWorkspace(workspaceId: string): Promise<WorkspaceResponse> {
-  const response = await fetch(`${API_URL}/api/v1/workspaces/${workspaceId}`);
+  const { getAuthHeaders } = await import('@/lib/api-auth')
+  const headers = await getAuthHeaders()
+
+  const response = await fetch(`${API_URL}/api/v1/workspaces/${workspaceId}`, { headers });
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
     throw new Error(error.detail || `HTTP ${response.status}`);
+  }
+
+  const data = await response.json()
+  return normalizeWorkspaceResponse(data)
+}
+
+export async function updateWorkspaceSettings(
+  workspaceId: string,
+  settings: WorkspaceSettingsUpdateRequest
+): Promise<WorkspaceResponse> {
+  const { getAuthHeaders } = await import('@/lib/api-auth')
+  const headers = await getAuthHeaders({ 'Content-Type': 'application/json' })
+
+  const response = await fetch(`${API_URL}/api/v1/workspaces/${workspaceId}/settings`, {
+    method: 'PATCH',
+    headers,
+    body: JSON.stringify(settings),
+  })
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error al guardar la configuración' }))
+    throw new Error(formatApiErrorDetail(error.detail, `HTTP ${response.status}`))
   }
 
   const data = await response.json()
@@ -1051,10 +1118,8 @@ export async function assignOperationalRolesToMembership(
  * Requiere autenticación. El backend filtra por rol (viewers solo ven aprobados).
  */
 export async function listDocuments(workspaceId?: string, folderId?: string, documentType: string = 'process', status?: string): Promise<Document[]> {
-  const { getAccessToken } = await import('@/lib/api-auth');
-  const token = await getAccessToken();
-  const headers: HeadersInit = {};
-  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const { getAuthHeaders } = await import('@/lib/api-auth');
+  const headers = await getAuthHeaders({});
 
   const url = new URL(`${API_URL}/api/v1/documents`);
   url.searchParams.append('document_type', documentType);
@@ -1655,22 +1720,6 @@ export async function patchDocumentWithAI(
 // User & Role API
 // ============================================================
 
-export async function getUserRole(
-  userId: string,
-  workspaceId: string
-): Promise<{ role: string | null }> {
-  const response = await fetch(
-    `${API_URL}/api/v1/users/${userId}/role/${workspaceId}`
-  );
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
-    throw new Error(error.detail || `HTTP ${response.status}`);
-  }
-
-  return response.json();
-}
-
 /**
  * Verifica si un usuario tiene un permiso específico en un workspace.
  */
@@ -1900,15 +1949,23 @@ export async function listSubscriptionPlans(
  */
 export async function getWorkspaceSubscription(
   workspaceId: string
-): Promise<WorkspaceSubscriptionResponse> {
-  const response = await fetch(`${API_URL}/api/v1/workspaces/${workspaceId}/subscription`);
+): Promise<WorkspaceSubscriptionResponse | null> {
+  const { getAuthHeaders } = await import('@/lib/api-auth')
+  const headers = await getAuthHeaders()
+
+  const response = await fetch(`${API_URL}/api/v1/workspaces/${workspaceId}/subscription`, {
+    headers,
+  });
+
+  if (response.status === 404) return null
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
-    throw new Error(error.detail || `HTTP ${response.status}`);
+    throw new Error(formatApiErrorDetail(error.detail, `HTTP ${response.status}`));
   }
 
-  return response.json();
+  const data = await response.json()
+  return data ?? null
 }
 
 /**
@@ -1916,12 +1973,19 @@ export async function getWorkspaceSubscription(
  */
 export async function getWorkspaceLimits(
   workspaceId: string
-): Promise<WorkspaceLimitsResponse> {
-  const response = await fetch(`${API_URL}/api/v1/workspaces/${workspaceId}/limits`);
+): Promise<WorkspaceLimitsResponse | null> {
+  const { getAuthHeaders } = await import('@/lib/api-auth')
+  const headers = await getAuthHeaders()
+
+  const response = await fetch(`${API_URL}/api/v1/workspaces/${workspaceId}/limits`, {
+    headers,
+  });
+
+  if (response.status === 404) return null
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
-    throw new Error(error.detail || `HTTP ${response.status}`);
+    throw new Error(formatApiErrorDetail(error.detail, `HTTP ${response.status}`));
   }
 
   return response.json();

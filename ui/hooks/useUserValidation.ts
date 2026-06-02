@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { getCurrentUser } from '@/lib/api'
 
 const SUPABASE_TIMEOUT_MS = 6000
 
@@ -13,10 +14,12 @@ interface UserValidationState {
 }
 
 /**
- * Hook para validar que el usuario autenticado en Supabase existe en la BD local
+ * Valida que el usuario autenticado en Supabase existe en la BD local
  * y tiene al menos un workspace asociado.
- * 
- * @returns Estado de validación del usuario
+ *
+ * Llama a GET /api/v1/users/me que, al depender de sync_workspace_access,
+ * crea el User+Workspace+Membership si es la primera vez que el usuario
+ * entra a process-ai.
  */
 export function useUserValidation(): UserValidationState {
   const [state, setState] = useState<UserValidationState>({
@@ -28,192 +31,63 @@ export function useUserValidation(): UserValidationState {
 
   useEffect(() => {
     async function validateUser() {
-      console.log('[useUserValidation] Iniciando validación...')
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+      const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+
+      // Modo desarrollo sin Supabase
+      if (!supabaseUrl || !supabaseKey) {
+        setState({ isValid: true, hasWorkspaces: null, error: null, localUserId: null })
+        return
+      }
+
+      const supabase = createClient()
+      const getSessionWithTimeout = () =>
+        Promise.race([
+          supabase.auth.getSession(),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('SupabaseTimeout')), SUPABASE_TIMEOUT_MS)
+          ),
+        ])
+
+      let session
       try {
-        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-        const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-
-        // Si Supabase no está configurado, permitir acceso (modo desarrollo)
-        if (!supabaseUrl || !supabaseKey) {
-          console.log('[useUserValidation] Supabase no configurado, permitiendo acceso')
-          setState({
-            isValid: true,
-            hasWorkspaces: null,
-            error: null,
-            localUserId: null,
-          })
-          return
-        }
-
-        console.log('[useUserValidation] Obteniendo sesión de Supabase...')
-        const supabase = createClient()
-        const getSessionWithTimeout = () =>
-          Promise.race([
-            supabase.auth.getSession(),
-            new Promise<never>((_, reject) =>
-              setTimeout(() => reject(new Error('SupabaseTimeout')), SUPABASE_TIMEOUT_MS)
-            ),
-          ])
-        let session
-        try {
-          const result = await getSessionWithTimeout()
-          session = result.data?.session
-        } catch (sessionErr) {
-          if (sessionErr instanceof Error && sessionErr.message === 'SupabaseTimeout') {
-            console.error('[useUserValidation] Timeout conectando con Supabase (6s)')
-            setState({
-              isValid: false,
-              hasWorkspaces: false,
-              error: 'No se pudo conectar con el servicio de autenticación. Revisá tu conexión o el estado del proyecto.',
-              localUserId: null,
-            })
-            return
-          }
-          throw sessionErr
-        }
-        console.log('[useUserValidation] Sesión obtenida:', session ? 'Sí' : 'No')
-
-        if (!session?.user) {
-          console.log('[useUserValidation] No hay usuario en la sesión')
-          setState({
-            isValid: false,
-            hasWorkspaces: false,
-            error: 'No hay sesión activa',
-            localUserId: null,
-          })
-          return
-        }
-
-        const token = session.access_token
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
-
-        console.log('[useUserValidation] Verificando usuario en BD local...', `${apiUrl}/api/v1/auth/user`)
-        
-        // Agregar timeout al fetch para evitar que se cuelgue
-        const controller = new AbortController()
-        const timeoutId = setTimeout(() => {
-          console.error('[useUserValidation] Timeout en fetch a /api/v1/auth/user (10 segundos)')
-          controller.abort()
-        }, 10000)
-        
-        let userResponse: Response
-        try {
-          // Verificar que el usuario existe en la BD local
-          userResponse = await fetch(`${apiUrl}/api/v1/auth/user`, {
-            headers: {
-              'Authorization': `Bearer ${token}`,
-            },
-            signal: controller.signal,
-          })
-          clearTimeout(timeoutId)
-          console.log('[useUserValidation] Respuesta de /api/v1/auth/user:', userResponse.status)
-
-        } catch (fetchError: any) {
-          clearTimeout(timeoutId)
-          if (fetchError.name === 'AbortError') {
-            console.error('[useUserValidation] Fetch abortado por timeout')
-            setState({
-              isValid: false,
-              hasWorkspaces: false,
-              error: 'Timeout verificando usuario en la base de datos. El servidor no respondió a tiempo.',
-              localUserId: null,
-            })
-            return
-          }
-          throw fetchError
-        }
-        
-        if (userResponse.status === 404) {
-          // Usuario no existe en BD local
-          console.log('[useUserValidation] Usuario no encontrado (404)')
-          setState({
-            isValid: false,
-            hasWorkspaces: false,
-            error: 'Usuario no encontrado en la base de datos. Por favor, contacta al administrador.',
-            localUserId: null,
-          })
-          return
-        }
-
-        if (!userResponse.ok) {
-          console.error('[useUserValidation] Error en respuesta:', userResponse.status, userResponse.statusText)
-          // Intentar obtener el mensaje de error del backend
-          let errorMessage = `Error verificando usuario: ${userResponse.statusText}`
-          try {
-            const errorData = await userResponse.json()
-            errorMessage = errorData.detail || errorData.message || errorMessage
-            console.error('[useUserValidation] Error del backend:', errorMessage)
-          } catch {
-            // Si no es JSON, intentar leer como texto
-            try {
-              const errorText = await userResponse.text()
-              if (errorText) {
-                errorMessage = errorText
-              }
-            } catch {
-              // Usar el mensaje por defecto
-            }
-          }
-          throw new Error(errorMessage)
-        }
-
-        const userData = await userResponse.json()
-        const localUserId = userData.user?.id
-        const localUserEmail = userData.user?.email
-
-        console.log('[useUserValidation] Datos del usuario obtenidos:', { localUserId, localUserEmail })
-
-        if (!localUserId) {
-          setState({
-            isValid: false,
-            hasWorkspaces: false,
-            error: 'No se pudo obtener el ID del usuario local',
-            localUserId: null,
-          })
-          return
-        }
-
-        // Guardar el userId local en localStorage
-        localStorage.setItem('local_user_id', localUserId)
-        console.log('[useUserValidation] userId guardado en localStorage:', localUserId)
-
-        // Verificar si el usuario tiene workspaces
-        const workspacesResponse = await fetch(`${apiUrl}/api/v1/users/${localUserId}/workspaces`, {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-          },
-        })
-
-        if (!workspacesResponse.ok) {
-          // Si falla, asumir que no tiene workspaces
-          setState({
-            isValid: true,
-            hasWorkspaces: false,
-            error: null,
-            localUserId,
-          })
-          return
-        }
-
-        const workspaces = await workspacesResponse.json()
-        console.log('[useUserValidation] Workspaces obtenidos:', workspaces)
-        const hasWorkspaces = Array.isArray(workspaces) && workspaces.length > 0
-        console.log('[useUserValidation] hasWorkspaces:', hasWorkspaces)
-
-        console.log('[useUserValidation] Estableciendo estado final:', { isValid: true, hasWorkspaces, localUserId })
-        setState({
-          isValid: true,
-          hasWorkspaces,
-          error: null,
-          localUserId,
-        })
-        console.log('[useUserValidation] Estado establecido correctamente')
+        const result = await getSessionWithTimeout()
+        session = result.data?.session
       } catch (err) {
-        console.error('Error validando usuario:', err)
+        if (err instanceof Error && err.message === 'SupabaseTimeout') {
+          setState({
+            isValid: false,
+            hasWorkspaces: false,
+            error: 'No se pudo conectar con el servicio de autenticación. Revisá tu conexión.',
+            localUserId: null,
+          })
+          return
+        }
+        throw err
+      }
+
+      if (!session?.user) {
+        setState({ isValid: false, hasWorkspaces: false, error: 'No hay sesión activa', localUserId: null })
+        return
+      }
+
+      try {
+        const { user, workspaces } = await getCurrentUser()
+
+        // Guardar local_user_id para hooks que lo necesiten (useUserId, Header profile, etc.)
+        localStorage.setItem('local_user_id', user.id)
+        window.dispatchEvent(
+          new CustomEvent('localStorageChange', { detail: { key: 'local_user_id', value: user.id } })
+        )
+
+        const hasWorkspaces = workspaces.length > 0
+        setState({ isValid: true, hasWorkspaces, error: null, localUserId: user.id })
+      } catch (err) {
+        console.error('[useUserValidation] Error al obtener usuario:', err)
         setState({
           isValid: false,
           hasWorkspaces: false,
-          error: err instanceof Error ? err.message : 'Error desconocido validando usuario',
+          error: err instanceof Error ? err.message : 'Error verificando usuario',
           localUserId: null,
         })
       }

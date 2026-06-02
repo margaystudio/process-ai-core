@@ -19,9 +19,15 @@ from sqlalchemy.orm import Session
 E164_REGEX = re.compile(r"^\+[1-9]\d{6,14}$")
 
 from process_ai_core.db.database import get_db_session
-from process_ai_core.db.models import User, Workspace, WorkspaceMembership
+from process_ai_core.db.models import User, Workspace, WorkspaceMembership, Role
 from process_ai_core.db.permissions import has_permission
+from process_ai_core.db.helpers import get_or_create_workspace_for_tenant
 from ..dependencies import get_db, get_current_user_id
+from ..workspace_client import (
+    WorkspaceSessionContext,
+    get_workspace_context,
+    sync_workspace_access,
+)
 
 router = APIRouter(prefix="/api/v1/users", tags=["users"])
 
@@ -124,6 +130,95 @@ async def list_users():
             }
             for u in users
         ]
+
+
+def _membership_role_name(session: Session, membership: WorkspaceMembership) -> str | None:
+    if membership.role_id:
+        role_obj = session.query(Role).filter_by(id=membership.role_id).first()
+        if role_obj:
+            return role_obj.name
+    return getattr(membership, "role", None)
+
+
+def _is_legacy_system_workspace(workspace: Workspace) -> bool:
+    return workspace.slug == "sistema" or workspace.workspace_type == "system"
+
+
+@router.get("/me")
+async def get_current_user_me(
+    _sync: None = Depends(sync_workspace_access),
+    ctx: WorkspaceSessionContext = Depends(get_workspace_context),
+    authenticated_user_id: str = Depends(get_current_user_id),
+    session: Session = Depends(get_db),
+):
+    """
+    Perfil + tenants/workspaces sincronizados con margay-workspace.
+
+    La lista de tenants sale de ctx.tenants (control plane), no de memberships
+    locales acumuladas. El tenant activo es ctx.tenant (header X-Active-Tenant-Id
+    o el primero del usuario en workspace).
+    """
+    user = session.query(User).filter_by(id=authenticated_user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+    active_workspace_id = get_or_create_workspace_for_tenant(
+        session,
+        tenant_id=ctx.tenant.id,
+        tenant_name=ctx.tenant.name,
+        tenant_slug=ctx.tenant.slug,
+    )
+    active_membership = (
+        session.query(WorkspaceMembership)
+        .filter_by(user_id=authenticated_user_id, workspace_id=active_workspace_id)
+        .first()
+    )
+    active_role = _membership_role_name(session, active_membership) if active_membership else None
+
+    workspaces = []
+    for tenant in ctx.tenants:
+        workspace_id = get_or_create_workspace_for_tenant(
+            session,
+            tenant_id=tenant.id,
+            tenant_name=tenant.name,
+            tenant_slug=tenant.slug,
+        )
+        workspace = session.query(Workspace).filter_by(id=workspace_id).first()
+        if not workspace or _is_legacy_system_workspace(workspace):
+            continue
+
+        is_active = tenant.id == ctx.tenant.id
+        role_name = active_role if is_active else None
+
+        workspaces.append({
+            "id": workspace.id,
+            "tenant_id": tenant.id,
+            "name": workspace.name,
+            "slug": workspace.slug,
+            "workspace_type": workspace.workspace_type,
+            "role": role_name,
+            "is_active": is_active,
+            "branding_icon_url": _get_workspace_branding_icon_url(workspace),
+            "branding_primary_color": _get_workspace_branding_color(workspace, "primary_color"),
+            "branding_secondary_color": _get_workspace_branding_color(workspace, "secondary_color"),
+            "created_at": workspace.created_at.isoformat(),
+        })
+
+    return {
+        "user": {
+            "id": user.id,
+            "email": user.email,
+            "name": user.name,
+        },
+        "active_tenant": {
+            "id": ctx.tenant.id,
+            "name": ctx.tenant.name,
+            "slug": ctx.tenant.slug,
+        },
+        "platform_roles": ctx.platform_roles,
+        "tenant_roles": ctx.tenant_roles,
+        "workspaces": workspaces,
+    }
 
 
 @router.get("/{user_id}")

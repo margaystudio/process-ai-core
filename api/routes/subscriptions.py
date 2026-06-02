@@ -106,18 +106,26 @@ async def list_plans(
     return [SubscriptionPlanResponse.model_validate(plan) for plan in plans]
 
 
-@router.get("/workspaces/{workspace_id}/subscription", response_model=WorkspaceSubscriptionResponse)
+@router.get(
+    "/workspaces/{workspace_id}/subscription",
+    response_model=WorkspaceSubscriptionResponse | None,
+)
 async def get_workspace_subscription(
     workspace_id: str,
     session: Session = Depends(get_db),
 ):
     """
     Obtiene la suscripción actual de un workspace.
+    Devuelve null (200) si el workspace aún no tiene suscripción asignada.
     """
+    workspace = session.query(Workspace).filter_by(id=workspace_id).first()
+    if not workspace:
+        raise HTTPException(status_code=404, detail="Workspace no encontrado")
+
     subscription = get_subscription(session, workspace_id)
     if not subscription:
-        raise HTTPException(status_code=404, detail="Workspace sin suscripción")
-    
+        return None
+
     return WorkspaceSubscriptionResponse(
         id=subscription.id,
         workspace_id=subscription.workspace_id,
@@ -242,12 +250,27 @@ async def get_workspace_limits(
     # Para otros tipos de workspace, buscar suscripción
     from process_ai_core.db.helpers import get_subscription
     subscription = get_subscription(session, workspace_id)
-    if not subscription:
-        raise HTTPException(status_code=404, detail="Workspace sin suscripción activa")
-    
-    # Solo permitir suscripciones activas o en trial
-    if subscription.status not in ("active", "trial"):
-        raise HTTPException(status_code=404, detail="Workspace sin suscripción activa")
+    if not subscription or subscription.status not in ("active", "trial"):
+        return WorkspaceLimitsResponse(
+            workspace_id=workspace_id,
+            plan_name="none",
+            plan_display_name="Sin suscripción activa",
+            limits={
+                "max_users": None,
+                "max_documents": None,
+                "max_documents_per_month": None,
+                "max_storage_gb": None,
+            },
+            current_usage={
+                "current_users_count": 0,
+                "current_documents_count": 0,
+                "current_documents_this_month": 0,
+                "current_storage_gb": 0.0,
+            },
+            can_create_users=True,
+            can_create_documents=True,
+            can_create_documents_this_month=True,
+        )
     
     plan = subscription.plan
     

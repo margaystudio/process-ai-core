@@ -187,4 +187,24 @@ def reset_database():
 
 
 if __name__ == "__main__":
-    reset_database()
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Reset BD a estado producción inicial")
+    parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="Confirmar automáticamente (escribe RESET sin prompt)",
+    )
+    args = parser.parse_args()
+
+    if args.yes:
+        import builtins
+
+        original_input = builtins.input
+        builtins.input = lambda _prompt="": "RESET"
+        try:
+            reset_database()
+        finally:
+            builtins.input = original_input
+    else:
+        reset_database()
