@@ -162,6 +162,7 @@ except ImportError:
 
 async def get_current_user_id(
     authorization: Optional[str] = Header(None, alias="Authorization"),
+    session: Session = Depends(get_db),
 ) -> str:
     """
     Obtiene el ID del usuario actual desde el token JWT.
@@ -208,25 +209,32 @@ async def get_current_user_id(
                 detail="Invalid token: no user ID found",
             )
 
-        with get_db_session() as session:
-            local_user = get_user_by_external_id(session, supabase_user_id)
+        from api.request_cache import get_cached_user_id, remember_user_id
 
-            if not local_user:
-                supabase_email = decoded.get("email")
-                if supabase_email:
-                    logger.debug("Local user lookup by external_id failed; trying email match")
-                    from process_ai_core.db.helpers import get_user_by_email
+        cached_user_id = get_cached_user_id(supabase_user_id)
+        if cached_user_id:
+            logger.debug("Authenticated local user id=%s (cache)", cached_user_id)
+            return cached_user_id
 
-                    local_user = get_user_by_email(session, supabase_email)
-                    if local_user:
-                        local_user.external_id = supabase_user_id
-                        local_user.auth_provider = "supabase"
-                        session.commit()
-                        logger.debug("Linked local user id=%s to auth provider", local_user.id)
+        local_user = get_user_by_external_id(session, supabase_user_id)
 
-            if local_user:
-                logger.debug("Authenticated local user id=%s", local_user.id)
-                return local_user.id
+        if not local_user:
+            supabase_email = decoded.get("email")
+            if supabase_email:
+                logger.debug("Local user lookup by external_id failed; trying email match")
+                from process_ai_core.db.helpers import get_user_by_email
+
+                local_user = get_user_by_email(session, supabase_email)
+                if local_user:
+                    local_user.external_id = supabase_user_id
+                    local_user.auth_provider = "supabase"
+                    session.commit()
+                    logger.debug("Linked local user id=%s to auth provider", local_user.id)
+
+        if local_user:
+            logger.debug("Authenticated local user id=%s", local_user.id)
+            remember_user_id(supabase_user_id, local_user.id)
+            return local_user.id
 
             logger.warning("Authenticated subject not found in local database")
             raise HTTPException(

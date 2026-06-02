@@ -6,7 +6,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from dotenv import load_dotenv
-from sqlalchemy import create_engine, event
+from sqlalchemy import MetaData, create_engine, event
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
@@ -21,31 +21,62 @@ Este módulo centraliza:
 - La creación lazy (perezosa) del engine y del sessionmaker.
 - Un context manager seguro para manejar sesiones (commit / rollback).
 
-Está pensado para ser **simple, explícito y estable**, evitando configuraciones
-mágicas difíciles de depurar, y funcionando bien tanto en desarrollo local
-(SQLite) como en entornos productivos (PostgreSQL, MySQL, etc.).
+Está pensado para usar **PostgreSQL** (schema `process_ai` en el proyecto Supabase de Margay).
+SQLite en archivo ya no se usa; solo `:memory:` en tests unitarios.
 
 Variables de entorno
 --------------------
 - DATABASE_URL:
-    URL de conexión SQLAlchemy.
-    Ejemplos:
-      - sqlite:///data/process_ai_core.sqlite
-      - postgresql+psycopg://user:pass@host:5432/dbname
-
-Si no se define, se usa por defecto:
-    sqlite:///data/process_ai_core.sqlite
+    URL de conexión SQLAlchemy (PostgreSQL / Supabase pooler).
+    Ejemplo:
+      postgresql+psycopg://postgres.[ref]:[password]@aws-0-[region].pooler.supabase.com:6543/postgres?prepare_threshold=0
+- DATABASE_SCHEMA:
+    Schema Postgres del módulo (default: `process_ai`).
 """
 
-# Carga variables de entorno desde .env
-load_dotenv()
+# Carga .env desde la raíz del repo (uvicorn --reload no pasa por run_api.py).
+_project_root = Path(__file__).resolve().parents[2]
+load_dotenv(_project_root / ".env")
+load_dotenv(_project_root / ".env.local", override=True)
 
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///data/process_ai_core.sqlite")
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 
-# Si es SQLite en archivo, aseguramos que el directorio exista
-if DATABASE_URL.startswith("sqlite:///"):
-    db_file = DATABASE_URL.replace("sqlite:///", "", 1)
-    Path(db_file).parent.mkdir(parents=True, exist_ok=True)
+
+def _resolve_database_schema(url: str) -> str | None:
+    """Schema Postgres del módulo. None solo para SQLite :memory: en tests."""
+    if url.startswith("sqlite"):
+        return None
+    schema = os.getenv("DATABASE_SCHEMA", "process_ai").strip()
+    if not schema:
+        raise RuntimeError("DATABASE_SCHEMA no puede estar vacío con PostgreSQL.")
+    return schema
+
+
+def _validate_database_url(url: str) -> None:
+    if not url:
+        raise RuntimeError(
+            "DATABASE_URL es obligatorio. "
+            "Usá PostgreSQL del proyecto Supabase de Margay (schema process_ai). "
+            "Ver docs/DB_SETUP_FROM_SCRATCH.md"
+        )
+
+    if url.startswith("sqlite:///") and ":memory:" not in url:
+        raise RuntimeError(
+            "SQLite en archivo ya no se usa. "
+            "Configurá DATABASE_URL con PostgreSQL (Supabase). "
+            "Ver docs/DB_SETUP_FROM_SCRATCH.md"
+        )
+
+    env = os.getenv("ENVIRONMENT", "local").lower()
+    if env in {"prod", "production", "test"} and url.startswith("sqlite"):
+        raise RuntimeError(
+            f"DATABASE_URL no puede ser SQLite en ambiente '{env}'. "
+            "Configurá PostgreSQL (Supabase, schema process_ai)."
+        )
+
+
+_validate_database_url(DATABASE_URL)
+DATABASE_SCHEMA = _resolve_database_schema(DATABASE_URL)
 
 # Engine y SessionLocal se inicializan de forma lazy
 _engine = None
@@ -57,25 +88,29 @@ class Base(DeclarativeBase):
     Clase base para todos los modelos ORM.
 
     Todos los modelos SQLAlchemy del proyecto deben heredar de esta clase.
-    Permite:
-    - Declarar modelos con el estilo Declarative.
-    - Centralizar metadata (Base.metadata) para crear/migrar esquemas.
+    En PostgreSQL las tablas viven en el schema `process_ai` (o DATABASE_SCHEMA).
     """
-    pass
+    metadata = MetaData(schema=DATABASE_SCHEMA) if DATABASE_SCHEMA else MetaData()
 
 
 @event.listens_for(Engine, "connect")
-def set_sqlite_pragma(dbapi_conn, connection_record):
-    """
-    Event listener que activa foreign keys en SQLite automáticamente.
-    
-    Se ejecuta en cada nueva conexión a SQLite, asegurando que
-    ON DELETE CASCADE y ON DELETE SET NULL funcionen correctamente.
-    """
+def configure_connection(dbapi_conn, connection_record):
+    """SQLite: FK en tests."""
     if dbapi_conn.__class__.__module__ == "sqlite3":
         cursor = dbapi_conn.cursor()
         cursor.execute("PRAGMA foreign_keys=ON")
         cursor.close()
+
+
+def warmup_db_pool() -> None:
+    """Precalienta el pool al arrancar (evita cold connect de varios segundos)."""
+    if not DATABASE_URL.startswith("postgresql"):
+        return
+    from sqlalchemy import text
+
+    engine = get_db_engine(echo=False)
+    with engine.connect() as conn:
+        conn.execute(text("SELECT 1"))
 
 
 def get_db_engine(echo: bool = False):
@@ -99,11 +134,22 @@ def get_db_engine(echo: bool = False):
     global _engine, SessionLocal
 
     if _engine is None:
-        _engine = create_engine(
-            DATABASE_URL,
-            echo=echo,
-            future=True,
-        )
+        env = os.getenv("ENVIRONMENT", "local").lower()
+        pool_pre_ping = os.getenv("DB_POOL_PRE_PING", "false" if env == "local" else "true").lower() == "true"
+        pool_size = int(os.getenv("DB_POOL_SIZE", "5"))
+        max_overflow = int(os.getenv("DB_MAX_OVERFLOW", "10"))
+
+        engine_kwargs: dict = {
+            "echo": echo,
+            "future": True,
+            "pool_size": pool_size,
+            "max_overflow": max_overflow,
+            "pool_recycle": 300,
+        }
+        if DATABASE_URL.startswith("postgresql"):
+            engine_kwargs["pool_pre_ping"] = pool_pre_ping
+            engine_kwargs["connect_args"] = {"prepare_threshold": None}
+        _engine = create_engine(DATABASE_URL, **engine_kwargs)
         SessionLocal = sessionmaker(
             bind=_engine,
             autoflush=False,

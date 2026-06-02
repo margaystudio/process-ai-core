@@ -1,0 +1,40 @@
+[gcp]
+project = "MI_PROYECTO_TEST"
+region = "us-central1"
+artifact_repo = "margay-services"
+
+[image]
+name = "margay-process-ai-api-test"
+context = "."
+dockerfile = "Dockerfile.api"
+
+[runtime]
+type = "service"
+name = "margay-process-ai-api-test"
+service_account = "process-ai-api-sa@MI_PROYECTO_TEST.iam.gserviceaccount.com"
+
+[service]
+cpu = "1"
+memory = "1Gi"
+timeout = "300s"
+min_instances = 0
+max_instances = 3
+concurrency = 10
+allow_unauthenticated = false
+
+[env]
+ENVIRONMENT = "test"
+LOG_LEVEL = "INFO"
+WORKSPACE_URL = "https://MI-MARGAY-WORKSPACE.a.run.app"
+PROCESS_AI_APP_KEY = "process_ai"
+API_BASE_URL = "https://MI-PROCESS-AI-API-TEST.a.run.app"
+CORS_ORIGINS = "https://process-test.margaystudio.io,https://hub.margaystudio.io"
+SUPABASE_URL = "https://MI-SUPABASE-REF.supabase.co"
+DATABASE_URL = "postgresql+psycopg://USER:PASS@HOST:6543/postgres"
+DATABASE_SCHEMA = "process_ai"
+DATABASE_SCHEMA = "process_ai"
+
+[secrets]
+OPENAI_API_KEY = "process-ai-openai-api-key:latest"
+ARTIFACT_SIGNING_SECRET = "process-ai-artifact-signing-secret:latest"
+SUPABASE_SERVICE_ROLE_KEY = "process-ai-supabase-service-role-key:latest"

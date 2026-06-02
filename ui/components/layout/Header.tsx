@@ -19,6 +19,7 @@ export default function Header() {
     activeTenantId,
     setActiveTenantId,
     selectedWorkspace,
+    currentUser,
   } = useWorkspace()
   const user = useUser()
   const userId = useUserId()
@@ -29,24 +30,15 @@ export default function Header() {
   const userMenuRef = useRef<HTMLDivElement>(null)
   const docsMenuRef = useRef<HTMLDivElement>(null)
 
-  const displayName = profileName ?? user?.name ?? user?.email ?? 'Usuario'
+  const displayName =
+    profileName ?? currentUser?.name ?? user?.name ?? user?.email ?? 'Usuario'
   const { brandTextStyle } = useBrandingTheme(selectedWorkspace)
 
   useEffect(() => {
-    if (!userId) {
-      setProfileName(null)
-      return
+    if (currentUser?.name?.trim()) {
+      setProfileName(currentUser.name.trim())
     }
-    let cancelled = false
-    getUser(userId)
-      .then((profile) => {
-        if (!cancelled && profile.name?.trim()) setProfileName(profile.name.trim())
-      })
-      .catch(() => {
-        if (!cancelled) setProfileName(null)
-      })
-    return () => { cancelled = true }
-  }, [userId])
+  }, [currentUser?.name])
 
   useEffect(() => {
     const onProfileUpdated = () => {

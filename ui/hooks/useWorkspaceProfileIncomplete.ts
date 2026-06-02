@@ -1,62 +1,49 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { getWorkspace } from '@/lib/api'
+import { useWorkspace } from '@/contexts/WorkspaceContext'
+import type { WorkspaceResponse } from '@/lib/api'
 import {
   isWorkspaceProfileIncomplete,
   shouldPromptWorkspaceProfile,
 } from '@/lib/workspaceProfile'
 
+/**
+ * Usa datos del workspace ya cargados en WorkspaceContext (GET /users/me).
+ * Evita un round-trip extra a GET /workspaces/{id} (~650 ms desde Uruguay).
+ */
 export function useWorkspaceProfileIncomplete(
-  workspaceId: string | null,
+  workspace: WorkspaceResponse | null,
   role: string | null,
   platformRoles: string[] = []
 ): { incomplete: boolean; loading: boolean } {
+  const { refreshWorkspaces } = useWorkspace()
   const [incomplete, setIncomplete] = useState(false)
-  const [loading, setLoading] = useState(false)
 
   const shouldCheck = Boolean(
-    workspaceId && shouldPromptWorkspaceProfile(role, platformRoles)
+    workspace && shouldPromptWorkspaceProfile(role, platformRoles)
   )
 
   useEffect(() => {
-    if (!shouldCheck || !workspaceId) {
+    if (!shouldCheck || !workspace) {
       setIncomplete(false)
-      setLoading(false)
       return
     }
 
-    let cancelled = false
-
-    async function load() {
-      setLoading(true)
-      try {
-        const ws = await getWorkspace(workspaceId)
-        if (!cancelled) {
-          setIncomplete(isWorkspaceProfileIncomplete(ws))
-        }
-      } catch {
-        if (!cancelled) setIncomplete(false)
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    }
-
-    load()
+    setIncomplete(isWorkspaceProfileIncomplete(workspace))
 
     const onProfileUpdated = (e: Event) => {
       const detail = (e as CustomEvent<{ workspaceId?: string }>).detail
-      if (!detail?.workspaceId || detail.workspaceId === workspaceId) {
-        load()
+      if (!detail?.workspaceId || detail.workspaceId === workspace.id) {
+        void refreshWorkspaces()
       }
     }
     window.addEventListener('workspaceProfileUpdated', onProfileUpdated)
 
     return () => {
-      cancelled = true
       window.removeEventListener('workspaceProfileUpdated', onProfileUpdated)
     }
-  }, [workspaceId, shouldCheck])
+  }, [workspace, shouldCheck, refreshWorkspaces])
 
-  return { incomplete: shouldCheck && incomplete, loading }
+  return { incomplete: shouldCheck && incomplete, loading: false }
 }

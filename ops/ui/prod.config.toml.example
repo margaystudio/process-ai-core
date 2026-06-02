@@ -1,0 +1,40 @@
+# Copiar a ops/ui/prod.config.toml y completar los valores.
+
+[gcp]
+project = "margay-platform-prod"
+region = "us-central1"
+artifact_repo = "margay-services"
+
+[image]
+name = "margay-process-ai-ui"
+context = "."
+dockerfile = "Dockerfile.ui"
+
+[runtime]
+type = "service"
+name = "margay-process-ai-ui"
+service_account = "process-ai-ui-sa@margay-platform-prod.iam.gserviceaccount.com"
+
+[service]
+cpu = "1"
+memory = "512Mi"
+timeout = "300s"
+min_instances = 0
+max_instances = 10
+concurrency = 80
+# UI pública (Next en navegador)
+allow_unauthenticated = true
+
+[env]
+ENVIRONMENT = "prod"
+
+# Build-time public env (NEXT_PUBLIC_*) para Next.js
+[build_args]
+NEXT_PUBLIC_ENVIRONMENT = "production"
+NEXT_PUBLIC_API_URL = "https://margay-process-ai-api-513594124246.us-central1.run.app"
+NEXT_PUBLIC_HUB_URL = "https://hub.margaystudio.io"
+NEXT_PUBLIC_SITE_URL = "https://process.margaystudio.io"
+NEXT_PUBLIC_SUPABASE_URL = "https://nbigcpjmckewuhrqjzrt.supabase.co"
+NEXT_PUBLIC_SUPABASE_ANON_KEY = "MI_SUPABASE_ANON_KEY"
+
+[secrets]

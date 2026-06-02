@@ -127,9 +127,9 @@ def fetch_workspace_context(
     Llama a GET {WORKSPACE_URL}/api/session/context con el JWT del usuario.
 
     Si active_tenant_id está seteado:
-      1. Intenta ?tenant_id= (workspace desplegado con soporte de switch).
-      2. Si el remoto sigue devolviendo otro tenant (API vieja en Cloud Run),
-         hace override local de ctx.tenant usando ctx.tenants (lista completa).
+      1. Intenta primero ?tenant_id= (un solo round-trip cuando el remoto lo soporta).
+      2. Si el remoto ignora el param (API vieja), obtiene la lista completa sin param
+         y hace override local de ctx.tenant.
     """
     active_tenant_id = _normalize_active_tenant_id(active_tenant_id)
 
@@ -146,7 +146,17 @@ def fetch_workspace_context(
         _log_context(ctx)
         return ctx
 
-    # Siempre obtener la lista completa de tenants (sin param)
+    hinted_url = f"{base_url}?tenant_id={active_tenant_id}"
+    ctx_hinted = _fetch_session_context_http(token, hinted_url)
+    if ctx_hinted.tenant.id == active_tenant_id:
+        selected = next((t for t in ctx_hinted.tenants if t.id == active_tenant_id), None)
+        if not selected:
+            raise HTTPException(status_code=403, detail="Tenant not accessible")
+        _cache_set(token, ctx_hinted, active_tenant_id)
+        _log_context(ctx_hinted)
+        return ctx_hinted
+
+    # API remota sin soporte de ?tenant_id=: lista completa + override local
     ctx_base = _fetch_session_context_http(token, base_url)
     selected = next((t for t in ctx_base.tenants if t.id == active_tenant_id), None)
     if not selected:
@@ -155,26 +165,19 @@ def fetch_workspace_context(
     if ctx_base.tenant.id == active_tenant_id:
         ctx = ctx_base
     else:
-        # Intentar switch remoto (margay-workspace con ?tenant_id=)
-        ctx_hinted = _fetch_session_context_http(
-            token, f"{base_url}?tenant_id={active_tenant_id}"
+        logger.info(
+            "workspace context: override local de tenant activo "
+            "(pedido=%s remoto=%s); desplegá margay-workspace con ?tenant_id= "
+            "para roles/apps por tenant",
+            active_tenant_id,
+            ctx_hinted.tenant.id,
         )
-        if ctx_hinted.tenant.id == active_tenant_id:
-            ctx = ctx_hinted
-        else:
-            logger.info(
-                "workspace context: override local de tenant activo "
-                "(pedido=%s remoto=%s); desplegá margay-workspace con ?tenant_id= "
-                "para roles/apps por tenant",
-                active_tenant_id,
-                ctx_hinted.tenant.id,
-            )
-            ctx = ctx_base.model_copy(
-                update={
-                    "tenant": selected,
-                    "tenants": ctx_base.tenants,
-                }
-            )
+        ctx = ctx_base.model_copy(
+            update={
+                "tenant": selected,
+                "tenants": ctx_base.tenants,
+            }
+        )
 
     _cache_set(token, ctx, active_tenant_id)
     _log_context(ctx)
@@ -235,18 +238,25 @@ def resolve_tenant_workspace_id(ctx: "WorkspaceSessionContext") -> str:
     """
     from sqlalchemy.exc import IntegrityError
 
+    from api.request_cache import get_cached_workspace_id, remember_workspace_id
     from process_ai_core.db.database import get_db_session
     from process_ai_core.db.helpers import get_or_create_workspace_for_tenant
+
+    cached = get_cached_workspace_id(ctx.tenant.id)
+    if cached:
+        return cached
 
     for attempt in range(2):
         try:
             with get_db_session() as session:
-                return get_or_create_workspace_for_tenant(
+                workspace_id = get_or_create_workspace_for_tenant(
                     session,
                     tenant_id=ctx.tenant.id,
                     tenant_name=ctx.tenant.name,
                     tenant_slug=ctx.tenant.slug,
                 )
+            remember_workspace_id(ctx.tenant.id, workspace_id)
+            return workspace_id
         except IntegrityError:
             if attempt == 1:
                 raise
@@ -305,6 +315,7 @@ async def sync_workspace_access(
 
     # Sincronizar Workspace + User + Membership en una sola sesión
     try:
+        from api.request_cache import remember_sync, should_skip_sync, sync_fingerprint
         from sqlalchemy.exc import IntegrityError
 
         from process_ai_core.db.database import get_db_session
@@ -313,6 +324,16 @@ async def sync_workspace_access(
             get_or_create_local_user_from_workspace,
             sync_membership_from_context,
         )
+
+        fp = sync_fingerprint(
+            supabase_sub=supabase_sub,
+            tenant_id=ctx.tenant.id,
+            email=ctx.user.email,
+            tenant_roles=ctx.tenant_roles,
+            platform_roles=ctx.platform_roles,
+        )
+        if should_skip_sync(fp):
+            return
 
         for attempt in range(2):
             try:
@@ -337,6 +358,13 @@ async def sync_workspace_access(
                         tenant_roles=ctx.tenant_roles,
                         platform_roles=ctx.platform_roles,
                     )
+                remember_sync(
+                    fingerprint=fp,
+                    supabase_sub=supabase_sub,
+                    local_user_id=local_user_id,
+                    tenant_id=ctx.tenant.id,
+                    workspace_id=workspace_id,
+                )
                 break
             except IntegrityError:
                 if attempt == 1:

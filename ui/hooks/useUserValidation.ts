@@ -2,99 +2,95 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { getCurrentUser } from '@/lib/api'
+import { useWorkspace } from '@/contexts/WorkspaceContext'
 
 const SUPABASE_TIMEOUT_MS = 6000
 
 interface UserValidationState {
-  isValid: boolean | null  // null = loading, true = válido, false = inválido
+  isValid: boolean | null
   hasWorkspaces: boolean | null
   error: string | null
   localUserId: string | null
 }
 
 /**
- * Valida que el usuario autenticado en Supabase existe en la BD local
- * y tiene al menos un workspace asociado.
- *
- * Llama a GET /api/v1/users/me que, al depender de sync_workspace_access,
- * crea el User+Workspace+Membership si es la primera vez que el usuario
- * entra a process-ai.
+ * Valida sesión Supabase y delega el perfil/workspaces a WorkspaceContext
+ * (un solo GET /users/me para toda la app).
  */
 export function useUserValidation(): UserValidationState {
-  const [state, setState] = useState<UserValidationState>({
-    isValid: null,
-    hasWorkspaces: null,
-    error: null,
-    localUserId: null,
-  })
+  const { loading: workspaceLoading, workspaces, currentUser } = useWorkspace()
+  const [authState, setAuthState] = useState<{
+    checked: boolean
+    hasSession: boolean
+    error: string | null
+  }>({ checked: false, hasSession: false, error: null })
 
   useEffect(() => {
-    async function validateUser() {
+    async function validateSession() {
       const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
       const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
-      // Modo desarrollo sin Supabase
       if (!supabaseUrl || !supabaseKey) {
-        setState({ isValid: true, hasWorkspaces: null, error: null, localUserId: null })
+        setAuthState({ checked: true, hasSession: true, error: null })
         return
       }
 
       const supabase = createClient()
-      const getSessionWithTimeout = () =>
-        Promise.race([
+      try {
+        const result = await Promise.race([
           supabase.auth.getSession(),
           new Promise<never>((_, reject) =>
             setTimeout(() => reject(new Error('SupabaseTimeout')), SUPABASE_TIMEOUT_MS)
           ),
         ])
-
-      let session
-      try {
-        const result = await getSessionWithTimeout()
-        session = result.data?.session
-      } catch (err) {
-        if (err instanceof Error && err.message === 'SupabaseTimeout') {
-          setState({
-            isValid: false,
-            hasWorkspaces: false,
-            error: 'No se pudo conectar con el servicio de autenticación. Revisá tu conexión.',
-            localUserId: null,
-          })
+        const session = result.data?.session
+        if (!session?.user) {
+          setAuthState({ checked: true, hasSession: false, error: 'No hay sesión activa' })
           return
         }
-        throw err
-      }
-
-      if (!session?.user) {
-        setState({ isValid: false, hasWorkspaces: false, error: 'No hay sesión activa', localUserId: null })
-        return
-      }
-
-      try {
-        const { user, workspaces } = await getCurrentUser()
-
-        // Guardar local_user_id para hooks que lo necesiten (useUserId, Header profile, etc.)
-        localStorage.setItem('local_user_id', user.id)
-        window.dispatchEvent(
-          new CustomEvent('localStorageChange', { detail: { key: 'local_user_id', value: user.id } })
-        )
-
-        const hasWorkspaces = workspaces.length > 0
-        setState({ isValid: true, hasWorkspaces, error: null, localUserId: user.id })
+        setAuthState({ checked: true, hasSession: true, error: null })
       } catch (err) {
-        console.error('[useUserValidation] Error al obtener usuario:', err)
-        setState({
-          isValid: false,
-          hasWorkspaces: false,
-          error: err instanceof Error ? err.message : 'Error verificando usuario',
-          localUserId: null,
-        })
+        const message =
+          err instanceof Error && err.message === 'SupabaseTimeout'
+            ? 'No se pudo conectar con el servicio de autenticación. Revisá tu conexión.'
+            : 'Error verificando sesión'
+        setAuthState({ checked: true, hasSession: false, error: message })
       }
     }
 
-    validateUser()
+    validateSession()
   }, [])
 
-  return state
+  if (!authState.checked) {
+    return { isValid: null, hasWorkspaces: null, error: null, localUserId: null }
+  }
+
+  if (!authState.hasSession) {
+    return {
+      isValid: false,
+      hasWorkspaces: false,
+      error: authState.error,
+      localUserId: null,
+    }
+  }
+
+  if (workspaceLoading) {
+    return { isValid: null, hasWorkspaces: null, error: null, localUserId: null }
+  }
+
+  if (!currentUser) {
+    return {
+      isValid: false,
+      hasWorkspaces: false,
+      error: 'No se pudo cargar el perfil del usuario',
+      localUserId: null,
+    }
+  }
+
+  return {
+    isValid: true,
+    hasWorkspaces: workspaces.length > 0,
+    error: null,
+    localUserId: currentUser.id,
+  }
 }

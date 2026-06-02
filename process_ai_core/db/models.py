@@ -327,7 +327,7 @@ class Role(Base):
     # Relaciones
     permissions: Mapped[list["Permission"]] = relationship(
         "Permission",
-        secondary="role_permissions",
+        secondary=lambda: RolePermission.__table__,
         back_populates="roles",
     )
     workspace_memberships: Mapped[list["WorkspaceMembership"]] = relationship(back_populates="role_obj")
@@ -354,7 +354,7 @@ class Permission(Base):
     # Relaciones
     roles: Mapped[list["Role"]] = relationship(
         "Role",
-        secondary="role_permissions",
+        secondary=lambda: RolePermission.__table__,
         back_populates="permissions",
     )
 

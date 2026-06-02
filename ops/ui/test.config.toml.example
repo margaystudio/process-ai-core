@@ -1,0 +1,36 @@
+[gcp]
+project = "MI_PROYECTO_TEST"
+region = "us-central1"
+artifact_repo = "margay-services"
+
+[image]
+name = "margay-process-ai-ui-test"
+context = "."
+dockerfile = "Dockerfile.ui"
+
+[runtime]
+type = "service"
+name = "margay-process-ai-ui-test"
+service_account = "process-ai-ui-sa@MI_PROYECTO_TEST.iam.gserviceaccount.com"
+
+[service]
+cpu = "1"
+memory = "512Mi"
+timeout = "120s"
+min_instances = 0
+max_instances = 3
+concurrency = 40
+allow_unauthenticated = true
+
+[env]
+ENVIRONMENT = "test"
+
+[build_args]
+NEXT_PUBLIC_ENVIRONMENT = "test"
+NEXT_PUBLIC_API_URL = "https://MI-PROCESS-AI-API-TEST.a.run.app"
+NEXT_PUBLIC_HUB_URL = "https://hub.margaystudio.io"
+NEXT_PUBLIC_SITE_URL = "https://process-test.margaystudio.io"
+NEXT_PUBLIC_SUPABASE_URL = "https://MI-SUPABASE-REF.supabase.co"
+NEXT_PUBLIC_SUPABASE_ANON_KEY = "MI_SUPABASE_ANON_KEY"
+
+[secrets]

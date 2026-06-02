@@ -106,7 +106,7 @@ def main():
             cmd += ['--ssl-keyfile', ssl_key, '--ssl-certfile', ssl_cert]
             print(f"🔒 HTTPS habilitado con certificados locales")
 
-        subprocess.run(cmd, check=True)
+        subprocess.run(cmd, check=True, env=os.environ.copy())
     except KeyboardInterrupt:
         print("\n👋 Deteniendo servidor...")
         sys.exit(0)

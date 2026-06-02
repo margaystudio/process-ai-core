@@ -6,6 +6,19 @@
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
+/** Evita fetches duplicados en paralelo (React Strict Mode, varios hooks). */
+const _inFlight = new Map<string, Promise<unknown>>()
+
+function dedupeInFlight<T>(key: string, fetcher: () => Promise<T>): Promise<T> {
+  const existing = _inFlight.get(key)
+  if (existing) return existing as Promise<T>
+  const promise = fetcher().finally(() => {
+    _inFlight.delete(key)
+  })
+  _inFlight.set(key, promise)
+  return promise
+}
+
 function formatApiErrorDetail(detail: unknown, fallback: string): string {
   if (typeof detail === 'string' && detail.trim()) return detail
   if (Array.isArray(detail)) {
@@ -359,28 +372,45 @@ export interface CurrentUserResponse {
   workspaces: WorkspaceResponse[]
 }
 
+let _currentUserCache: { data: CurrentUserResponse; ts: number } | null = null
+const CURRENT_USER_CACHE_MS = 5000
+
+export function invalidateCurrentUserCache(): void {
+  _currentUserCache = null
+}
+
 /**
  * Perfil + tenants desde margay-workspace (vía backend).
  * Respeta active_tenant_id en localStorage (header X-Active-Tenant-Id).
  */
-export async function getCurrentUser(): Promise<CurrentUserResponse> {
-  const { getAuthHeaders } = await import('@/lib/api-auth')
-  const headers = await getAuthHeaders({})
-  const response = await fetch(`${API_URL}/api/v1/users/me`, { headers })
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }))
-    throw new Error(error.detail || `HTTP ${response.status}`)
+export async function getCurrentUser(options?: { force?: boolean }): Promise<CurrentUserResponse> {
+  if (options?.force) {
+    invalidateCurrentUserCache()
+  } else if (_currentUserCache && Date.now() - _currentUserCache.ts < CURRENT_USER_CACHE_MS) {
+    return _currentUserCache.data
   }
 
-  const data = await response.json()
-  return {
-    user: data.user,
-    active_tenant: data.active_tenant,
-    platform_roles: data.platform_roles ?? [],
-    tenant_roles: data.tenant_roles ?? [],
-    workspaces: (data.workspaces ?? []).map(normalizeWorkspaceResponse),
-  }
+  return dedupeInFlight('users/me', async () => {
+    const { getAuthHeaders } = await import('@/lib/api-auth')
+    const headers = await getAuthHeaders({})
+    const response = await fetch(`${API_URL}/api/v1/users/me`, { headers })
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Error desconocido' }))
+      throw new Error(error.detail || `HTTP ${response.status}`)
+    }
+
+    const data = await response.json()
+    const result: CurrentUserResponse = {
+      user: data.user,
+      active_tenant: data.active_tenant,
+      platform_roles: data.platform_roles ?? [],
+      tenant_roles: data.tenant_roles ?? [],
+      workspaces: (data.workspaces ?? []).map(normalizeWorkspaceResponse),
+    }
+    _currentUserCache = { data: result, ts: Date.now() }
+    return result
+  })
 }
 
 export async function uploadWorkspaceBrandingIcon(
@@ -877,17 +907,20 @@ export async function createCatalogOption(
  * Lista todas las carpetas del workspace activo (derivado del contexto de sesión).
  */
 export async function listFolders(workspaceId?: string): Promise<Folder[]> {
-  const { getAuthHeaders } = await import('@/lib/api-auth')
-  const headers = await getAuthHeaders({})
+  const cacheKey = `folders:${workspaceId ?? 'active'}`
+  return dedupeInFlight(cacheKey, async () => {
+    const { getAuthHeaders } = await import('@/lib/api-auth')
+    const headers = await getAuthHeaders({})
 
-  const response = await fetch(`${API_URL}/api/v1/folders`, { headers });
+    const response = await fetch(`${API_URL}/api/v1/folders`, { headers })
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
-    throw new Error(error.detail || `HTTP ${response.status}`);
-  }
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Error desconocido' }))
+      throw new Error(error.detail || `HTTP ${response.status}`)
+    }
 
-  return response.json();
+    return response.json()
+  })
 }
 
 /**
@@ -1118,26 +1151,29 @@ export async function assignOperationalRolesToMembership(
  * Requiere autenticación. El backend filtra por rol (viewers solo ven aprobados).
  */
 export async function listDocuments(workspaceId?: string, folderId?: string, documentType: string = 'process', status?: string): Promise<Document[]> {
-  const { getAuthHeaders } = await import('@/lib/api-auth');
-  const headers = await getAuthHeaders({});
+  const cacheKey = `documents:${workspaceId ?? 'active'}:${folderId ?? ''}:${documentType}:${status ?? ''}`
+  return dedupeInFlight(cacheKey, async () => {
+    const { getAuthHeaders } = await import('@/lib/api-auth')
+    const headers = await getAuthHeaders({})
 
-  const url = new URL(`${API_URL}/api/v1/documents`);
-  url.searchParams.append('document_type', documentType);
-  if (folderId) {
-    url.searchParams.append('folder_id', folderId);
-  }
-  if (status) {
-    url.searchParams.append('status', status);
-  }
+    const url = new URL(`${API_URL}/api/v1/documents`)
+    url.searchParams.append('document_type', documentType)
+    if (folderId) {
+      url.searchParams.append('folder_id', folderId)
+    }
+    if (status) {
+      url.searchParams.append('status', status)
+    }
 
-  const response = await fetch(url.toString(), { headers });
+    const response = await fetch(url.toString(), { headers })
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
-    throw new Error(error.detail || `HTTP ${response.status}`);
-  }
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Error desconocido' }))
+      throw new Error(error.detail || `HTTP ${response.status}`)
+    }
 
-  return response.json();
+    return response.json()
+  })
 }
 
 /**

@@ -162,12 +162,17 @@ async def get_current_user_me(
     if not user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
 
-    active_workspace_id = get_or_create_workspace_for_tenant(
-        session,
-        tenant_id=ctx.tenant.id,
-        tenant_name=ctx.tenant.name,
-        tenant_slug=ctx.tenant.slug,
-    )
+    from api.request_cache import get_cached_workspace_id, remember_workspace_id
+
+    active_workspace_id = get_cached_workspace_id(ctx.tenant.id)
+    if not active_workspace_id:
+        active_workspace_id = get_or_create_workspace_for_tenant(
+            session,
+            tenant_id=ctx.tenant.id,
+            tenant_name=ctx.tenant.name,
+            tenant_slug=ctx.tenant.slug,
+        )
+        remember_workspace_id(ctx.tenant.id, active_workspace_id)
     active_membership = (
         session.query(WorkspaceMembership)
         .filter_by(user_id=authenticated_user_id, workspace_id=active_workspace_id)
@@ -177,12 +182,15 @@ async def get_current_user_me(
 
     workspaces = []
     for tenant in ctx.tenants:
-        workspace_id = get_or_create_workspace_for_tenant(
-            session,
-            tenant_id=tenant.id,
-            tenant_name=tenant.name,
-            tenant_slug=tenant.slug,
-        )
+        workspace_id = get_cached_workspace_id(tenant.id)
+        if not workspace_id:
+            workspace_id = get_or_create_workspace_for_tenant(
+                session,
+                tenant_id=tenant.id,
+                tenant_name=tenant.name,
+                tenant_slug=tenant.slug,
+            )
+            remember_workspace_id(tenant.id, workspace_id)
         workspace = session.query(Workspace).filter_by(id=workspace_id).first()
         if not workspace or _is_legacy_system_workspace(workspace):
             continue
@@ -198,6 +206,8 @@ async def get_current_user_me(
             "workspace_type": workspace.workspace_type,
             "role": role_name,
             "is_active": is_active,
+            "country": workspace.country,
+            "language_style": workspace.language_style,
             "branding_icon_url": _get_workspace_branding_icon_url(workspace),
             "branding_primary_color": _get_workspace_branding_color(workspace, "primary_color"),
             "branding_secondary_color": _get_workspace_branding_color(workspace, "secondary_color"),

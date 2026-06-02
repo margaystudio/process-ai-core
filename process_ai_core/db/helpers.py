@@ -2186,9 +2186,9 @@ def add_user_to_workspace_helper(
     ).first()
     
     if existing:
-        # Actualizar el role_id si ya existe
-        existing.role_id = role.id
-        existing.role = role_name  # Mantener para compatibilidad
+        if existing.role_id != role.id:
+            existing.role_id = role.id
+            existing.role = role_name
         return existing
     else:
         # Crear nuevo membership

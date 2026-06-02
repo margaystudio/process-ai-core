@@ -15,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
 from .routes import artifacts, catalog, context_files, documents, folders, process_runs, users, validations, workspaces, subscriptions, operational_roles
+from process_ai_core.db.database import warmup_db_pool
 # recipe_runs: dominio "recetas" (experimento B2C, sin auth/workspace) deshabilitado para el MVP. Ver línea de include_router más abajo.
 
 # Cargar variables de entorno
@@ -77,6 +78,15 @@ app.include_router(subscriptions.router)
 app.include_router(operational_roles.router)
 
 
+@app.on_event("startup")
+def _startup_warmup() -> None:
+    try:
+        warmup_db_pool()
+        logger.info("DB pool warmed up")
+    except Exception as exc:
+        logger.warning("DB pool warmup failed: %s", exc)
+
+
 @app.get("/")
 async def root():
     """Health check endpoint."""
@@ -86,9 +96,32 @@ async def root():
 @app.get("/health")
 async def health():
     """Health check detallado."""
+    from process_ai_core.db.database import DATABASE_URL
+
+    db_backend = "sqlite" if DATABASE_URL.startswith("sqlite") else "postgresql"
+    if db_backend == "sqlite" and ":memory:" not in DATABASE_URL:
+        return {
+            "status": "error",
+            "service": "process-ai-core-api",
+            "version": "0.1.0",
+            "database": db_backend,
+            "detail": "SQLite en archivo no soportado; usar Supabase Postgres (schema process_ai)",
+        }
+    if ENVIRONMENT in {"prod", "production", "test"} and db_backend == "sqlite":
+        return {
+            "status": "error",
+            "service": "process-ai-core-api",
+            "version": "0.1.0",
+            "database": db_backend,
+            "detail": "SQLite no permitido en test/prod; configurar DATABASE_URL con PostgreSQL",
+        }
+
     return {
         "status": "ok",
         "service": "process-ai-core-api",
         "version": "0.1.0",
+        "environment": ENVIRONMENT,
+        "database": db_backend,
+        "database_schema": os.getenv("DATABASE_SCHEMA", "process_ai") if db_backend == "postgresql" else None,
     }
 

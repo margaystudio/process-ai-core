@@ -168,6 +168,65 @@ def test_cache_miss_after_expiry(monkeypatch):
     assert mock_get.call_count == 2
 
 
+# ── Tests con active_tenant_id ───────────────────────────────────────────────
+
+TENANT_B = {"id": "tenant-uuid-2", "name": "Beta", "slug": "beta"}
+
+
+def test_active_tenant_hinted_single_http_call():
+    """Con ?tenant_id= soportado, una sola request HTTP."""
+    payload = {
+        **VALID_CONTEXT_PAYLOAD,
+        "tenant": TENANT_B,
+        "tenants": [VALID_CONTEXT_PAYLOAD["tenant"], TENANT_B],
+    }
+    mock_resp = _mock_response(200, payload)
+
+    with patch("api.workspace_client.httpx.Client") as mock_client_cls:
+        mock_get = mock_client_cls.return_value.__enter__.return_value.get
+        mock_get.return_value = mock_resp
+
+        ctx = fetch_workspace_context("token", active_tenant_id="tenant-uuid-2")
+
+    assert ctx.tenant.id == "tenant-uuid-2"
+    assert mock_get.call_count == 1
+    assert "tenant_id=tenant-uuid-2" in mock_get.call_args[0][0]
+
+
+def test_active_tenant_legacy_api_falls_back_to_base():
+    """API vieja que ignora ?tenant_id= → segunda request + override local."""
+    hinted_payload = VALID_CONTEXT_PAYLOAD
+    base_payload = {
+        **VALID_CONTEXT_PAYLOAD,
+        "tenants": [VALID_CONTEXT_PAYLOAD["tenant"], TENANT_B],
+    }
+
+    with patch("api.workspace_client.httpx.Client") as mock_client_cls:
+        mock_get = mock_client_cls.return_value.__enter__.return_value.get
+        mock_get.side_effect = [
+            _mock_response(200, hinted_payload),
+            _mock_response(200, base_payload),
+        ]
+
+        ctx = fetch_workspace_context("token", active_tenant_id="tenant-uuid-2")
+
+    assert ctx.tenant.id == "tenant-uuid-2"
+    assert mock_get.call_count == 2
+
+
+def test_active_tenant_not_accessible_raises_403():
+    """Tenant pedido que no está en la lista → 403."""
+    mock_resp = _mock_response(200, VALID_CONTEXT_PAYLOAD)
+
+    with patch("api.workspace_client.httpx.Client") as mock_client_cls:
+        mock_client_cls.return_value.__enter__.return_value.get.return_value = mock_resp
+
+        with pytest.raises(HTTPException) as exc_info:
+            fetch_workspace_context("token", active_tenant_id="tenant-unknown")
+
+    assert exc_info.value.status_code == 403
+
+
 # ── Tests de get_workspace_context (dependencia FastAPI) ────────────────────
 
 

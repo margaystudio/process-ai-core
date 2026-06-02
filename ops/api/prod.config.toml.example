@@ -1,0 +1,63 @@
+# Copiar a ops/api/prod.config.toml y completar los valores.
+# No versionar secretos en texto plano.
+
+[gcp]
+project = "margay-platform-prod"
+region = "us-central1"
+artifact_repo = "margay-services"
+
+[image]
+name = "margay-process-ai-api"
+context = "."
+dockerfile = "Dockerfile.api"
+
+[runtime]
+type = "service"
+name = "margay-process-ai-api"
+service_account = "process-ai-api-sa@margay-platform-prod.iam.gserviceaccount.com"
+
+[service]
+cpu = "2"
+memory = "2Gi"
+timeout = "900s"
+min_instances = 0
+max_instances = 10
+concurrency = 10
+# API privada: JWT Bearer requerido
+allow_unauthenticated = false
+
+[env]
+ENVIRONMENT = "prod"
+LOG_LEVEL = "WARNING"
+
+# Control plane margay-workspace (sin /api al final)
+WORKSPACE_URL = "https://margay-workspace-513594124246.us-central1.run.app"
+PROCESS_AI_APP_KEY = "process_ai"
+
+# Schema Postgres dedicado (mismo proyecto Supabase que workspace)
+DATABASE_SCHEMA = "process_ai"
+
+# URL pública de esta API (para links en PDF/HTML y firma de artefactos)
+API_BASE_URL = "https://margay-process-ai-api-513594124246.us-central1.run.app"
+
+# CORS: UI + hub
+CORS_ORIGINS = "https://process.margaystudio.io,https://hub.margaystudio.io"
+
+# Supabase (JWKS se deriva de SUPABASE_URL si no se setea SUPABASE_JWKS_URL)
+SUPABASE_URL = "https://nbigcpjmckewuhrqjzrt.supabase.co"
+
+# PostgreSQL (Supabase o Cloud SQL). En prod no uses SQLite.
+# DATABASE_URL se recomienda inyectar vía [secrets] abajo.
+DATABASE_URL = "postgresql+psycopg://USER:PASS@HOST:5432/process_ai"
+
+OPENAI_MODEL_TEXT = "gpt-4.1-mini"
+OPENAI_MODEL_TRANSCRIBE = "gpt-4o-mini-transcribe"
+OPENAI_MODEL_TRANSCRIBE_TIMESTAMPS = "whisper-1"
+ARTIFACT_URL_TTL_SECONDS = "900"
+
+[secrets]
+# Secret Manager → Cloud Run (--update-secrets en deploy.py)
+OPENAI_API_KEY = "process-ai-openai-api-key:latest"
+ARTIFACT_SIGNING_SECRET = "process-ai-artifact-signing-secret:latest"
+SUPABASE_SERVICE_ROLE_KEY = "process-ai-supabase-service-role-key:latest"
+# DATABASE_URL = "process-ai-database-url:latest"

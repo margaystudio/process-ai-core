@@ -116,13 +116,30 @@ npm run dev:test
 
 ### Production
 
-**Backend:**
+**Backend (Cloud Run):**
+```bash
+cp ops/api/prod.config.toml.example ops/api/prod.config.toml
+# Editar ops/api/prod.config.toml (GCP, env vars, secrets)
+
+python ops/api/release.py --env prod
+python ops/api/deploy.py --env prod
+```
+
+**Frontend (Cloud Run):**
+```bash
+cp ops/ui/prod.config.toml.example ops/ui/prod.config.toml
+# Editar ops/ui/prod.config.toml (build_args NEXT_PUBLIC_*)
+
+python ops/ui/release.py --env prod
+python ops/ui/deploy.py --env prod
+```
+
+**Local (sin Docker):**
 ```bash
 chmod +x run_api_prod.sh
 ./run_api_prod.sh
 ```
 
-**Frontend:**
 ```bash
 cd ui
 # Asegúrate de tener .env.production configurado
@@ -130,13 +147,19 @@ npm run build:prod
 npm run start
 ```
 
+Infra: Cloud Run (`us-central1`), imágenes en Artifact Registry `margay-services`,
+service accounts `process-ai-api-sa@...` y `process-ai-ui-sa@...`.
+Secretos sensibles → Secret Manager, referenciados en `[secrets]` del TOML.
+Ver `ops/api/prod.config.toml.example` y `ops/ui/prod.config.toml.example`.
+
 ## Variables de Entorno por Ambiente
 
 ### Backend
 
 #### Local
 - `ENVIRONMENT=local`
-- `DATABASE_URL=sqlite:///data/process_ai_core.sqlite`
+- `DATABASE_URL=postgresql+psycopg://...@pooler.supabase.com:6543/postgres?prepare_threshold=0`
+- `DATABASE_SCHEMA=process_ai`
 - `API_PORT=8000`
 - `CORS_ORIGINS=http://localhost:3000,http://localhost:3001`
 - `LOG_LEVEL=INFO`
@@ -180,9 +203,8 @@ npm run start
 ### Local
 - ✅ Hot reload habilitado
 - ✅ Logging detallado (INFO/DEBUG)
-- ✅ SQLite para desarrollo rápido
-- ✅ CORS permisivo (localhost)
-- ✅ Sin autenticación estricta (opcional)
+- ✅ PostgreSQL en Supabase (schema `process_ai`, mismo proyecto que auth)
+- ✅ CORS permisivo (localhost / *.local.margaystudio.io)
 
 ### Test
 - ✅ Hot reload habilitado

@@ -2,6 +2,41 @@
 
 Guía paso a paso para inicializar la base de datos en un entorno nuevo (local, test o producción).
 
+## Arquitectura de datos
+
+| Store | Qué guarda |
+|---|---|
+| **Supabase Auth** | Usuarios, sesiones JWT (compartido con hub y margay-workspace) |
+| **Postgres Supabase, schema `process_ai`** | Datos del módulo: workspaces, documentos, carpetas, permisos, runs, etc. |
+
+El proyecto Supabase de Margay es **compartido**: `margay-workspace` usa el schema `workspace`; **process-ai-core** usa el schema **`process_ai`**. No mezclar tablas entre schemas.
+
+SQLite en archivo **ya no se usa** (local, test y prod apuntan a Supabase Postgres).
+
+## Configuración local
+
+1. Copiá `.env.example` → `.env` (o `.env.local`).
+2. Completá `DATABASE_URL` con la URI del **Transaction pooler** (puerto 6543) del dashboard de Supabase.
+3. Dejá `DATABASE_SCHEMA=process_ai`.
+4. Aplicá el schema y tablas:
+
+   ```bash
+   # Opcional: SQL manual en Supabase SQL Editor
+   # migrations/001_create_schema.sql
+
+   python tools/init_db.py
+   python tools/seed_permissions.py
+   python tools/seed_subscription_plans.py
+   python tools/seed_catalogs.py
+   ```
+
+## PostgreSQL (test / producción)
+
+Misma URI y schema que local. En Cloud Run, `DATABASE_URL` idealmente vía Secret Manager
+y `DATABASE_SCHEMA=process_ai` en `ops/api/prod.config.toml`.
+
+La API falla al arrancar si falta `DATABASE_URL` o si apunta a SQLite en archivo.
+
 ## Opción A: Base de datos vacía (primera vez)
 
 ### 1. Crear las tablas

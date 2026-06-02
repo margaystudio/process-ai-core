@@ -20,7 +20,7 @@ export default function WorkspacePage() {
   const { role, loading: roleLoading } = useUserRole()
   const workspaceRole = selectedWorkspace?.role ?? role
   const { incomplete: profileIncomplete, loading: profileCheckLoading } =
-    useWorkspaceProfileIncomplete(selectedWorkspaceId, workspaceRole, platformRoles)
+    useWorkspaceProfileIncomplete(selectedWorkspace, workspaceRole, platformRoles)
   const canEditGeneralSettings =
     platformRoles.includes('superadmin') ||
     workspaceRole === 'owner' ||
@@ -75,8 +75,8 @@ export default function WorkspacePage() {
         setError(null)
         const docs = await listDocuments(
           selectedWorkspaceId,
-          selectedFolderId || undefined,
-          'process' // Solo procesos por ahora
+          undefined,
+          'process'
         )
         setDocuments(docs)
       } catch (err) {
@@ -88,7 +88,7 @@ export default function WorkspacePage() {
     }
 
     loadDocuments()
-  }, [selectedWorkspaceId, activeTenantId, selectedFolderId, role])
+  }, [selectedWorkspaceId, activeTenantId, role])
 
   // Filtrar documentos por búsqueda, carpeta y estado
   const filteredDocuments = useDocumentFilter(documents, searchQuery, selectedFolderId, statusFilter)
@@ -246,6 +246,7 @@ export default function WorkspacePage() {
                 onSelectFolder={(id) => setSelectedFolderId(id)}
                 showSelectable={true}
                 showCrud={false}
+                allDocuments={documents}
               />
             </div>
           </div>

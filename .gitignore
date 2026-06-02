@@ -15,3 +15,12 @@ data/*.sqlite
 
 .DS_Store
 **/.DS_Store
+
+# Ops / Cloud Run (configs locales con secretos)
+ops/api/prod.config.toml
+ops/api/test.config.toml
+ops/ui/prod.config.toml
+ops/ui/test.config.toml
+_cloudbuild_tmp_*.yaml
+ui/.next/
+ui/node_modules/

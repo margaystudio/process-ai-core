@@ -11,7 +11,9 @@ interface FolderTreeProps {
   onSelectFolder?: (folderId: string | null) => void
   showSelectable?: boolean
   showCrud?: boolean
-  showDocuments?: boolean // Controla si se muestran los documentos dentro de las carpetas
+  showDocuments?: boolean
+  /** Si el padre ya cargó documentos, evita fetch duplicados a la API */
+  allDocuments?: DocumentType[]
 }
 
 interface FolderNode {
@@ -67,6 +69,7 @@ function FolderTreeNode({
   showDocuments = true,
   showCrud = false,
   onFoldersChange,
+  skipPerFolderFetch = false,
 }: { 
   node: FolderNode
   level?: number
@@ -77,6 +80,7 @@ function FolderTreeNode({
   showDocuments?: boolean
   showCrud?: boolean
   onFoldersChange?: () => void
+  skipPerFolderFetch?: boolean
 }) {
   const [isExpanded, setIsExpanded] = useState(level < 2) // Expandir primeros 2 niveles por defecto
   const [folderDocuments, setFolderDocuments] = useState<DocumentType[]>([])
@@ -91,8 +95,9 @@ function FolderTreeNode({
   const hasChildren = node.children.length > 0
   const folderDocs = documents?.filter(d => d.folder_id === node.folder.id) || []
 
-  // Cargar documentos cuando se expande (solo si no están ya cargados)
+  // Cargar documentos por carpeta solo si el padre no pasó la lista completa
   useEffect(() => {
+    if (skipPerFolderFetch) return
     if (isExpanded && workspaceId && folderDocs.length === 0 && folderDocuments.length === 0) {
       setLoadingDocs(true)
       listDocuments(workspaceId, node.folder.id, 'process')
@@ -106,7 +111,7 @@ function FolderTreeNode({
           setLoadingDocs(false)
         })
     }
-  }, [isExpanded, workspaceId, node.folder.id, folderDocs.length, folderDocuments.length])
+  }, [isExpanded, workspaceId, node.folder.id, folderDocs.length, folderDocuments.length, skipPerFolderFetch])
 
   const displayDocs = folderDocs.length > 0 ? folderDocs : folderDocuments
   const hasContent = hasChildren || displayDocs.length > 0
@@ -372,6 +377,7 @@ function FolderTreeNode({
               showDocuments={showDocuments}
               showCrud={showCrud}
               onFoldersChange={onFoldersChange}
+              skipPerFolderFetch={skipPerFolderFetch}
             />
           ))}
           {/* Documentos dentro de esta carpeta (solo si showDocuments es true) */}
@@ -424,7 +430,8 @@ export default function FolderTree({
   onSelectFolder,
   showSelectable = true,
   showCrud = false,
-  showDocuments = true
+  showDocuments = true,
+  allDocuments,
 }: FolderTreeProps) {
   const { activeTenantId } = useWorkspace()
   const [folders, setFolders] = useState<Folder[]>([])
@@ -444,14 +451,16 @@ export default function FolderTree({
       setLoading(true)
       setError(null)
       console.log('Cargando carpetas para workspace:', workspaceId)
-      const [foldersData, docsData] = await Promise.all([
-        listFolders(workspaceId),
-        listDocuments(workspaceId, undefined, 'process').catch(() => [])
-      ])
+      const foldersData = await listFolders(workspaceId)
       console.log('Carpetas cargadas:', foldersData)
-      console.log('Documentos cargados:', docsData)
       setFolders(foldersData)
-      setDocuments(docsData)
+      if (allDocuments !== undefined) {
+        setDocuments(allDocuments)
+      } else {
+        const docsData = await listDocuments(workspaceId, undefined, 'process').catch(() => [])
+        console.log('Documentos cargados:', docsData)
+        setDocuments(docsData)
+      }
     } catch (err) {
       console.error('Error cargando carpetas:', err)
       setError(err instanceof Error ? err.message : 'Error desconocido')
@@ -464,10 +473,17 @@ export default function FolderTree({
 
   useEffect(() => {
     setFolders([])
-    setDocuments([])
+    if (allDocuments === undefined) {
+      setDocuments([])
+    }
     loadFolders()
-    // activeTenantId: el backend filtra por tenant del header, no solo por workspaceId local
   }, [workspaceId, activeTenantId])
+
+  useEffect(() => {
+    if (allDocuments !== undefined) {
+      setDocuments(allDocuments)
+    }
+  }, [allDocuments])
 
   if (!workspaceId) {
     return (
@@ -532,6 +548,7 @@ export default function FolderTree({
                 showDocuments={showDocuments}
                 showCrud={showCrud}
                 onFoldersChange={loadFolders}
+                skipPerFolderFetch={allDocuments !== undefined}
               />
             ))}
             {/* Documentos sin carpeta */}

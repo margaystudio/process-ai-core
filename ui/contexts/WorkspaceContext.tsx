@@ -1,7 +1,7 @@
 'use client'
 
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react'
-import { getCurrentUser, WorkspaceResponse } from '@/lib/api'
+import { getCurrentUser, invalidateCurrentUserCache, WorkspaceResponse } from '@/lib/api'
 import { getActiveTenantId, setActiveTenantId as persistActiveTenantId } from '@/lib/api-auth'
 
 interface WorkspaceContextType {
@@ -10,6 +10,8 @@ interface WorkspaceContextType {
   selectedWorkspaceId: string | null
   activeTenantId: string | null
   platformRoles: string[]
+  tenantRoles: string[]
+  currentUser: { id: string; email: string; name: string | null } | null
   setActiveTenantId: (tenantId: string) => Promise<void>
   loading: boolean
   refreshWorkspaces: () => Promise<void>
@@ -22,6 +24,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(null)
   const [activeTenantId, setActiveTenantIdState] = useState<string | null>(null)
   const [platformRoles, setPlatformRoles] = useState<string[]>([])
+  const [tenantRoles, setTenantRoles] = useState<string[]>([])
+  const [currentUser, setCurrentUser] = useState<{ id: string; email: string; name: string | null } | null>(null)
   const [loading, setLoading] = useState(true)
 
   const applyCurrentUser = useCallback((data: Awaited<ReturnType<typeof getCurrentUser>>) => {
@@ -35,6 +39,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     persistActiveTenantId(tenantId)
     setActiveTenantIdState(tenantId)
     setPlatformRoles(data.platform_roles)
+    setTenantRoles(data.tenant_roles)
+    setCurrentUser(data.user)
     setWorkspaces(data.workspaces)
 
     const activeWs =
@@ -53,12 +59,14 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const refreshWorkspaces = useCallback(async () => {
     try {
       setLoading(true)
-      const data = await getCurrentUser()
+      invalidateCurrentUserCache()
+      const data = await getCurrentUser({ force: true })
       applyCurrentUser(data)
     } catch (err) {
       console.error('[WorkspaceContext] Error cargando workspaces:', err)
       setWorkspaces([])
       setSelectedWorkspaceId(null)
+      setCurrentUser(null)
     } finally {
       setLoading(false)
     }
@@ -90,6 +98,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         selectedWorkspaceId,
         activeTenantId,
         platformRoles,
+        tenantRoles,
+        currentUser,
         setActiveTenantId,
         loading,
         refreshWorkspaces,

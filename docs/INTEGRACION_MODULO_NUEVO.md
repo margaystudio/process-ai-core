@@ -166,17 +166,26 @@ http://localhost:3000/auth/callback   # para dev local
 
 ## 4. Despliegue
 
-Seguir el patrón de `margay-gcp-run-template`:
+Seguir el patrón de `margay-gpu-ops` (Cloud Run + ops scripts):
+
 ```bash
-python ops/release.py --env prod --version vX.Y.Z
-python ops/deploy.py --env prod
+# API
+cp ops/api/prod.config.toml.example ops/api/prod.config.toml
+python ops/api/release.py --env prod --version vX.Y.Z
+python ops/api/deploy.py --env prod
+
+# UI
+cp ops/ui/prod.config.toml.example ops/ui/prod.config.toml
+python ops/ui/release.py --env prod --version vX.Y.Z
+python ops/ui/deploy.py --env prod
 ```
 
 Infra: Cloud Run (us-central1), imagen en Artifact Registry `margay-services`,
-service account `margay-{modulo}-sa@margay-platform-prod.iam.gserviceaccount.com`.
+service accounts `process-ai-api-sa@margay-platform-prod.iam.gserviceaccount.com`
+y `process-ai-ui-sa@margay-platform-prod.iam.gserviceaccount.com`.
 
 Secretos sensibles (`ARTIFACT_SIGNING_SECRET`, `OPENAI_API_KEY`, etc.) → Secret Manager,
-referenciados en `ops/prod.config.toml` bajo `[secrets]`.
+referenciados en `ops/api/prod.config.toml` bajo `[secrets]`.
 
 ---
 
