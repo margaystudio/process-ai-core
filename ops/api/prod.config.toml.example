@@ -24,7 +24,7 @@ min_instances = 0
 max_instances = 10
 concurrency = 10
 # API privada: JWT Bearer requerido
-allow_unauthenticated = false
+allow_unauthenticated = true
 
 [env]
 ENVIRONMENT = "prod"

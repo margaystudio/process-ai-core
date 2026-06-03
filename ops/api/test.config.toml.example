@@ -20,7 +20,7 @@ timeout = "300s"
 min_instances = 0
 max_instances = 3
 concurrency = 10
-allow_unauthenticated = false
+allow_unauthenticated = true
 
 [env]
 ENVIRONMENT = "test"

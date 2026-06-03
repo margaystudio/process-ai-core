@@ -234,7 +234,7 @@ export default function Header() {
                   title="Seleccionar organización (tenant)"
                 >
                   {workspaces.map((ws) => (
-                    <option key={ws.tenant_id} value={ws.tenant_id}>
+                    <option key={ws.tenant_id ?? ws.name} value={ws.tenant_id ?? ''}>
                       {ws.name}
                     </option>
                   ))}
@@ -393,7 +393,7 @@ export default function Header() {
                       className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
                     >
                       {workspaces.map((ws) => (
-                        <option key={ws.tenant_id} value={ws.tenant_id}>
+                        <option key={ws.tenant_id ?? ws.name} value={ws.tenant_id ?? ''}>
                           {ws.name}
                         </option>
                       ))}

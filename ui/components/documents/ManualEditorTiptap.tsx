@@ -153,7 +153,9 @@ export default function ManualEditorTiptap({
       onDirtyChange(current !== initialHtml)
     }
     editor.on('update', onUpdate)
-    return () => editor.off('update', onUpdate)
+    return () => {
+      editor.off('update', onUpdate)
+    }
   }, [editor, initialHtml, onDirtyChange])
 
   const addImage = () => {
