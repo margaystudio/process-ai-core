@@ -55,7 +55,7 @@ export async function updateSession(request: NextRequest) {
   } = await supabase.auth.getUser()
 
   // Rutas que no requieren sesión activa
-  const publicPaths = ['/auth', '/invitations/accept']
+  const publicPaths = ['/login', '/auth', '/invitations/accept']
   const isPublicPath = publicPaths.some((p) => request.nextUrl.pathname.startsWith(p))
 
   if (!user && !isPublicPath) {
