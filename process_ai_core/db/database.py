@@ -36,8 +36,9 @@ Variables de entorno
 
 # Carga .env desde la raíz del repo (uvicorn --reload no pasa por run_api.py).
 _project_root = Path(__file__).resolve().parents[2]
-load_dotenv(_project_root / ".env")
-load_dotenv(_project_root / ".env.local", override=True)
+if not os.getenv("PROCESS_AI_BOOTSTRAP"):
+    load_dotenv(_project_root / ".env")
+    load_dotenv(_project_root / ".env.local", override=True)
 
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 
@@ -148,7 +149,14 @@ def get_db_engine(echo: bool = False):
         }
         if DATABASE_URL.startswith("postgresql"):
             engine_kwargs["pool_pre_ping"] = pool_pre_ping
-            engine_kwargs["connect_args"] = {"prepare_threshold": None}
+            # connect_timeout evita que un connect lento/colgado (ej. pooler ocupado)
+            # bloquee el arranque: el warmup de startup está envuelto en try/except, así
+            # que un timeout rápido deja que uvicorn bindee el puerto igual.
+            connect_timeout = int(os.getenv("DB_CONNECT_TIMEOUT", "10"))
+            engine_kwargs["connect_args"] = {
+                "prepare_threshold": None,
+                "connect_timeout": connect_timeout,
+            }
         _engine = create_engine(DATABASE_URL, **engine_kwargs)
         SessionLocal = sessionmaker(
             bind=_engine,
