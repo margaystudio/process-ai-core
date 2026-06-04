@@ -24,6 +24,13 @@ function publicOrigin(request: NextRequest): string {
 }
 
 export async function updateSession(request: NextRequest) {
+  // /login no existe en el módulo (el login es del hub, SSO). Cualquier acceso a /login
+  // —logout, sesión expirada, links viejos— se redirige al hub con un 307 limpio.
+  if (request.nextUrl.pathname === '/login') {
+    const hub = (process.env.NEXT_PUBLIC_HUB_URL ?? 'https://hub.margaystudio.io').replace(/\/+$/, '')
+    return NextResponse.redirect(new URL(hub))
+  }
+
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
   const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
@@ -55,7 +62,7 @@ export async function updateSession(request: NextRequest) {
   } = await supabase.auth.getUser()
 
   // Rutas que no requieren sesión activa
-  const publicPaths = ['/login', '/auth', '/invitations/accept']
+  const publicPaths = ['/auth', '/invitations/accept']
   const isPublicPath = publicPaths.some((p) => request.nextUrl.pathname.startsWith(p))
 
   if (!user && !isPublicPath) {
