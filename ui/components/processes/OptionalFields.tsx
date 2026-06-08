@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { Field } from '@/shared/ui/components'
 import { getCatalogOptions, CatalogOption } from '@/lib/api'
 
 interface OptionalFieldsProps {
@@ -11,6 +12,11 @@ interface OptionalFieldsProps {
   onContextTextChange: (value: string) => void
   onDescriptionChange: (value: string) => void
 }
+
+const selectClass =
+  'h-10 w-full rounded-md border border-ink-300 bg-white px-3 text-body text-ink-800 transition-colors focus:border-action focus:outline-none focus:ring-[3px] focus:ring-action-ring'
+const textareaClass =
+  'w-full resize-y rounded-md border border-ink-300 bg-white px-3 py-2 text-body text-ink-800 placeholder:text-ink-500 transition-colors focus:border-action focus:outline-none focus:ring-[3px] focus:ring-action-ring'
 
 export default function OptionalFields({
   detailLevel,
@@ -40,26 +46,21 @@ export default function OptionalFields({
 
   return (
     <div className="space-y-4">
-      <h3 className="text-lg font-medium text-gray-900">Campos Opcionales</h3>
-      <p className="text-sm text-gray-500">
+      <h3 className="text-h3 text-ink-900">Campos opcionales</h3>
+      <p className="text-sm text-ink-500">
         Estos campos ayudan a personalizar el documento. Si los dejás vacíos, se usarán los valores por defecto.
       </p>
 
-      <div>
-        <label htmlFor="detail_level" className="block text-sm font-medium text-gray-700 mb-2">
-          Nivel de Detalle
-        </label>
+      <Field label="Nivel de detalle">
         {loading ? (
-          <div className="w-full px-4 py-2 border border-gray-300 rounded-md bg-gray-100 animate-pulse">
-            Cargando opciones...
-          </div>
+          <div className="h-10 w-full animate-pulse rounded-md border border-ink-200 bg-ink-100" />
         ) : detailLevelOptions.length > 0 ? (
           <select
             id="detail_level"
             name="detail_level"
             value={detailLevel}
             onChange={(e) => onDetailLevelChange(e.target.value)}
-            className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            className={selectClass}
           >
             <option value="">Seleccionar...</option>
             {detailLevelOptions.map((opt) => (
@@ -74,7 +75,7 @@ export default function OptionalFields({
             name="detail_level"
             value={detailLevel}
             onChange={(e) => onDetailLevelChange(e.target.value)}
-            className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            className={selectClass}
           >
             <option value="">Seleccionar...</option>
             <option value="breve">Breve</option>
@@ -82,40 +83,38 @@ export default function OptionalFields({
             <option value="detallado">Detallado</option>
           </select>
         )}
-      </div>
+      </Field>
 
       <div>
-        <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-2">
-          Descripción
-        </label>
-        <textarea
-          id="description"
-          name="description"
-          value={description}
-          onChange={(e) => onDescriptionChange(e.target.value)}
-          rows={3}
-          className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-y"
-          placeholder="Descripción breve del proceso (opcional). Si no la completás, la IA la generará automáticamente."
-        />
-        <p className="mt-1 text-sm text-gray-500">
+        <Field label="Descripción">
+          <textarea
+            id="description"
+            name="description"
+            value={description}
+            onChange={(e) => onDescriptionChange(e.target.value)}
+            rows={3}
+            className={textareaClass}
+            placeholder="Descripción breve del proceso (opcional). Si no la completás, la IA la generará automáticamente."
+          />
+        </Field>
+        <p className="mt-1 text-sm text-ink-500">
           Descripción breve del proceso. Si la dejás vacía, la IA la generará automáticamente basándose en el contenido.
         </p>
       </div>
 
       <div>
-        <label htmlFor="context_text" className="block text-sm font-medium text-gray-700 mb-2">
-          Contexto Adicional
-        </label>
-        <textarea
-          id="context_text"
-          name="context_text"
-          value={contextText}
-          onChange={(e) => onContextTextChange(e.target.value)}
-          rows={4}
-          className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-y"
-          placeholder="Información adicional sobre el proceso, contexto del negocio, requisitos especiales, etc."
-        />
-        <p className="mt-1 text-sm text-gray-500">
+        <Field label="Contexto adicional">
+          <textarea
+            id="context_text"
+            name="context_text"
+            value={contextText}
+            onChange={(e) => onContextTextChange(e.target.value)}
+            rows={4}
+            className={textareaClass}
+            placeholder="Información adicional sobre el proceso, contexto del negocio, requisitos especiales, etc."
+          />
+        </Field>
+        <p className="mt-1 text-sm text-ink-500">
           Este texto se incluirá en el prompt para ayudar a la IA a generar un documento más preciso.
         </p>
       </div>

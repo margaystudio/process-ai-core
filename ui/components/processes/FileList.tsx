@@ -9,9 +9,9 @@ interface FileListProps {
 export default function FileList({ files, onRemove }: FileListProps) {
   if (files.length === 0) {
     return (
-      <div className="text-center py-8 text-gray-500">
+      <div className="py-8 text-center text-ink-500">
         <p>No hay archivos agregados</p>
-        <p className="text-sm mt-1">Hacé clic en "Agregar archivo" para comenzar</p>
+        <p className="mt-1 text-sm">Hacé clic en "Agregar archivo" para comenzar</p>
       </div>
     )
   }
@@ -24,6 +24,3 @@ export default function FileList({ files, onRemove }: FileListProps) {
     </div>
   )
 }
-
-
-

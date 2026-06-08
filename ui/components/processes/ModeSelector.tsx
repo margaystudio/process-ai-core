@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { OptionSet } from '@/shared/ui/components'
 import { getCatalogOptions, CatalogOption } from '@/lib/api'
 
 interface ModeSelectorProps {
@@ -18,7 +19,7 @@ export default function ModeSelector({ value, onChange }: ModeSelectorProps) {
         // El modo del documento es la audiencia
         const options = await getCatalogOptions('audience').catch(() => [])
         setModeOptions(options)
-        
+
         // Si hay opciones y no hay valor seleccionado, usar la primera
         if (options.length > 0 && !value) {
           onChange(options[0].value as 'operativo' | 'gestion')
@@ -34,8 +35,8 @@ export default function ModeSelector({ value, onChange }: ModeSelectorProps) {
   }, [])
 
   // Fallback a valores hardcodeados si no hay catálogo
-  const options = modeOptions.length > 0 
-    ? modeOptions 
+  const options = modeOptions.length > 0
+    ? modeOptions
     : [
         { value: 'operativo', label: 'Operativo (pistero)', sort_order: 0 },
         { value: 'gestion', label: 'Gestión / Dueños', sort_order: 1 },
@@ -53,32 +54,17 @@ export default function ModeSelector({ value, onChange }: ModeSelectorProps) {
 
   return (
     <div>
-      <label htmlFor="mode" className="block text-sm font-medium text-gray-700 mb-2">
-        Audiencia *
-      </label>
+      <label className="mb-2 block text-sm font-semibold text-ink-700">Audiencia *</label>
       {loading ? (
-        <div className="w-full px-4 py-2 border border-gray-300 rounded-md bg-gray-100 animate-pulse">
-          Cargando opciones...
-        </div>
+        <div className="h-[52px] w-full animate-pulse rounded-md border border-ink-200 bg-ink-100" />
       ) : (
-        <select
-          id="mode"
-          name="mode"
+        <OptionSet
+          options={options.map((opt) => ({ value: opt.value, label: opt.label }))}
           value={value}
-          onChange={(e) => onChange(e.target.value as 'operativo' | 'gestion')}
-          required
-          className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-        >
-          {options.map((opt) => (
-            <option key={opt.value} value={opt.value}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
+          onChange={(v) => onChange(v as 'operativo' | 'gestion')}
+        />
       )}
-      <p className="mt-1 text-sm text-gray-500">
-        {getDescription(value)}
-      </p>
+      <p className="mt-1.5 text-sm text-ink-500">{getDescription(value)}</p>
     </div>
   )
 }

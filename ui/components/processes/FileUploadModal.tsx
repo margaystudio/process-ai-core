@@ -1,6 +1,9 @@
 'use client'
 
 import { useState, useRef, useCallback, useEffect } from 'react'
+import { Music, FileText, Image as ImageIcon, Paperclip, X } from 'lucide-react'
+import { Button } from '@/shared/ui/components'
+import { cn } from '@/shared/ui/cn'
 import {
   EXTENSIONS_BY_TYPE,
   MAX_FILE_SIZE_BYTES,
@@ -18,6 +21,11 @@ const TYPE_OPTIONS: { value: FileType; label: string; extensions: readonly strin
   { value: 'image', label: 'Imagen', extensions: EXTENSIONS_BY_TYPE.image },
   { value: 'video', label: 'Otro', extensions: EXTENSIONS_BY_TYPE.video },
 ]
+
+const selectClass =
+  'h-10 w-full rounded-md border border-ink-300 bg-white px-3 text-body text-ink-800 transition-colors focus:border-action focus:outline-none focus:ring-[3px] focus:ring-action-ring'
+const inputClass =
+  'h-10 w-full rounded-md border border-ink-300 bg-white px-3 text-body text-ink-800 placeholder:text-ink-500 transition-colors focus:border-action focus:outline-none focus:ring-[3px] focus:ring-action-ring'
 
 function formatRecordingTime(seconds: number): string {
   const m = Math.floor(seconds / 60)
@@ -59,6 +67,13 @@ function getTypeCategoryForIcon(fileType: FileType): 'audio' | 'document' | 'ima
     default:
       return 'other'
   }
+}
+
+function CategoryIcon({ category, className }: { category: 'audio' | 'document' | 'image' | 'other'; className?: string }) {
+  if (category === 'audio') return <Music className={className} />
+  if (category === 'document') return <FileText className={className} />
+  if (category === 'image') return <ImageIcon className={className} />
+  return <Paperclip className={className} />
 }
 
 interface FileUploadModalProps {
@@ -281,29 +296,29 @@ export default function FileUploadModal({ isOpen, onClose, onAdd }: FileUploadMo
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
       onClick={handleBackdropClick}
       role="dialog"
       aria-modal="true"
       aria-labelledby="file-upload-modal-title"
     >
-      <div className="bg-white rounded-xl shadow-xl max-w-md w-full overflow-hidden">
+      <div className="w-full max-w-md overflow-hidden rounded-xl bg-white shadow-lg">
         <div className="p-6">
-          <h2 id="file-upload-modal-title" className="text-xl font-semibold text-gray-900 mb-6">
-            Agregar Archivo
+          <h2 id="file-upload-modal-title" className="mb-6 text-h2 text-ink-900">
+            Agregar archivo
           </h2>
 
           <form onSubmit={handleSubmit} className="space-y-5">
             {/* Tipo de archivo */}
             <div>
-              <label htmlFor="file-type" className="block text-sm font-medium text-gray-700 mb-1.5">
+              <label htmlFor="file-type" className="mb-1.5 block text-sm font-semibold text-ink-700">
                 Tipo de archivo
               </label>
               <select
                 id="file-type"
                 value={type}
                 onChange={(e) => handleTypeChange(e.target.value as FileType)}
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className={selectClass}
                 aria-describedby="file-type-formats"
               >
                 {TYPE_OPTIONS.map((opt) => (
@@ -312,14 +327,14 @@ export default function FileUploadModal({ isOpen, onClose, onAdd }: FileUploadMo
                   </option>
                 ))}
               </select>
-              <p id="file-type-formats" className="mt-1.5 text-sm text-gray-500">
+              <p id="file-type-formats" className="mt-1.5 text-sm text-ink-500">
                 Formatos permitidos: {extensionsLabel}
               </p>
             </div>
 
             {/* Descripción opcional */}
             <div>
-              <label htmlFor="file-description" className="block text-sm font-medium text-gray-700 mb-1.5">
+              <label htmlFor="file-description" className="mb-1.5 block text-sm font-semibold text-ink-700">
                 Descripción (opcional)
               </label>
               <input
@@ -327,7 +342,7 @@ export default function FileUploadModal({ isOpen, onClose, onAdd }: FileUploadMo
                 id="file-description"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className={inputClass}
                 placeholder="Ej: Reunión de relevamiento"
               />
             </div>
@@ -338,11 +353,10 @@ export default function FileUploadModal({ isOpen, onClose, onAdd }: FileUploadMo
                 <button
                   type="button"
                   onClick={() => setAudioSource('file')}
-                  className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    audioSource === 'file'
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
+                  className={cn(
+                    'flex-1 rounded-md px-4 py-2 text-sm font-semibold transition-colors',
+                    audioSource === 'file' ? 'bg-action text-action-on' : 'bg-ink-100 text-ink-700 hover:bg-ink-150'
+                  )}
                 >
                   Subir archivo
                 </button>
@@ -354,11 +368,10 @@ export default function FileUploadModal({ isOpen, onClose, onAdd }: FileUploadMo
                     setTouchedDropzone(false)
                     if (fileInputRef.current) fileInputRef.current.value = ''
                   }}
-                  className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    audioSource === 'record'
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
+                  className={cn(
+                    'flex-1 rounded-md px-4 py-2 text-sm font-semibold transition-colors',
+                    audioSource === 'record' ? 'bg-action text-action-on' : 'bg-ink-100 text-ink-700 hover:bg-ink-150'
+                  )}
                 >
                   Grabar audio
                 </button>
@@ -367,59 +380,50 @@ export default function FileUploadModal({ isOpen, onClose, onAdd }: FileUploadMo
 
             {/* Dropzone o grabación o tarjeta de archivo */}
             <div>
-              <span className="block text-sm font-medium text-gray-700 mb-1.5">
+              <span className="mb-1.5 block text-sm font-semibold text-ink-700">
                 {audioSource === 'record' && type === 'audio' ? 'Grabación' : 'Archivo'}
               </span>
 
               {type === 'audio' && audioSource === 'record' ? (
                 <div className="space-y-3">
                   {recordError && (
-                    <p className="text-sm text-red-600" role="alert">
+                    <p className="text-sm text-danger" role="alert">
                       {recordError}
                     </p>
                   )}
                   {!recordedBlob ? (
-                    <div className="border-2 border-dashed border-gray-300 rounded-xl p-6 text-center">
+                    <div className="rounded-xl border-2 border-dashed border-ink-300 p-6 text-center">
                       {!isRecording ? (
                         <>
-                          <p className="text-gray-600 mb-4">
+                          <p className="mb-4 text-ink-600">
                             Presioná Grabar para comenzar la grabación
                           </p>
-                          <button
-                            type="button"
-                            onClick={startRecording}
-                            disabled={isRecording}
-                            className="inline-flex items-center gap-2 px-5 py-2.5 bg-red-600 text-white font-medium rounded-lg hover:bg-red-700 disabled:opacity-50 focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
-                          >
-                            <span className="w-3 h-3 rounded-full bg-white animate-pulse" />
+                          <Button type="button" variant="danger" onClick={startRecording} disabled={isRecording}>
+                            <span className="h-3 w-3 animate-pulse rounded-full bg-danger" />
                             Grabar
-                          </button>
+                          </Button>
                         </>
                       ) : (
                         <>
-                          <p className="text-gray-600 mb-4 flex items-center justify-center gap-2">
-                            <span className="w-3 h-3 rounded-full bg-red-500 animate-pulse" />
+                          <p className="mb-4 flex items-center justify-center gap-2 text-ink-600">
+                            <span className="h-3 w-3 animate-pulse rounded-full bg-danger" />
                             Grabando... {formatRecordingTime(recordingElapsedSeconds)}
                           </p>
-                          <button
-                            type="button"
-                            onClick={stopRecording}
-                            className="inline-flex items-center gap-2 px-5 py-2.5 bg-gray-800 text-white font-medium rounded-lg hover:bg-gray-900 focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
-                          >
+                          <Button type="button" onClick={stopRecording}>
                             Detener
-                          </button>
+                          </Button>
                         </>
                       )}
                     </div>
                   ) : (
                     <div className="space-y-3">
-                      <div className="flex items-center gap-3 p-4 rounded-xl border border-gray-200 bg-gray-50">
-                        <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-white border border-gray-200 flex items-center justify-center text-lg">
-                          🎵
+                      <div className="flex items-center gap-3 rounded-xl border border-ink-200 bg-ink-50 p-4">
+                        <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border border-ink-200 bg-white text-ink-500">
+                          <Music className="h-5 w-5" />
                         </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="font-medium text-gray-900">Grabación lista</p>
-                          <p className="text-sm text-gray-500">
+                        <div className="min-w-0 flex-1">
+                          <p className="font-semibold text-ink-900">Grabación lista</p>
+                          <p className="text-sm text-ink-500">
                             {formatFileSize(recordedBlob.size)}
                           </p>
                         </div>
@@ -428,20 +432,12 @@ export default function FileUploadModal({ isOpen, onClose, onAdd }: FileUploadMo
                         <audio controls src={recordedBlobUrl} className="w-full" />
                       )}
                       <div className="flex gap-2">
-                        <button
-                          type="button"
-                          onClick={useRecording}
-                          className="flex-1 px-4 py-2.5 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-                        >
+                        <Button type="button" className="flex-1" onClick={useRecording}>
                           Usar grabación
-                        </button>
-                        <button
-                          type="button"
-                          onClick={discardRecording}
-                          className="flex-1 px-4 py-2.5 border border-gray-300 rounded-lg text-gray-700 font-medium hover:bg-gray-50 focus:ring-2 focus:ring-gray-300 focus:ring-offset-2"
-                        >
+                        </Button>
+                        <Button type="button" variant="secondary" className="flex-1" onClick={discardRecording}>
                           Descartar
-                        </button>
+                        </Button>
                       </div>
                     </div>
                   )}
@@ -456,14 +452,12 @@ export default function FileUploadModal({ isOpen, onClose, onAdd }: FileUploadMo
                     onDragLeave={onDragLeave}
                     role="button"
                     tabIndex={0}
-                    className={`
-                      relative border-2 border-dashed rounded-xl p-8 text-center cursor-pointer
-                      transition-colors outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2
-                      ${dragOver
-                        ? 'border-blue-500 bg-blue-50/50'
-                        : 'border-gray-300 bg-gray-50/50 hover:border-gray-400 hover:bg-gray-50'
-                      }
-                    `}
+                    className={cn(
+                      'relative cursor-pointer rounded-xl border-2 border-dashed p-8 text-center outline-none transition-colors focus:ring-[3px] focus:ring-action-ring',
+                      dragOver
+                        ? 'border-accent bg-accent-tint'
+                        : 'border-ink-300 bg-ink-50 hover:border-ink-400'
+                    )}
                     aria-label="Arrastrá tu archivo aquí o seleccioná uno"
                   >
                     <input
@@ -475,19 +469,19 @@ export default function FileUploadModal({ isOpen, onClose, onAdd }: FileUploadMo
                       className="sr-only"
                       aria-hidden
                     />
-                    <p className="text-gray-700 font-medium">Arrastrá tu archivo aquí</p>
-                    <p className="text-sm text-gray-500 mt-1">o</p>
-                    <span className="inline-block mt-3 px-4 py-2 rounded-lg bg-gray-200 text-gray-800 text-sm font-medium hover:bg-gray-300 transition-colors">
+                    <p className="font-semibold text-ink-700">Arrastrá tu archivo aquí</p>
+                    <p className="mt-1 text-sm text-ink-500">o</p>
+                    <span className="mt-3 inline-block rounded-md bg-ink-200 px-4 py-2 text-sm font-semibold text-ink-800 transition-colors hover:bg-ink-150">
                       Seleccionar archivo
                     </span>
                   </div>
 
-                  <p className="mt-2 text-xs text-gray-500">
+                  <p className="mt-2 text-xs text-ink-500">
                     Máximo: {formatFileSize(MAX_FILE_SIZE_BYTES)}
                   </p>
 
                   {showFileErrors && (
-                    <div className="mt-2 space-y-1 text-sm text-red-600" role="alert">
+                    <div className="mt-2 space-y-1 text-sm text-danger" role="alert">
                       {sizeError && (
                         <p>El archivo supera el tamaño máximo permitido.</p>
                       )}
@@ -499,28 +493,25 @@ export default function FileUploadModal({ isOpen, onClose, onAdd }: FileUploadMo
                 </>
               ) : (
                 <div
-                  className="flex items-start gap-3 p-4 rounded-xl border border-gray-200 bg-gray-50"
+                  className="flex items-start gap-3 rounded-xl border border-ink-200 bg-ink-50 p-4"
                   role="status"
                   aria-label={`Archivo seleccionado: ${file.name}`}
                 >
-                  <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-white border border-gray-200 flex items-center justify-center text-lg">
-                    {category === 'audio' && '🎵'}
-                    {category === 'document' && '📄'}
-                    {category === 'image' && '🖼️'}
-                    {category === 'other' && '📎'}
+                  <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border border-ink-200 bg-white text-ink-500">
+                    {category && <CategoryIcon category={category} className="h-5 w-5" />}
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium text-gray-900 truncate" title={file.name}>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-semibold text-ink-900" title={file.name}>
                       {file.name}
                     </p>
-                    <p className="text-sm text-gray-500 mt-0.5">
+                    <p className="mt-0.5 text-sm text-ink-500">
                       {formatFileSize(file.size)}
                       {getFileExtension(file.name) && (
                         <span className="ml-1">· {getFileExtension(file.name)}</span>
                       )}
                     </p>
                     {(sizeError || typeError) && (
-                      <p className="text-sm text-red-600 mt-1">
+                      <p className="mt-1 text-sm text-danger">
                         {sizeError && 'Supera el tamaño máximo. '}
                         {typeError && 'Tipo no permitido para esta categoría.'}
                       </p>
@@ -529,13 +520,11 @@ export default function FileUploadModal({ isOpen, onClose, onAdd }: FileUploadMo
                   <button
                     type="button"
                     onClick={handleRemoveFile}
-                    className="flex-shrink-0 p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                    className="flex-shrink-0 rounded-md p-2 text-ink-500 transition-colors hover:bg-danger-bg hover:text-danger"
                     title="Quitar archivo"
                     aria-label="Quitar archivo"
                   >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
+                    <X className="h-5 w-5" />
                   </button>
                 </div>
               )}
@@ -544,24 +533,16 @@ export default function FileUploadModal({ isOpen, onClose, onAdd }: FileUploadMo
             {/* CTA: cuando hay grabación lista, los botones están inline; solo mostramos Cancelar */}
             <div className="flex gap-3 pt-2">
               {!(type === 'audio' && audioSource === 'record' && recordedBlob) && (
-                <button
-                  type="submit"
-                  disabled={!canSubmit}
-                  className="flex-1 px-4 py-2.5 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-                >
+                <Button type="submit" className="flex-1" disabled={!canSubmit}>
                   Subir archivo
-                </button>
+                </Button>
               )}
-              <button
-                type="button"
-                onClick={onClose}
-                className="flex-1 px-4 py-2.5 border border-gray-300 rounded-lg text-gray-700 font-medium hover:bg-gray-50 focus:ring-2 focus:ring-gray-300 focus:ring-offset-2"
-              >
+              <Button type="button" variant="secondary" className="flex-1" onClick={onClose}>
                 Cancelar
-              </button>
+              </Button>
             </div>
 
-            <p className="text-xs text-gray-500 text-center pt-1">
+            <p className="pt-1 text-center text-xs text-ink-500">
               Este archivo se utilizará como contexto para generar o actualizar el documento.
             </p>
           </form>

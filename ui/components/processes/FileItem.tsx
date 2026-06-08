@@ -1,3 +1,4 @@
+import { Music, Video, Image as ImageIcon, FileText, Trash2 } from 'lucide-react'
 import { FileType } from './FileUploadModal'
 
 export interface FileItemData {
@@ -12,73 +13,58 @@ interface FileItemProps {
   onRemove: (id: string) => void
 }
 
-export default function FileItem({ item, onRemove }: FileItemProps) {
-  const getTypeLabel = (type: FileType): string => {
-    switch (type) {
-      case 'audio':
-        return '🎵 Audio'
-      case 'video':
-        return '🎬 Video'
-      case 'image':
-        return '🖼️ Imagen'
-      case 'text':
-        return '📄 Texto'
-    }
-  }
+const TYPE_META: Record<FileType, { label: string; Icon: typeof Music }> = {
+  audio: { label: 'Audio', Icon: Music },
+  video: { label: 'Video', Icon: Video },
+  image: { label: 'Imagen', Icon: ImageIcon },
+  text: { label: 'Texto', Icon: FileText },
+}
 
-  const getPreview = () => {
-    if (item.type === 'image') {
-      return (
-        <img
-          src={URL.createObjectURL(item.file)}
-          alt={item.description || item.file.name}
-          className="w-20 h-20 object-cover rounded"
-        />
-      )
-    }
-    return (
-      <div className="w-20 h-20 bg-gray-100 rounded flex items-center justify-center text-2xl">
-        {item.type === 'audio' && '🎵'}
-        {item.type === 'video' && '🎬'}
-        {item.type === 'text' && '📄'}
-      </div>
-    )
-  }
+export default function FileItem({ item, onRemove }: FileItemProps) {
+  const meta = TYPE_META[item.type]
+
+  const preview = item.type === 'image' ? (
+    <img
+      src={URL.createObjectURL(item.file)}
+      alt={item.description || item.file.name}
+      className="h-20 w-20 rounded object-cover"
+    />
+  ) : (
+    <div className="flex h-20 w-20 items-center justify-center rounded bg-ink-100 text-ink-500">
+      <meta.Icon className="h-7 w-7" />
+    </div>
+  )
 
   return (
-    <div className="flex items-start gap-4 p-4 border border-gray-200 rounded-lg hover:bg-gray-50">
-      <div className="flex-shrink-0">
-        {getPreview()}
-      </div>
-      
-      <div className="flex-1 min-w-0">
+    <div className="flex items-start gap-4 rounded-lg border border-ink-200 p-4 transition-colors hover:bg-ink-50">
+      <div className="flex-shrink-0">{preview}</div>
+
+      <div className="min-w-0 flex-1">
         <div className="flex items-start justify-between gap-2">
-          <div className="flex-1 min-w-0">
-            <p className="font-medium text-gray-900 truncate">{item.file.name}</p>
-            <p className="text-sm text-gray-500 mt-1">{getTypeLabel(item.type)}</p>
+          <div className="min-w-0 flex-1">
+            <p className="truncate font-semibold text-ink-900">{item.file.name}</p>
+            <p className="mt-1 flex items-center gap-1.5 text-sm text-ink-500">
+              <meta.Icon className="h-3.5 w-3.5" />
+              {meta.label}
+            </p>
             {item.description && (
-              <p className="text-sm text-gray-600 mt-1">{item.description}</p>
+              <p className="mt-1 text-sm text-ink-600">{item.description}</p>
             )}
-            <p className="text-xs text-gray-400 mt-1">
+            <p className="mt-1 text-xs text-ink-400">
               {(item.file.size / 1024 / 1024).toFixed(2)} MB
             </p>
           </div>
-          
+
           <button
             type="button"
             onClick={() => onRemove(item.id)}
-            className="flex-shrink-0 text-red-600 hover:text-red-700 p-1"
+            className="flex-shrink-0 rounded-md p-1 text-danger hover:bg-danger-bg"
             title="Eliminar archivo"
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-            </svg>
+            <Trash2 className="h-5 w-5" />
           </button>
         </div>
       </div>
     </div>
   )
 }
-
-
-
