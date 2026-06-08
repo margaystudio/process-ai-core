@@ -69,8 +69,8 @@ export default function ViewPage() {
   }
 
 
-  // Verificar que el usuario es viewer
-  if (role && role !== 'viewer') {
+  // Verificar que el usuario es viewer (superadmin = bypass de plataforma)
+  if (role && role !== 'viewer' && role !== 'superadmin') {
     return (
       <div className="p-8">
         <div className="mx-auto max-w-7xl">

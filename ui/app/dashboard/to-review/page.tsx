@@ -66,8 +66,8 @@ export default function ToReviewPage() {
   // Filtrar documentos por búsqueda y carpeta
   const filteredDocuments = useDocumentFilter(documents, searchQuery, selectedFolderId)
 
-  // Verificar que el usuario es creador
-  if (role && role !== 'creator') {
+  // Verificar que el usuario es creador (superadmin = bypass de plataforma)
+  if (role && role !== 'creator' && role !== 'superadmin') {
     return (
       <div className="p-8">
         <div className="mx-auto max-w-7xl">

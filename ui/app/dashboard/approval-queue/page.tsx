@@ -66,8 +66,8 @@ export default function ApprovalQueuePage() {
   // Filtrar documentos por búsqueda y carpeta
   const filteredDocuments = useDocumentFilter(documents, searchQuery, selectedFolderId)
 
-  // Verificar que el usuario es aprobador
-  if (role && role !== 'owner' && role !== 'admin' && role !== 'approver') {
+  // Verificar que el usuario es aprobador (superadmin = bypass de plataforma)
+  if (role && role !== 'owner' && role !== 'admin' && role !== 'approver' && role !== 'superadmin') {
     return (
       <div className="p-8">
         <div className="mx-auto max-w-7xl">
