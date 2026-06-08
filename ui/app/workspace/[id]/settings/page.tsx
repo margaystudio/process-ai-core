@@ -338,9 +338,9 @@ export default function WorkspaceSettingsPage() {
 
   if (!workspaceId) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-ink-50 flex items-center justify-center">
         <div className="text-center">
-          <p className="text-gray-600">Espacio de trabajo no seleccionado</p>
+          <p className="text-ink-600">Espacio de trabajo no seleccionado</p>
         </div>
       </div>
     )
@@ -437,21 +437,21 @@ export default function WorkspaceSettingsPage() {
   // Verificar permisos: owner/admin/superadmin ven settings completos; owner/creator ven personalización
   if (!loadingEditPerm && !loadingRole && !hasAnyAccess) {
     return (
-      <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
+      <div className="min-h-screen bg-ink-50 py-8 px-4 sm:px-6 lg:px-8">
         <div className="max-w-7xl mx-auto">
-          <div className="bg-red-50 border border-red-200 rounded-lg p-6">
-            <h2 className="text-xl font-semibold text-red-900 mb-2">
+          <div className="bg-danger-bg border border-danger-bd rounded-lg p-6">
+            <h2 className="text-xl font-semibold text-danger mb-2">
               Acceso no autorizado
             </h2>
-            <p className="text-red-800 mb-4">
+            <p className="text-danger mb-4">
               No tienes permisos para acceder a la configuración del espacio de trabajo.
             </p>
-            <p className="text-sm text-red-700 mb-4">
+            <p className="text-sm text-danger mb-4">
               Solo los roles autorizados pueden acceder a esta página o a la sección de personalización.
             </p>
             <button
               onClick={() => router.push('/workspace')}
-              className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 font-medium"
+              className="px-4 py-2 bg-danger text-white rounded-md hover:bg-danger font-medium"
             >
               Volver al workspace
             </button>
@@ -462,24 +462,24 @@ export default function WorkspaceSettingsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-ink-50 py-8 px-4 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto">
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">Configuración del Espacio de Trabajo</h1>
-          <p className="mt-2 text-sm text-gray-600">
+          <h1 className="text-h1 text-ink-900">Configuración del Espacio de Trabajo</h1>
+          <p className="mt-2 text-sm text-ink-600">
             Gestiona la configuración, usuarios, suscripción y límites del espacio de trabajo
           </p>
         </div>
 
         {error && (
-          <div className="mb-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative" role="alert">
+          <div className="mb-4 bg-danger-bg border border-danger-bd text-danger px-4 py-3 rounded relative" role="alert">
             <span className="block sm:inline">{error}</span>
           </div>
         )}
 
         {/* Tabs */}
         <div className="bg-white shadow rounded-lg mb-6">
-          <div className="border-b border-gray-200">
+          <div className="border-b border-ink-200">
             <nav className="flex -mb-px">
               {availableTabs.map((tab) => (
                 <button
@@ -487,8 +487,8 @@ export default function WorkspaceSettingsPage() {
                   onClick={() => setActiveTab(tab.id as any)}
                   className={`${
                     activeTab === tab.id
-                      ? 'border-blue-500 text-blue-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                      ? 'border-accent text-accent'
+                      : 'border-transparent text-ink-500 hover:text-ink-700 hover:border-ink-300'
                   } whitespace-nowrap py-4 px-6 border-b-2 font-medium text-sm`}
                 >
                   {tab.label}
@@ -512,48 +512,48 @@ export default function WorkspaceSettingsPage() {
             {activeTab === 'roles' && (
               <div>
                 <h2 className="text-xl font-semibold mb-4">Roles operativos</h2>
-                <p className="text-gray-600 text-sm mb-4">
+                <p className="text-ink-600 text-sm mb-4">
                   Los roles operativos definen en qué carpetas puede actuar cada usuario (ej: Pistero, Cajero). Creá los roles y asignálos a usuarios y a carpetas.
                 </p>
                 <form onSubmit={handleCreateRole} className="flex flex-wrap gap-3 items-end mb-6">
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Nombre del rol</label>
+                    <label className="block text-xs font-medium text-ink-600 mb-1">Nombre del rol</label>
                     <input
                       type="text"
                       value={newRoleName}
                       onChange={(e) => setNewRoleName(e.target.value)}
                       placeholder="ej: Pistero"
-                      className="px-3 py-2 border border-gray-300 rounded-md text-sm w-48"
+                      className="px-3 py-2 border border-ink-300 rounded-md text-sm w-48"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Descripción (opcional)</label>
+                    <label className="block text-xs font-medium text-ink-600 mb-1">Descripción (opcional)</label>
                     <input
                       type="text"
                       value={newRoleDescription}
                       onChange={(e) => setNewRoleDescription(e.target.value)}
                       placeholder="Breve descripción"
-                      className="px-3 py-2 border border-gray-300 rounded-md text-sm w-56"
+                      className="px-3 py-2 border border-ink-300 rounded-md text-sm w-56"
                     />
                   </div>
                   <button
                     type="submit"
                     disabled={!newRoleName.trim()}
-                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-medium rounded-md"
+                    className="px-4 py-2 bg-action hover:bg-action-hover disabled:opacity-50 text-white text-sm font-medium rounded-md"
                   >
                     Crear rol
                   </button>
                 </form>
                 <div className="space-y-2">
-                  {operationalRoles.length === 0 && <p className="text-gray-500">No hay roles operativos. Creá uno arriba.</p>}
+                  {operationalRoles.length === 0 && <p className="text-ink-500">No hay roles operativos. Creá uno arriba.</p>}
                   {operationalRoles.map((role) => (
                     <div
                       key={role.id}
-                      className="flex items-center justify-between py-2 px-3 bg-gray-50 rounded-md"
+                      className="flex items-center justify-between py-2 px-3 bg-ink-50 rounded-md"
                     >
                       <div>
                         <span className="font-medium">{role.name}</span>
-                        {role.description && <span className="text-gray-500 text-sm ml-2">— {role.description}</span>}
+                        {role.description && <span className="text-ink-500 text-sm ml-2">— {role.description}</span>}
                       </div>
                       <button
                         onClick={async () => {
@@ -565,15 +565,15 @@ export default function WorkspaceSettingsPage() {
                             setError(err instanceof Error ? err.message : 'Error al eliminar')
                           }
                         }}
-                        className="text-red-600 hover:text-red-800 text-sm"
+                        className="text-danger hover:text-danger text-sm"
                       >
                         Eliminar
                       </button>
                     </div>
                   ))}
                 </div>
-                <p className="mt-6 text-sm text-gray-500">
-                  Para asignar estos roles a usuarios, andá a la pestaña <button type="button" onClick={() => setActiveTab('users')} className="text-blue-600 hover:underline">Usuarios</button> y usá &quot;Asignar roles operativos&quot; en cada miembro.
+                <p className="mt-6 text-sm text-ink-500">
+                  Para asignar estos roles a usuarios, andá a la pestaña <button type="button" onClick={() => setActiveTab('users')} className="text-accent hover:underline">Usuarios</button> y usá &quot;Asignar roles operativos&quot; en cada miembro.
                 </p>
               </div>
             )}
@@ -582,19 +582,19 @@ export default function WorkspaceSettingsPage() {
             {activeTab === 'folders' && (
               <div>
                 <h2 className="text-xl font-semibold mb-4">Acceso por carpeta</h2>
-                <p className="text-gray-600 text-sm mb-4">
+                <p className="text-ink-600 text-sm mb-4">
                   Definí qué roles operativos pueden acceder a cada carpeta. Si una carpeta hereda del padre, usa los mismos permisos que la carpeta padre.
                 </p>
                 {folders.length === 0 ? (
-                  <p className="text-gray-500">No hay carpetas en este workspace.</p>
+                  <p className="text-ink-500">No hay carpetas en este workspace.</p>
                 ) : (
                   <ul className="space-y-2">
                     {folders.map((folder) => (
-                      <li key={folder.id} className="flex items-center justify-between py-2 px-3 bg-gray-50 rounded-md">
+                      <li key={folder.id} className="flex items-center justify-between py-2 px-3 bg-ink-50 rounded-md">
                         <span className="font-medium">{folder.name}</span>
                         <button
                           onClick={() => openFolderPermissions(folder)}
-                          className="px-3 py-1.5 text-sm bg-blue-100 hover:bg-blue-200 text-blue-800 rounded-md"
+                          className="px-3 py-1.5 text-sm bg-accent-tint hover:bg-accent-tint text-accent-ink rounded-md"
                         >
                           Permisos
                         </button>
@@ -615,13 +615,13 @@ export default function WorkspaceSettingsPage() {
                       type="checkbox"
                       checked={folderPermsInherit}
                       onChange={(e) => setFolderPermsInherit(e.target.checked)}
-                      className="rounded border-gray-300"
+                      className="rounded border-ink-300"
                     />
                     <span className="text-sm">Heredar permisos del padre</span>
                   </label>
                   {!folderPermsInherit && (
                     <div className="mb-4">
-                      <p className="text-sm font-medium text-gray-700 mb-2">Roles con acceso a esta carpeta</p>
+                      <p className="text-sm font-medium text-ink-700 mb-2">Roles con acceso a esta carpeta</p>
                       <div className="flex flex-wrap gap-2">
                         {operationalRoles.filter((r) => r.is_active).map((role) => (
                           <label key={role.id} className="inline-flex items-center gap-2">
@@ -635,7 +635,7 @@ export default function WorkspaceSettingsPage() {
                                   setFolderPermsRoleIds((prev) => prev.filter((id) => id !== role.id))
                                 }
                               }}
-                              className="rounded border-gray-300"
+                              className="rounded border-ink-300"
                             />
                             <span className="text-sm">{role.name}</span>
                           </label>
@@ -646,13 +646,13 @@ export default function WorkspaceSettingsPage() {
                   <div className="flex justify-end gap-2 mt-4">
                     <button
                       onClick={() => setFolderPermissionsModal(null)}
-                      className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-md text-sm"
+                      className="px-4 py-2 bg-ink-200 hover:bg-ink-300 rounded-md text-sm"
                     >
                       Cerrar
                     </button>
                     <button
                       onClick={saveFolderPermissions}
-                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm"
+                      className="px-4 py-2 bg-action hover:bg-action-hover text-white rounded-md text-sm"
                     >
                       Guardar
                     </button>
@@ -666,23 +666,23 @@ export default function WorkspaceSettingsPage() {
               <div className="space-y-6">
                 <div>
                   <h2 className="text-xl font-semibold mb-2">Personalización</h2>
-                  <p className="text-gray-600">
+                  <p className="text-ink-600">
                     Cargá un icono para este cliente. El sistema tomará automaticamente 2 colores principales desde la imagen y podrás ajustarlos manualmente si hace falta.
                   </p>
                 </div>
 
-                <div className="rounded-lg border border-gray-200 p-6 bg-gray-50">
+                <div className="rounded-lg border border-ink-200 p-6 bg-ink-50">
                   <div className="flex flex-col md:flex-row md:items-center gap-6">
                     <div className="flex items-center gap-3">
-                      <div className="flex h-16 w-16 items-center justify-center rounded-lg border border-gray-200 bg-white overflow-hidden">
+                      <div className="flex h-16 w-16 items-center justify-center rounded-lg border border-ink-200 bg-white overflow-hidden">
                         {brandingIconUrl ? (
                           <img src={brandingIconUrl} alt="Icono del cliente" className="h-14 w-14 object-contain" />
                         ) : (
-                          <span className="text-xs text-gray-400 text-center px-2">Sin icono</span>
+                          <span className="text-xs text-ink-400 text-center px-2">Sin icono</span>
                         )}
                       </div>
                       <div className="flex items-center gap-3">
-                        <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-white border border-gray-200">
+                        <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-white border border-ink-200">
                           <img src="/margay-logo.png" alt="Logo de Process AI" className="h-10 w-10 object-contain" />
                         </div>
                         <span
@@ -704,7 +704,7 @@ export default function WorkspaceSettingsPage() {
                     </div>
 
                     <div className="space-y-4">
-                      <label className="inline-flex items-center px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-md cursor-pointer disabled:opacity-50">
+                      <label className="inline-flex items-center px-4 py-2 bg-action hover:bg-action-hover text-white font-medium rounded-md cursor-pointer disabled:opacity-50">
                         <input
                           type="file"
                           accept=".png,.jpg,.jpeg,.webp,.svg,image/png,image/jpeg,image/webp,image/svg+xml"
@@ -718,42 +718,42 @@ export default function WorkspaceSettingsPage() {
                         <button
                           type="button"
                           onClick={handleDeleteBrandingIcon}
-                          className="block px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-100 disabled:opacity-50"
+                          className="block px-4 py-2 border border-ink-300 rounded-md text-sm font-medium text-ink-700 hover:bg-ink-100 disabled:opacity-50"
                           disabled={brandingSaving}
                         >
                           Quitar icono
                         </button>
                       )}
-                      <p className="text-xs text-gray-500">
+                      <p className="text-xs text-ink-500">
                         Formatos permitidos: PNG, JPG, WEBP o SVG. Tamaño máximo: 2 MB.
                       </p>
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
                         <label className="block">
-                          <span className="block text-sm font-medium text-gray-700 mb-2">Color principal</span>
+                          <span className="block text-sm font-medium text-ink-700 mb-2">Color principal</span>
                           <div className="flex items-center gap-3">
                             <input
                               type="color"
                               value={brandingPrimaryColor}
                               onChange={(e) => setBrandingPrimaryColor(e.target.value.toUpperCase())}
-                              className="h-11 w-14 rounded border border-gray-300 bg-white p-1"
+                              className="h-11 w-14 rounded border border-ink-300 bg-white p-1"
                               disabled={brandingSaving}
                             />
-                            <span className="text-sm font-mono text-gray-600">{brandingPrimaryColor}</span>
+                            <span className="text-sm font-mono text-ink-600">{brandingPrimaryColor}</span>
                           </div>
                         </label>
 
                         <label className="block">
-                          <span className="block text-sm font-medium text-gray-700 mb-2">Color secundario</span>
+                          <span className="block text-sm font-medium text-ink-700 mb-2">Color secundario</span>
                           <div className="flex items-center gap-3">
                             <input
                               type="color"
                               value={brandingSecondaryColor}
                               onChange={(e) => setBrandingSecondaryColor(e.target.value.toUpperCase())}
-                              className="h-11 w-14 rounded border border-gray-300 bg-white p-1"
+                              className="h-11 w-14 rounded border border-ink-300 bg-white p-1"
                               disabled={brandingSaving}
                             />
-                            <span className="text-sm font-mono text-gray-600">{brandingSecondaryColor}</span>
+                            <span className="text-sm font-mono text-ink-600">{brandingSecondaryColor}</span>
                           </div>
                         </label>
                       </div>
@@ -771,7 +771,7 @@ export default function WorkspaceSettingsPage() {
                   </div>
 
                   {brandingMessage && (
-                    <p className={`mt-4 text-sm ${brandingMessage.includes('correctamente') ? 'text-green-700' : 'text-red-600'}`}>
+                    <p className={`mt-4 text-sm ${brandingMessage.includes('correctamente') ? 'text-success-fg' : 'text-danger'}`}>
                       {brandingMessage}
                     </p>
                   )}
@@ -792,14 +792,14 @@ export default function WorkspaceSettingsPage() {
                 <div className="space-y-4">
                   <h3 className="text-lg font-medium">Miembros del workspace</h3>
                   {members.length === 0 ? (
-                    <p className="text-gray-500">Cargando miembros...</p>
+                    <p className="text-ink-500">Cargando miembros...</p>
                   ) : (
                     <div className="divide-y divide-gray-200">
                       {members.map((member) => (
                         <div key={member.membership_id} className="py-4 flex items-center justify-between gap-4">
                           <div>
                             <p className="font-medium">{member.name || member.email}</p>
-                            <p className="text-sm text-gray-500">
+                            <p className="text-sm text-ink-500">
                               {member.email} • Rol: {member.role}
                               {member.operational_role_ids?.length
                                 ? ` • Roles operativos: ${member.operational_role_ids.length}`
@@ -809,7 +809,7 @@ export default function WorkspaceSettingsPage() {
                           {canManageUsers && (
                             <button
                               onClick={() => openMemberEdit(member)}
-                              className="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded-md"
+                              className="px-3 py-1.5 text-sm bg-ink-100 hover:bg-ink-200 rounded-md"
                             >
                               {editingMemberId === member.membership_id ? 'Editando...' : 'Asignar roles operativos'}
                             </button>
@@ -819,7 +819,7 @@ export default function WorkspaceSettingsPage() {
                     </div>
                   )}
                   {editingMemberId && (
-                    <div className="mt-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
+                    <div className="mt-4 p-4 bg-ink-50 rounded-lg border border-ink-200">
                       <p className="text-sm font-medium mb-3">Seleccionar roles operativos para este usuario</p>
                       <div className="flex flex-wrap gap-3">
                         {operationalRoles.filter((r) => r.is_active).map((role) => (
@@ -834,7 +834,7 @@ export default function WorkspaceSettingsPage() {
                                   setMemberRoleIds((prev) => prev.filter((id) => id !== role.id))
                                 }
                               }}
-                              className="rounded border-gray-300"
+                              className="rounded border-ink-300"
                             />
                             <span className="text-sm">{role.name}</span>
                           </label>
@@ -843,13 +843,13 @@ export default function WorkspaceSettingsPage() {
                       <div className="mt-3 flex gap-2">
                         <button
                           onClick={handleSaveMemberRoles}
-                          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-md"
+                          className="px-4 py-2 bg-action hover:bg-action-hover text-white text-sm font-medium rounded-md"
                         >
                           Guardar
                         </button>
                         <button
                           onClick={() => setEditingMemberId(null)}
-                          className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-sm rounded-md"
+                          className="px-4 py-2 bg-ink-200 hover:bg-ink-300 text-sm rounded-md"
                         >
                           Cancelar
                         </button>
@@ -866,18 +866,18 @@ export default function WorkspaceSettingsPage() {
                 <h2 className="text-xl font-semibold mb-4">Suscripción</h2>
                 {subscription ? (
                   <div className="space-y-4">
-                    <div className="bg-gray-50 rounded-lg p-4">
+                    <div className="bg-ink-50 rounded-lg p-4">
                       <h3 className="font-medium mb-2">Plan Actual</h3>
                       <p className="text-2xl font-bold">{subscription.plan.display_name}</p>
-                      <p className="text-sm text-gray-600">{subscription.plan.description}</p>
+                      <p className="text-sm text-ink-600">{subscription.plan.description}</p>
                     </div>
 
                     <div>
                       <h3 className="font-medium mb-2">Período Actual</h3>
-                      <p className="text-sm text-gray-600">
+                      <p className="text-sm text-ink-600">
                         Desde: {new Date(subscription.current_period_start).toLocaleDateString()}
                       </p>
-                      <p className="text-sm text-gray-600">
+                      <p className="text-sm text-ink-600">
                         Hasta: {new Date(subscription.current_period_end).toLocaleDateString()}
                       </p>
                     </div>
@@ -887,10 +887,10 @@ export default function WorkspaceSettingsPage() {
                       <span
                         className={`px-3 py-1 text-xs font-medium rounded-full ${
                           subscription.status === 'active'
-                            ? 'bg-green-100 text-green-800'
+                            ? 'bg-success-bg text-success-fg'
                             : subscription.status === 'trial'
-                            ? 'bg-blue-100 text-blue-800'
-                            : 'bg-red-100 text-red-800'
+                            ? 'bg-accent-tint text-accent-ink'
+                            : 'bg-danger-bg text-danger'
                         }`}
                       >
                         {subscription.status}
@@ -905,17 +905,17 @@ export default function WorkspaceSettingsPage() {
                             key={plan.id}
                             className={`border rounded-lg p-4 ${
                               plan.id === subscription.plan_id
-                                ? 'border-blue-500 bg-blue-50'
-                                : 'border-gray-200'
+                                ? 'border-accent bg-accent-tint'
+                                : 'border-ink-200'
                             }`}
                           >
                             <h4 className="font-semibold">{plan.display_name}</h4>
-                            <p className="text-sm text-gray-600 mt-1">{plan.description}</p>
+                            <p className="text-sm text-ink-600 mt-1">{plan.description}</p>
                             <p className="text-lg font-bold mt-2">
                               ${plan.price_monthly}/mes
                             </p>
                             {plan.id === subscription.plan_id && (
-                              <span className="text-xs text-blue-600 font-medium">Plan Actual</span>
+                              <span className="text-xs text-accent font-medium">Plan Actual</span>
                             )}
                           </div>
                         ))}
@@ -923,7 +923,7 @@ export default function WorkspaceSettingsPage() {
                     </div>
                   </div>
                 ) : (
-                  <p className="text-gray-600">No hay suscripción activa</p>
+                  <p className="text-ink-600">No hay suscripción activa</p>
                 )}
               </div>
             )}
@@ -934,9 +934,9 @@ export default function WorkspaceSettingsPage() {
                 <h2 className="text-xl font-semibold mb-4">Límites y Uso Actual</h2>
                 {limits ? (
                   <div className="space-y-6">
-                    <div className="bg-gray-50 rounded-lg p-4">
+                    <div className="bg-ink-50 rounded-lg p-4">
                       <h3 className="font-medium mb-2">Plan: {limits.plan_display_name}</h3>
-                      <p className="text-sm text-gray-600">{limits.plan_name}</p>
+                      <p className="text-sm text-ink-600">{limits.plan_name}</p>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -944,23 +944,23 @@ export default function WorkspaceSettingsPage() {
                       <div className="border rounded-lg p-4">
                         <h4 className="font-medium mb-2">Usuarios</h4>
                         <div className="flex items-center justify-between mb-2">
-                          <span className="text-sm text-gray-600">Usados</span>
+                          <span className="text-sm text-ink-600">Usados</span>
                           <span className="font-semibold">
                             {limits.current_usage.current_users_count}
                             {limits.limits.max_users !== null && ` / ${limits.limits.max_users}`}
                           </span>
                         </div>
                         {limits.limits.max_users !== null && (
-                          <div className="w-full bg-gray-200 rounded-full h-2">
+                          <div className="w-full bg-ink-200 rounded-full h-2">
                             <div
-                              className="bg-blue-600 h-2 rounded-full"
+                              className="bg-action h-2 rounded-full"
                               style={{
                                 width: `${limits.limits.max_users ? Math.min((limits.current_usage.current_users_count / limits.limits.max_users) * 100, 100) : 0}%`,
                               }}
                             />
                           </div>
                         )}
-                        <p className={`text-xs mt-2 ${limits.can_create_users ? 'text-green-600' : 'text-red-600'}`}>
+                        <p className={`text-xs mt-2 ${limits.can_create_users ? 'text-success' : 'text-danger'}`}>
                           {limits.can_create_users ? '✓ Puede agregar usuarios' : '✗ Límite alcanzado'}
                         </p>
                       </div>
@@ -969,23 +969,23 @@ export default function WorkspaceSettingsPage() {
                       <div className="border rounded-lg p-4">
                         <h4 className="font-medium mb-2">Documentos</h4>
                         <div className="flex items-center justify-between mb-2">
-                          <span className="text-sm text-gray-600">Creados</span>
+                          <span className="text-sm text-ink-600">Creados</span>
                           <span className="font-semibold">
                             {limits.current_usage.current_documents_count}
                             {limits.limits.max_documents !== null && ` / ${limits.limits.max_documents}`}
                           </span>
                         </div>
                         {limits.limits.max_documents !== null && (
-                          <div className="w-full bg-gray-200 rounded-full h-2">
+                          <div className="w-full bg-ink-200 rounded-full h-2">
                             <div
-                              className="bg-blue-600 h-2 rounded-full"
+                              className="bg-action h-2 rounded-full"
                               style={{
                                 width: `${limits.limits.max_documents ? Math.min((limits.current_usage.current_documents_count / limits.limits.max_documents) * 100, 100) : 0}%`,
                               }}
                             />
                           </div>
                         )}
-                        <p className={`text-xs mt-2 ${limits.can_create_documents ? 'text-green-600' : 'text-red-600'}`}>
+                        <p className={`text-xs mt-2 ${limits.can_create_documents ? 'text-success' : 'text-danger'}`}>
                           {limits.can_create_documents ? '✓ Puede crear documentos' : '✗ Límite alcanzado'}
                         </p>
                       </div>
@@ -994,23 +994,23 @@ export default function WorkspaceSettingsPage() {
                       <div className="border rounded-lg p-4">
                         <h4 className="font-medium mb-2">Documentos este Mes</h4>
                         <div className="flex items-center justify-between mb-2">
-                          <span className="text-sm text-gray-600">Creados</span>
+                          <span className="text-sm text-ink-600">Creados</span>
                           <span className="font-semibold">
                             {limits.current_usage.current_documents_this_month}
                             {limits.limits.max_documents_per_month !== null && ` / ${limits.limits.max_documents_per_month}`}
                           </span>
                         </div>
                         {limits.limits.max_documents_per_month !== null && (
-                          <div className="w-full bg-gray-200 rounded-full h-2">
+                          <div className="w-full bg-ink-200 rounded-full h-2">
                             <div
-                              className="bg-blue-600 h-2 rounded-full"
+                              className="bg-action h-2 rounded-full"
                               style={{
                                 width: `${limits.limits.max_documents_per_month ? Math.min((limits.current_usage.current_documents_this_month / limits.limits.max_documents_per_month) * 100, 100) : 0}%`,
                               }}
                             />
                           </div>
                         )}
-                        <p className={`text-xs mt-2 ${limits.can_create_documents_this_month ? 'text-green-600' : 'text-red-600'}`}>
+                        <p className={`text-xs mt-2 ${limits.can_create_documents_this_month ? 'text-success' : 'text-danger'}`}>
                           {limits.can_create_documents_this_month ? '✓ Puede crear documentos' : '✗ Límite mensual alcanzado'}
                         </p>
                       </div>
@@ -1019,16 +1019,16 @@ export default function WorkspaceSettingsPage() {
                       <div className="border rounded-lg p-4">
                         <h4 className="font-medium mb-2">Almacenamiento</h4>
                         <div className="flex items-center justify-between mb-2">
-                          <span className="text-sm text-gray-600">Usado</span>
+                          <span className="text-sm text-ink-600">Usado</span>
                           <span className="font-semibold">
                             {limits.current_usage.current_storage_gb.toFixed(2)} GB
                             {limits.limits.max_storage_gb !== null && ` / ${limits.limits.max_storage_gb} GB`}
                           </span>
                         </div>
                         {limits.limits.max_storage_gb !== null && (
-                          <div className="w-full bg-gray-200 rounded-full h-2">
+                          <div className="w-full bg-ink-200 rounded-full h-2">
                             <div
-                              className="bg-blue-600 h-2 rounded-full"
+                              className="bg-action h-2 rounded-full"
                               style={{
                                 width: `${limits.limits.max_storage_gb ? Math.min((limits.current_usage.current_storage_gb / limits.limits.max_storage_gb) * 100, 100) : 0}%`,
                               }}
@@ -1039,7 +1039,7 @@ export default function WorkspaceSettingsPage() {
                     </div>
                   </div>
                 ) : (
-                  <p className="text-gray-600">No hay información de límites disponible</p>
+                  <p className="text-ink-600">No hay información de límites disponible</p>
                 )}
               </div>
             )}
