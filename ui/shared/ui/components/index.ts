@@ -3,7 +3,7 @@ export { Card, CardBody } from "./card";
 export { Badge, badgeVariants, type BadgeProps } from "./badge";
 export { Input, Field } from "./input";
 export { ModuleEmblem, type ModuleKey } from "./ModuleEmblem";
-export { Topbar, type TopbarUser } from "./Topbar";
+export { Topbar, type TopbarUser, type TopbarTenant } from "./Topbar";
 export { Sidebar, type NavItem, type NavGroup } from "./Sidebar";
 export { AppShell } from "./AppShell";
 export { OptionSet, type Option } from "./OptionSet";

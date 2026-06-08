@@ -57,9 +57,15 @@ El shell de un módulo se compone con `<AppShell module topbar sidebar>`. Regla 
 - **Topbar = el MÓDULO** (fondo claro). Emblema del módulo (`<ModuleEmblem>` en tile
   `bg-accent-tint text-accent-ink`) + nombre del módulo, a la izquierda. Usuario
   (nombre + email + avatar + Salir) a la derecha. El logo Margay NO va en el topbar.
+  - **Switcher de organización (opcional):** pasale `tenants` + `activeTenantId` +
+    `onTenantChange` al `<Topbar>` y aparece, junto al nombre del módulo, un selector de
+    tenant (como el hub). Si el usuario tiene una sola organización se muestra sin desplegable.
+    Cuando el switch vive en el topbar, NO repitas la cuenta en la sidebar.
 - **Sidebar = oscura** (tokens `--sidebar-*`):
-  - *Arriba* = la **cuenta/tenant** que se opera (`[iniciales]` + nombre + switcher).
-    Solo si hay cliente (p.ej. OMS → "Bocaditos Express"). En módulos internos se omite.
+  - *Arriba* = la **cuenta/tenant** que se opera (`[iniciales]` + nombre). Solo si hay
+    cliente (p.ej. OMS → "Bocaditos Express"). En módulos internos —o si el switcher de
+    organización ya está en el topbar— se omite. El chevron de switcher solo aparece si
+    se pasa `account.onSwitch` (sin handler no hay flechita muerta).
   - *Abajo* = **firma Margay** (logo + "Margay Studio · Plataforma Margay"). Siempre.
   - Item activo: `bg-white/[.09]` + barra de acento `shadow-[inset_3px_0_0_var(--accent)]`
     + icono `text-accent`.

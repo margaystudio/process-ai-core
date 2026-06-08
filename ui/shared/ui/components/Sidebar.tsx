@@ -35,26 +35,43 @@ export function Sidebar({
   company = "Margay Studio",
   logoSrc = "/brand/margay-icon-48.png",
 }: {
-  /** Cuenta/cliente que se opera. Omitir en módulos internos (Hub propio, GPU interno). */
-  account?: { name: string; sub?: string };
+  /**
+   * Cuenta/cliente que se opera. Omitir en módulos internos (Hub propio, GPU interno) o
+   * cuando el switch de organización vive en el topbar. El chevron de switcher solo
+   * aparece si se pasa `onSwitch` (evita una flechita muerta).
+   */
+  account?: { name: string; sub?: string; onSwitch?: () => void };
   groups: NavGroup[];
   company?: string;
   logoSrc?: string;
 }) {
+  const accountInner = account && (
+    <>
+      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] bg-white/10 text-xs font-bold">
+        {initialsOf(account.name)}
+      </span>
+      <div className="min-w-0 flex-1 leading-tight">
+        <div className="truncate text-sm font-bold">{account.name}</div>
+        {account.sub && <div className="text-xs text-white/50">{account.sub}</div>}
+      </div>
+      {account.onSwitch && <ChevronDown className="h-4 w-4 text-white/40" />}
+    </>
+  );
+
   return (
     <aside className="flex w-[224px] shrink-0 flex-col bg-sidebar-surface px-3 pb-3 pt-3.5 text-sidebar-fg">
-      {account && (
-        <div className="flex items-center gap-2.5 px-1.5 pb-3.5">
-          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] bg-white/10 text-xs font-bold">
-            {initialsOf(account.name)}
-          </span>
-          <div className="min-w-0 flex-1 leading-tight">
-            <div className="truncate text-sm font-bold">{account.name}</div>
-            {account.sub && <div className="text-xs text-white/50">{account.sub}</div>}
-          </div>
-          <ChevronDown className="h-4 w-4 text-white/40" />
-        </div>
-      )}
+      {account &&
+        (account.onSwitch ? (
+          <button
+            type="button"
+            onClick={account.onSwitch}
+            className="flex items-center gap-2.5 rounded-md px-1.5 py-1 pb-3.5 text-left transition-colors hover:bg-sidebar-hover"
+          >
+            {accountInner}
+          </button>
+        ) : (
+          <div className="flex items-center gap-2.5 px-1.5 pb-3.5">{accountInner}</div>
+        ))}
 
       <nav className="flex flex-col gap-0.5">
         {groups.map((g, gi) => (
