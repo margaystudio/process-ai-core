@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { Card, CardBody, Input, Button } from '@/shared/ui/components'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
 import { useUserRole } from '@/hooks/useUserRole'
 import {
@@ -21,7 +22,7 @@ export default function ViewPage() {
   const [error, setError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null)
-  
+
   // Hook para manejar visualización de PDFs
   const { openLatestPdf, ModalComponent } = usePdfViewer()
 
@@ -72,12 +73,14 @@ export default function ViewPage() {
   if (role && role !== 'viewer') {
     return (
       <div className="p-8">
-        <div className="max-w-7xl mx-auto">
-          <div className="bg-red-50 border border-red-200 rounded-lg p-6">
-            <p className="text-red-800">
-              No tienes permisos para ver esta página. Tu rol actual es: {role}
-            </p>
-          </div>
+        <div className="mx-auto max-w-7xl">
+          <Card className="border-danger-bd">
+            <CardBody>
+              <p className="text-body text-ink-700">
+                No tenés permisos para ver esta página. Tu rol actual es: {role}
+              </p>
+            </CardBody>
+          </Card>
         </div>
       </div>
     )
@@ -85,97 +88,94 @@ export default function ViewPage() {
 
   return (
     <div className="p-8">
-      <div className="max-w-7xl mx-auto">
+      <div className="mx-auto max-w-7xl">
         {/* Header */}
         <div className="mb-6">
-          <h1 className="text-3xl font-bold text-gray-900">Documentos Aprobados</h1>
-          <p className="text-gray-600 mt-1">
-            {selectedWorkspace?.name || 'Workspace'} - Documentos disponibles para consulta
+          <h1 className="text-h1 text-ink-900">Aprobados</h1>
+          <p className="mt-1 text-sm text-ink-500">
+            {selectedWorkspace?.name || 'Espacio de trabajo'} · Documentos disponibles para consulta
           </p>
         </div>
 
         {/* Barra de búsqueda */}
-        <div className="bg-white rounded-lg border border-gray-200 p-4 mb-6">
-          <div>
-            <label htmlFor="search" className="block text-sm font-medium text-gray-700 mb-2">
+        <Card className="mb-6">
+          <CardBody>
+            <label htmlFor="search" className="mb-2 block text-sm font-semibold text-ink-700">
               Buscar documentos
             </label>
-            <input
+            <Input
               id="search"
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Buscar por nombre o descripción..."
-              className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             />
-          </div>
-
-        </div>
+          </CardBody>
+        </Card>
 
         {/* Contenido principal */}
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-4">
           {/* Columna izquierda: Estructura de carpetas */}
           <div className="lg:col-span-1">
-            <div className="bg-white rounded-lg border border-gray-200 p-4 sticky top-4">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">
-                Estructura de Carpetas
-              </h2>
-              <FolderTree
-                workspaceId={selectedWorkspaceId || ''}
-                selectedFolderId={selectedFolderId || undefined}
-                onSelectFolder={(id) => setSelectedFolderId(id)}
-                showSelectable={true}
-                showCrud={false}
-              />
-            </div>
+            <Card className="sticky top-4">
+              <CardBody>
+                <h2 className="mb-4 text-h3 text-ink-900">Estructura de carpetas</h2>
+                <FolderTree
+                  workspaceId={selectedWorkspaceId || ''}
+                  selectedFolderId={selectedFolderId || undefined}
+                  onSelectFolder={(id) => setSelectedFolderId(id)}
+                  showSelectable={true}
+                  showCrud={false}
+                />
+              </CardBody>
+            </Card>
           </div>
 
           {/* Columna derecha: Lista de documentos */}
           <div className="lg:col-span-3">
-            <div className="bg-white rounded-lg border border-gray-200 p-6">
-        {loading ? (
-          <div className="text-center py-12">
-            <div className="animate-pulse text-gray-500">Cargando documentos...</div>
-          </div>
-        ) : error ? (
-          <div className="bg-red-50 border border-red-200 rounded-md p-4">
-            <p className="text-red-700">Error: {error}</p>
-            <button
-              onClick={() => window.location.reload()}
-              className="mt-2 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700"
-            >
-              Reintentar
-            </button>
-          </div>
-        ) : filteredDocuments.length === 0 ? (
-                <div className="text-center py-12">
-                  <p className="text-gray-500 text-lg mb-2">
-                    {searchQuery || selectedFolderId
-                      ? 'No se encontraron documentos que coincidan con los filtros'
-                      : 'No hay documentos aprobados disponibles'}
-                  </p>
-                </div>
-              ) : (
-                <>
-                  <div className="mb-4 flex items-center justify-between">
-                    <h2 className="text-lg font-semibold text-gray-900">
-                      Documentos ({filteredDocuments.length} de {documents.length})
-                    </h2>
+            <Card>
+              <CardBody>
+                {loading ? (
+                  <div className="py-12 text-center">
+                    <div className="animate-pulse text-ink-500">Cargando documentos...</div>
                   </div>
-                  <div className="space-y-3">
-                    {filteredDocuments.map((doc) => (
-                      <DocumentCard
-                        key={doc.id}
-                        document={doc}
-                        onView={() => handleView(doc)}
-                        onViewPdf={() => openLatestPdf(doc)}
-                        showActions={true}
-                      />
-                    ))}
+                ) : error ? (
+                  <div className="rounded-md border border-danger-bd bg-danger-bg p-4">
+                    <p className="mb-3 text-sm text-danger">Error: {error}</p>
+                    <Button variant="danger" size="sm" onClick={() => window.location.reload()}>
+                      Reintentar
+                    </Button>
                   </div>
-                </>
-              )}
-            </div>
+                ) : filteredDocuments.length === 0 ? (
+                  <div className="py-12 text-center">
+                    <p className="mb-2 text-ink-600">
+                      {searchQuery || selectedFolderId
+                        ? 'No se encontraron documentos que coincidan con los filtros'
+                        : 'No hay documentos aprobados disponibles'}
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="mb-4 flex items-center justify-between">
+                      <h2 className="text-h3 text-ink-900">
+                        Documentos ({filteredDocuments.length} de {documents.length})
+                      </h2>
+                    </div>
+                    <div className="space-y-3">
+                      {filteredDocuments.map((doc) => (
+                        <DocumentCard
+                          key={doc.id}
+                          document={doc}
+                          onView={() => handleView(doc)}
+                          onViewPdf={() => openLatestPdf(doc)}
+                          showActions={true}
+                        />
+                      ))}
+                    </div>
+                  </>
+                )}
+              </CardBody>
+            </Card>
           </div>
         </div>
       </div>
@@ -184,4 +184,3 @@ export default function ViewPage() {
     </div>
   )
 }
-
