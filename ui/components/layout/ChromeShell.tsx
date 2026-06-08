@@ -7,13 +7,11 @@ import {
   ClipboardList,
   Eye,
   Plus,
-  FlaskConical,
   BookOpen,
   Settings,
   UserCircle,
-  Building2,
 } from 'lucide-react'
-import { AppShell, Topbar, Sidebar, type NavGroup } from '@/shared/ui/components'
+import { AppShell, Topbar, Sidebar, type NavGroup, type TopbarTenant } from '@/shared/ui/components'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
 import { useUser } from '@/hooks/useUser'
 import { createClient } from '@/lib/supabase/client'
@@ -32,14 +30,8 @@ function initialsOf(name: string): string {
 export default function ChromeShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const router = useRouter()
-  const {
-    workspaces,
-    selectedWorkspace,
-    selectedWorkspaceId,
-    activeTenantId,
-    setActiveTenantId,
-    currentUser,
-  } = useWorkspace()
+  const { workspaces, selectedWorkspaceId, activeTenantId, setActiveTenantId, currentUser } =
+    useWorkspace()
   const user = useUser()
 
   const isBare = BARE_PREFIXES.some((p) => pathname?.startsWith(p))
@@ -67,21 +59,25 @@ export default function ChromeShell({ children }: { children: React.ReactNode })
     ? `/workspace/${selectedWorkspaceId}/settings`
     : '/workspace'
 
+  // Switcher de organización (tenant) en el topbar, como el hub.
+  const tenants: TopbarTenant[] = workspaces
+    .filter((ws) => ws.tenant_id)
+    .map((ws) => ({ id: ws.tenant_id as string, name: ws.name }))
+
   const groups: NavGroup[] = [
     {
       label: 'Documentos',
       items: [
         { label: 'Documentos', icon: <FileText />, active: active('/workspace', true), onClick: go('/workspace') },
-        { label: 'Cola de aprobación', icon: <ListChecks />, active: active('/dashboard/approval-queue'), onClick: go('/dashboard/approval-queue') },
-        { label: 'Por revisar', icon: <ClipboardList />, active: active('/dashboard/to-review'), onClick: go('/dashboard/to-review') },
-        { label: 'Vista', icon: <Eye />, active: active('/dashboard/view'), onClick: go('/dashboard/view') },
+        { label: 'Por aprobar', icon: <ListChecks />, active: active('/dashboard/approval-queue'), onClick: go('/dashboard/approval-queue') },
+        { label: 'En revisión', icon: <ClipboardList />, active: active('/dashboard/to-review'), onClick: go('/dashboard/to-review') },
+        { label: 'Aprobados', icon: <Eye />, active: active('/dashboard/view'), onClick: go('/dashboard/view') },
       ],
     },
     {
       label: 'Crear',
       items: [
         { label: 'Nuevo proceso', icon: <Plus />, active: active('/processes/new'), onClick: go('/processes/new') },
-        { label: 'Recetas', icon: <FlaskConical />, active: active('/recipes'), onClick: go('/recipes/new') },
       ],
     },
     {
@@ -94,19 +90,6 @@ export default function ChromeShell({ children }: { children: React.ReactNode })
     },
   ]
 
-  // Switcher de organización (tenant) — solo si el usuario tiene más de una.
-  if (workspaces.length > 1) {
-    groups.push({
-      label: 'Organización',
-      items: workspaces.map((ws) => ({
-        label: ws.name,
-        icon: <Building2 />,
-        active: ws.tenant_id === activeTenantId,
-        onClick: ws.tenant_id ? () => void setActiveTenantId(ws.tenant_id as string) : undefined,
-      })),
-    })
-  }
-
   return (
     <AppShell
       module="process"
@@ -116,14 +99,12 @@ export default function ChromeShell({ children }: { children: React.ReactNode })
           title="Process AI"
           user={{ name: displayName, email, initials: initialsOf(displayName) }}
           onLogout={handleSignOut}
+          tenants={tenants}
+          activeTenantId={activeTenantId ?? undefined}
+          onTenantChange={(id) => void setActiveTenantId(id)}
         />
       }
-      sidebar={
-        <Sidebar
-          account={selectedWorkspace?.name ? { name: selectedWorkspace.name } : undefined}
-          groups={groups}
-        />
-      }
+      sidebar={<Sidebar groups={groups} />}
     >
       {children}
     </AppShell>
