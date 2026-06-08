@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react'
 import { Document, getCurrentDocumentVersion } from '@/lib/api'
 import { formatDate } from '@/utils/dateFormat'
+import { Badge, Button, type BadgeProps } from '@/shared/ui/components'
+import { cn } from '@/shared/ui/cn'
 
 interface DocumentCardProps {
   document: Document
@@ -16,6 +18,14 @@ interface DocumentCardProps {
   showActions?: boolean
   processing?: boolean
   primaryAction?: 'view' | 'pdf' // Acción principal según rol
+}
+
+const STATUS_CONFIG: Record<string, { label: string; variant: BadgeProps['variant'] }> = {
+  approved: { label: 'Aprobado', variant: 'success' },
+  pending_validation: { label: 'Pendiente', variant: 'warning' },
+  rejected: { label: 'Rechazado', variant: 'danger' },
+  archived: { label: 'Archivado', variant: 'neutral' },
+  draft: { label: 'Borrador', variant: 'neutral' },
 }
 
 export default function DocumentCard({
@@ -53,85 +63,50 @@ export default function DocumentCard({
     loadVersion()
   }, [document.id, document.status])
 
-  const getStatusBadge = () => {
-    // Labels unificados: en el badge usamos versión corta, en tooltips/subtítulos la versión completa
-    const statusConfig = {
-      approved: { label: 'Aprobado', className: 'bg-green-100 text-green-800' },
-      pending_validation: { label: 'Pendiente', className: 'bg-yellow-100 text-yellow-800' }, // Versión corta para badge
-      rejected: { label: 'Rechazado', className: 'bg-red-100 text-red-800' },
-      archived: { label: 'Archivado', className: 'bg-gray-100 text-gray-800' },
-      draft: { label: 'Borrador', className: 'bg-gray-100 text-gray-800' },
-    }
+  const config = STATUS_CONFIG[document.status] || STATUS_CONFIG.draft
 
-    const config = statusConfig[document.status as keyof typeof statusConfig] || statusConfig.draft
+  const statusBadge = <Badge variant={config.variant}>{config.label}</Badge>
 
-    const badgeContent = (
-      <span 
-        className={`px-2 py-1 rounded-full text-xs font-medium ${config.className} ${onStatusClick ? 'cursor-pointer hover:opacity-80 transition' : ''}`}
-        title={document.status === 'pending_validation' ? 'Pendiente de validación' : undefined}
-      >
-        {config.label}
-      </span>
-    )
-
-    if (onStatusClick) {
-      return (
-        <button
-          onClick={(e) => {
-            e.stopPropagation()
-            onStatusClick(document.status)
-          }}
-          className="focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 rounded-full"
-        >
-          {badgeContent}
-        </button>
-      )
-    }
-
-    return badgeContent
-  }
-
-  const getStatusLabel = () => {
-    // Para la línea audit-friendly, usar versión corta
-    const statusLabels: Record<string, string> = {
-      approved: 'Aprobado',
-      pending_validation: 'Pendiente', // Versión corta para línea audit
-      rejected: 'Rechazado',
-      archived: 'Archivado',
-      draft: 'Borrador',
-    }
-    return statusLabels[document.status] || 'Borrador'
-  }
+  const getStatusLabel = () => config.label
 
   // Indicador visual sutil para documentos pendientes de validación
   const isPendingValidation = document.status === 'pending_validation'
-  
+
   return (
-    <div className={`bg-white border rounded-lg p-6 hover:border-blue-300 hover:shadow-md transition ${
-      isPendingValidation 
-        ? 'border-l-4 border-l-yellow-400 border-gray-200' 
-        : 'border-gray-200'
-    }`}>
+    <div
+      className={cn(
+        'rounded-lg border border-ink-200 bg-white p-5 transition-colors hover:border-accent hover:shadow-md',
+        isPendingValidation && 'border-l-4 border-l-warning'
+      )}
+    >
       <div className="flex items-start justify-between">
         <div className="flex-1">
-          <div className="flex items-center gap-2 mb-2">
-            <h3 className="text-lg font-semibold text-gray-900">{document.name}</h3>
-            {getStatusBadge()}
-            {isPendingValidation && (
-              <span className="text-xs text-gray-500" title="Requiere validación">
-                ⚠️
-              </span>
+          <div className="mb-2 flex items-center gap-2">
+            <h3 className="text-h3 text-ink-900">{document.name}</h3>
+            {onStatusClick ? (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onStatusClick(document.status)
+                }}
+                className="rounded-full"
+                title="Filtrar por este estado"
+              >
+                {statusBadge}
+              </button>
+            ) : (
+              statusBadge
             )}
           </div>
           {document.description && (
-            <p className="text-sm text-gray-600 mb-2 line-clamp-2">{document.description}</p>
+            <p className="mb-2 line-clamp-2 text-sm text-ink-600">{document.description}</p>
           )}
           {/* Línea audit-friendly: versión · estado · fecha */}
-          <div className="text-xs text-gray-500 mb-3">
+          <div className="mb-3 text-xs text-ink-500">
             {versionNumber !== null ? (
               <span>v{versionNumber} · {getStatusLabel()} · {formatDate(document.created_at)}</span>
             ) : loadingVersion ? (
-              <span className="text-gray-400">Cargando versión...</span>
+              <span className="text-ink-400">Cargando versión...</span>
             ) : (
               <span>{getStatusLabel()} · {formatDate(document.created_at)}</span>
             )}
@@ -143,87 +118,63 @@ export default function DocumentCard({
         <div className="mt-4 flex items-center gap-2">
           {/* Acción principal según rol */}
           {primaryAction === 'pdf' && onViewPdf && (
-            <button
+            <Button
+              size="sm"
               onClick={(e) => {
                 e.stopPropagation()
                 onViewPdf()
               }}
               disabled={processing}
-              className="px-4 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition font-medium"
             >
               Ver PDF
-            </button>
+            </Button>
           )}
           {primaryAction === 'view' && onView && (
-            <button
-              onClick={onView}
-              disabled={processing}
-              className="px-4 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition font-medium"
-            >
-              Ver Detalles
-            </button>
+            <Button size="sm" onClick={onView} disabled={processing}>
+              Ver detalles
+            </Button>
           )}
           {/* Acción secundaria */}
           {primaryAction === 'pdf' && onView && (
-            <button
-              onClick={onView}
-              disabled={processing}
-              className="px-3 py-1.5 text-sm text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-md transition"
-            >
-              Ver Detalles
-            </button>
+            <Button size="sm" variant="ghost" onClick={onView} disabled={processing}>
+              Ver detalles
+            </Button>
           )}
           {primaryAction === 'view' && onViewPdf && (
-            <button
+            <Button
+              size="sm"
+              variant="ghost"
               onClick={(e) => {
                 e.stopPropagation()
                 onViewPdf()
               }}
               disabled={processing}
-              className="px-3 py-1.5 text-sm text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-md transition"
             >
               Ver PDF
-            </button>
+            </Button>
           )}
           {onReview && (
-            <button
-              onClick={onReview}
-              disabled={processing}
-              className="px-4 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
-            >
-              {processing ? 'Procesando...' : 'Iniciar Revisión'}
-            </button>
+            <Button size="sm" onClick={onReview} disabled={processing}>
+              {processing ? 'Procesando...' : 'Iniciar revisión'}
+            </Button>
           )}
           {onApprove && (
-            <button
-              onClick={onApprove}
-              disabled={processing}
-              className="px-4 py-2 text-sm bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
-            >
+            <Button size="sm" variant="create" onClick={onApprove} disabled={processing}>
               {processing ? 'Procesando...' : 'Aprobar'}
-            </button>
+            </Button>
           )}
           {onReject && (
-            <button
-              onClick={onReject}
-              disabled={processing}
-              className="px-4 py-2 text-sm bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
-            >
+            <Button size="sm" variant="danger" onClick={onReject} disabled={processing}>
               {processing ? 'Procesando...' : 'Rechazar'}
-            </button>
+            </Button>
           )}
           {onCorrect && (
-            <button
-              onClick={onCorrect}
-              disabled={processing}
-              className="px-4 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
-            >
+            <Button size="sm" onClick={onCorrect} disabled={processing}>
               Corregir
-            </button>
+            </Button>
           )}
         </div>
       )}
     </div>
   )
 }
-

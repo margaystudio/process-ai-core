@@ -1,5 +1,7 @@
 'use client'
 
+import { cn } from '@/shared/ui/cn'
+
 interface StatusFilterChipsProps {
   selectedStatus: string | null
   onStatusChange: (status: string | null) => void
@@ -20,11 +22,12 @@ export default function StatusFilterChips({ selectedStatus, onStatusChange }: St
         <button
           key={option.value || 'all'}
           onClick={() => onStatusChange(option.value)}
-          className={`px-3 py-1.5 text-sm rounded-md transition ${
+          className={cn(
+            'rounded-md px-3 py-1.5 text-sm font-semibold transition-colors',
             selectedStatus === option.value
-              ? 'bg-blue-600 text-white font-semibold shadow-sm'
-              : 'bg-gray-100 text-gray-700 hover:bg-gray-200 font-medium'
-          }`}
+              ? 'bg-action text-action-on shadow-sm'
+              : 'bg-ink-100 text-ink-700 hover:bg-ink-150'
+          )}
         >
           {option.label}
         </button>
