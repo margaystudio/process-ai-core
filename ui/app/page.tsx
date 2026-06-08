@@ -6,6 +6,7 @@ import { useWorkspace } from '@/contexts/WorkspaceContext'
 import { useUserRole } from '@/hooks/useUserRole'
 import { useUserValidation } from '@/hooks/useUserValidation'
 import { createClient } from '@/lib/supabase/client'
+import { Card, CardBody, Badge, Button } from '@/shared/ui/components'
 
 export default function Home() {
   const router = useRouter()
@@ -102,39 +103,39 @@ export default function Home() {
   // Mostrar error si el usuario no es válido
   if (userValidation.isValid === false) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
-        <div className="max-w-md w-full">
-          <div className="bg-red-50 border border-red-200 rounded-lg p-6">
-            <h2 className="text-xl font-semibold text-red-900 mb-2">
-              Acceso no autorizado
-            </h2>
-            <p className="text-red-800 mb-4">
+      <div className="flex min-h-[70vh] items-center justify-center p-6">
+        <Card className="w-full max-w-md border-danger-bd">
+          <CardBody className="space-y-3">
+            <Badge variant="danger">Sin acceso</Badge>
+            <h2 className="text-h2 text-ink-900">Acceso no autorizado</h2>
+            <p className="text-body text-ink-700">
               {userValidation.error || 'Tu usuario no está registrado en el sistema.'}
             </p>
-            <p className="text-sm text-red-700 mb-4">
-              Si crees que esto es un error, por favor contacta al administrador del sistema.
+            <p className="text-sm text-ink-500">
+              Si creés que esto es un error, contactá al administrador del sistema.
             </p>
-            <button
+            <Button
+              variant="secondary"
+              className="w-full"
               onClick={async () => {
                 const supabase = createClient()
                 await supabase.auth.signOut()
                 router.push('/login')
               }}
-              className="w-full px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 font-medium"
             >
               Cerrar sesión
-            </button>
-          </div>
-        </div>
+            </Button>
+          </CardBody>
+        </Card>
       </div>
     )
   }
 
   return (
-    <div className="flex items-center justify-center min-h-screen">
+    <div className="flex min-h-[70vh] items-center justify-center p-6">
       <div className="text-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-        <p className="text-gray-600">
+        <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-[3px] border-ink-200 border-t-accent" />
+        <p className="text-sm text-ink-600">
           {authLoading
             ? 'Verificando autenticación...'
             : userValidation.isValid === null
