@@ -37,6 +37,33 @@ y `DATABASE_SCHEMA=process_ai` en `ops/api/prod.config.toml`.
 
 La API falla al arrancar si falta `DATABASE_URL` o si apunta a SQLite en archivo.
 
+### Supabase PROD (`mqldatizgvmjqisuqabv`) — primera vez
+
+1. En [Supabase Dashboard](https://supabase.com/dashboard/project/mqldatizgvmjqisuqabv) → **Settings → Database**:
+   - Copiá la connection string **Transaction pooler** (puerto **6543**).
+   - Reemplazá `[YOUR-PASSWORD]` por la contraseña de la DB.
+   - **No** agregues `?prepare_threshold=0` en la URL (ver `docs/AMBIENTES.md`).
+
+2. En la raíz del repo:
+
+   ```bash
+   cp .env.production.example .env.production
+   # Editá DATABASE_URL con la URI del paso 1 (ref mqldatizgvmjqisuqabv)
+
+   python tools/bootstrap_db.py --env prod
+   ```
+
+   Eso aplica `migrations/001_create_schema.sql`, crea tablas en `process_ai` y corre seeds
+   (permisos, planes, catálogos).
+
+   **Alternativa manual:** pegá `migrations/001_create_schema.sql` en **SQL Editor** de Supabase
+   y luego `python tools/bootstrap_db.py --env prod --skip-schema-sql`.
+
+3. Verificá en **Table Editor** que exista el schema `process_ai` con tablas (`workspaces`, `documents`, etc.).
+
+> El schema `workspace` de margay-workspace es independiente; si prod está vacío, también hay
+> que bootstrappear workspace en su repo antes de deployar prod real.
+
 ## Opción A: Base de datos vacía (primera vez)
 
 ### 1. Crear las tablas

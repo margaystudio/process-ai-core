@@ -23,4 +23,10 @@ ops/ui/prod.config.toml
 ops/ui/test.config.toml
 _cloudbuild_tmp_*.yaml
 ui/.next/
+
+# Punteros de release (artefactos por build; se conserva el dir con .gitkeep)
+ops/api/releases/*
+ops/ui/releases/*
+!ops/api/releases/.gitkeep
+!ops/ui/releases/.gitkeep
 ui/node_modules/
