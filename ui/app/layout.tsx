@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import './globals.css'
 import './branding.css'
 import { jakarta } from '@/shared/ui/fonts'
-import Header from '@/components/layout/Header'
+import ChromeShell from '@/components/layout/ChromeShell'
 import BrandingFavicon from '@/components/layout/BrandingFavicon'
 import { WorkspaceProvider } from '@/contexts/WorkspaceContext'
 import { LoadingProvider } from '@/contexts/LoadingContext'
@@ -23,8 +23,7 @@ export default function RootLayout({
         <LoadingProvider>
           <WorkspaceProvider>
             <BrandingFavicon />
-            <Header />
-            {children}
+            <ChromeShell>{children}</ChromeShell>
           </WorkspaceProvider>
         </LoadingProvider>
       </body>
