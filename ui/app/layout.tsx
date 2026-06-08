@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import './globals.css'
 import './branding.css'
+import { jakarta } from '@/shared/ui/fonts'
 import Header from '@/components/layout/Header'
 import BrandingFavicon from '@/components/layout/BrandingFavicon'
 import { WorkspaceProvider } from '@/contexts/WorkspaceContext'
@@ -17,8 +18,8 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="es">
-      <body className="min-h-screen bg-gray-50">
+    <html lang="es" className={jakarta.variable}>
+      <body className="min-h-screen bg-ink-50 text-ink-800">
         <LoadingProvider>
           <WorkspaceProvider>
             <BrandingFavicon />
