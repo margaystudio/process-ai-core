@@ -2,6 +2,9 @@
 
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
+import { Check, X, ChevronDown, Globe } from 'lucide-react'
+import { Card, CardBody, Input, Field, Button } from '@/shared/ui/components'
+import { cn } from '@/shared/ui/cn'
 import { getUser, updateMyProfile, type UserProfile } from '@/lib/api'
 import { useUserId } from '@/hooks/useUserId'
 import { useLoading } from '@/contexts/LoadingContext'
@@ -38,16 +41,6 @@ function FlagImage({ iso, className }: { iso: string; className?: string }) {
       className={className}
       loading="lazy"
     />
-  )
-}
-
-/** Ícono de globo para "otro" país. */
-function GlobeIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
-      <circle cx="12" cy="12" r="10" />
-      <path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
-    </svg>
   )
 }
 
@@ -219,15 +212,12 @@ export default function ProfilePage() {
 
   if (!userId) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="flex min-h-[70vh] items-center justify-center p-6">
         <div className="text-center">
-          <p className="text-gray-600">Iniciá sesión para ver tu perfil.</p>
-          <button
-            onClick={() => router.push('/login')}
-            className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-          >
+          <p className="text-ink-600">Iniciá sesión para ver tu perfil.</p>
+          <Button className="mt-4" onClick={() => router.push('/login')}>
             Ir a inicio de sesión
-          </button>
+          </Button>
         </div>
       </div>
     )
@@ -235,100 +225,84 @@ export default function ProfilePage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
-        <div className="max-w-7xl mx-auto">
-          <div className="animate-pulse text-gray-500">Cargando perfil...</div>
+      <div className="p-8">
+        <div className="mx-auto max-w-3xl">
+          <div className="animate-pulse text-ink-500">Cargando perfil...</div>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-7xl mx-auto">
+    <div className="p-8">
+      <div className="mx-auto max-w-3xl">
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">Mi perfil</h1>
-          <p className="mt-2 text-sm text-gray-600">
+          <h1 className="text-h1 text-ink-900">Mi perfil</h1>
+          <p className="mt-2 text-sm text-ink-500">
             Datos de tu cuenta y teléfono de contacto
           </p>
         </div>
 
         {error && (
-          <div className="mb-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative" role="alert">
-            <span className="block sm:inline">{error}</span>
+          <div className="mb-4 rounded-md border border-danger-bd bg-danger-bg px-4 py-3 text-sm text-danger" role="alert">
+            {error}
           </div>
         )}
 
         {successMessage && (
-          <div className="mb-4 bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded relative" role="status">
-            <span className="block sm:inline">{successMessage}</span>
+          <div className="mb-4 rounded-md border border-success-bd bg-success-bg px-4 py-3 text-sm text-success-fg" role="status">
+            {successMessage}
           </div>
         )}
 
-        <div className="bg-white shadow rounded-lg">
-          <div className="p-6">
+        <Card>
+          <CardBody>
             <form onSubmit={handleSubmit} className="space-y-6">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Nombre
-                </label>
-                <input
+              <Field label="Nombre">
+                <Input
                   type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
                   placeholder="Tu nombre"
                 />
+              </Field>
+
+              <div>
+                <Field label="Email">
+                  <Input type="text" value={profile?.email ?? ''} disabled className="bg-ink-50 text-ink-500" />
+                </Field>
+                <p className="mt-1 text-xs text-ink-500">El email no se puede cambiar desde aquí.</p>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Email
-                </label>
-                <input
-                  type="text"
-                  value={profile?.email ?? ''}
-                  disabled
-                  className="w-full px-3 py-2 border border-gray-200 rounded-md bg-gray-50 text-gray-500 cursor-not-allowed"
-                />
-                <p className="mt-1 text-xs text-gray-500">
-                  El email no se puede cambiar desde aquí.
-                </p>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Teléfono
-                </label>
+                <label className="mb-1 block text-sm font-semibold text-ink-700">Teléfono</label>
                 <div className="flex items-center gap-2">
                   <div className="relative w-52 flex-shrink-0" ref={countryPickerRef}>
                     <button
                       type="button"
                       onClick={() => setCountryPickerOpen((o) => !o)}
-                      className="w-full flex items-center gap-2 px-3 py-2 border border-gray-300 rounded-md bg-white text-left focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className="flex w-full items-center gap-2 rounded-md border border-ink-300 bg-white px-3 py-2 text-left focus:border-action focus:outline-none focus:ring-[3px] focus:ring-action-ring"
                       aria-haspopup="listbox"
                       aria-expanded={countryPickerOpen}
                       aria-label="Código de país"
                     >
-                      <span className="flex-shrink-0 w-5 h-[15px] flex items-center justify-center overflow-hidden rounded-sm bg-gray-100" aria-hidden>
+                      <span className="flex h-[15px] w-5 flex-shrink-0 items-center justify-center overflow-hidden rounded-sm bg-ink-100" aria-hidden>
                         {currentCountryOption?.isExtra ? (
-                          <GlobeIcon className="w-3.5 h-3.5 text-gray-500" />
+                          <Globe className="h-3.5 w-3.5 text-ink-500" />
                         ) : currentCountryOption?.iso ? (
-                          <FlagImage iso={currentCountryOption.iso} className="w-5 h-[15px] object-cover" />
+                          <FlagImage iso={currentCountryOption.iso} className="h-[15px] w-5 object-cover" />
                         ) : (
-                          <GlobeIcon className="w-3.5 h-3.5 text-gray-500" />
+                          <Globe className="h-3.5 w-3.5 text-ink-500" />
                         )}
                       </span>
-                      <span className="flex-1 min-w-0 truncate text-sm">
+                      <span className="min-w-0 flex-1 truncate text-sm text-ink-800">
                         {currentCountryOption?.label ?? phonePrefix}
                       </span>
-                      <svg className="w-4 h-4 flex-shrink-0 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
-                      </svg>
+                      <ChevronDown className="h-4 w-4 flex-shrink-0 text-ink-500" />
                     </button>
                     {countryPickerOpen && (
                       <ul
-                        className="absolute z-10 mt-1 w-full max-h-60 overflow-auto rounded-md border border-gray-200 bg-white py-1 shadow-lg"
+                        className="absolute z-10 mt-1 max-h-60 w-full overflow-auto rounded-md border border-ink-200 bg-white py-1 shadow-md"
                         role="listbox"
                       >
                         {PHONE_COUNTRY_OPTIONS.map((opt) => (
@@ -341,10 +315,10 @@ export default function ProfilePage() {
                               setVerificationMessage(null)
                               setCountryPickerOpen(false)
                             }}
-                            className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-gray-100 aria-selected:bg-blue-50 aria-selected:text-blue-700"
+                            className="flex cursor-pointer items-center gap-2 px-3 py-2 text-sm text-ink-700 hover:bg-ink-100 aria-selected:bg-accent-tint aria-selected:text-accent-ink"
                           >
-                            <span className="flex-shrink-0 w-5 h-[15px] flex items-center justify-center overflow-hidden rounded-sm bg-gray-100" aria-hidden>
-                              <FlagImage iso={opt.iso} className="w-5 h-[15px] object-cover" />
+                            <span className="flex h-[15px] w-5 flex-shrink-0 items-center justify-center overflow-hidden rounded-sm bg-ink-100" aria-hidden>
+                              <FlagImage iso={opt.iso} className="h-[15px] w-5 object-cover" />
                             </span>
                             <span>{opt.label}</span>
                           </li>
@@ -358,10 +332,10 @@ export default function ProfilePage() {
                               setVerificationMessage(null)
                               setCountryPickerOpen(false)
                             }}
-                            className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-gray-100 aria-selected:bg-blue-50 aria-selected:text-blue-700"
+                            className="flex cursor-pointer items-center gap-2 px-3 py-2 text-sm text-ink-700 hover:bg-ink-100 aria-selected:bg-accent-tint aria-selected:text-accent-ink"
                           >
-                            <span className="flex-shrink-0 w-5 h-[15px] flex items-center justify-center text-gray-500" aria-hidden>
-                              <GlobeIcon className="w-3.5 h-3.5" />
+                            <span className="flex h-[15px] w-5 flex-shrink-0 items-center justify-center text-ink-500" aria-hidden>
+                              <Globe className="h-3.5 w-3.5" />
                             </span>
                             <span>{extraCountryOption.label}</span>
                           </li>
@@ -376,96 +350,83 @@ export default function ProfilePage() {
                       setPhoneNumber(e.target.value.replace(/\D/g, '').slice(0, 15))
                       setVerificationMessage(null)
                     }}
-                    className="flex-1 min-w-0 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    className="min-w-0 flex-1 rounded-md border border-ink-300 bg-white px-3 py-2 text-body text-ink-800 placeholder:text-ink-500 focus:border-action focus:outline-none focus:ring-[3px] focus:ring-action-ring"
                     placeholder="91234567"
                     aria-label="Número de teléfono"
                   />
                   {fullPhoneE164 || profile?.phone_e164 ? (
                     profile?.phone_verified ? (
-                      <span className="flex-shrink-0 text-green-600" title="Verificado" aria-label="Verificado">
-                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                        </svg>
+                      <span className="flex-shrink-0 text-success" title="Verificado" aria-label="Verificado">
+                        <Check className="h-6 w-6" />
                       </span>
                     ) : (
-                      <span className="flex-shrink-0 text-red-500" title="No verificado" aria-label="No verificado">
-                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                        </svg>
+                      <span className="flex-shrink-0 text-danger" title="No verificado" aria-label="No verificado">
+                        <X className="h-6 w-6" />
                       </span>
                     )
                   ) : null}
                 </div>
-                <p className="mt-1 text-xs text-gray-500">
+                <p className="mt-1 text-xs text-ink-500">
                   Primero elegí el país, luego el número sin el 0 ni la característica.
                 </p>
                 {(phoneNumber.length >= 6 || profile?.phone_e164) && (
                   <div className="mt-3">
-                    <button
+                    <Button
                       type="button"
+                      variant="secondary"
+                      size="sm"
                       disabled={phoneNumber.length < 6}
                       onClick={() => {
                         const num = fullPhoneE164 || profile?.phone_e164 || ''
                         setVerificationMessage(`Se envió un código de verificación al número: ${num}`)
                       }}
-                      className={`px-4 py-2 border rounded-md text-sm font-medium ${phoneNumber.length < 6 ? 'border-gray-200 text-gray-400 cursor-not-allowed' : 'border-gray-300 text-gray-700 hover:bg-gray-50'}`}
                     >
                       Verificar
-                    </button>
+                    </Button>
                   </div>
                 )}
                 {profile?.phone_e164 && profile?.phone_verified_at && (
-                  <p className="mt-1 text-xs text-gray-500">
+                  <p className="mt-1 text-xs text-ink-500">
                     Verificado el {formatDateTime(profile.phone_verified_at)}
                   </p>
                 )}
               </div>
 
               <div className="flex justify-end">
-                <button
-                  type="submit"
-                  disabled={saving}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
-                >
+                <Button type="submit" disabled={saving}>
                   {saving ? 'Guardando...' : 'Guardar'}
-                </button>
+                </Button>
               </div>
             </form>
-          </div>
-        </div>
+          </CardBody>
+        </Card>
       </div>
 
       {/* Pop-up de verificación enviada */}
       {verificationMessage && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/30"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4"
           role="dialog"
           aria-modal="true"
           aria-labelledby="verification-toast-title"
         >
-          <div className="bg-white rounded-xl shadow-xl max-w-sm w-full p-6 flex items-start gap-4">
-            <div className="flex-shrink-0 w-10 h-10 rounded-full bg-green-100 flex items-center justify-center">
-              <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-              </svg>
+          <div className="flex w-full max-w-sm items-start gap-4 rounded-xl bg-white p-6 shadow-lg">
+            <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-success-bg">
+              <Check className="h-5 w-5 text-success" />
             </div>
-            <div className="flex-1 min-w-0">
-              <h3 id="verification-toast-title" className="text-sm font-semibold text-gray-900 mb-1">
+            <div className="min-w-0 flex-1">
+              <h3 id="verification-toast-title" className="mb-1 text-sm font-semibold text-ink-900">
                 Código enviado
               </h3>
-              <p className="text-sm text-gray-600">
-                {verificationMessage}
-              </p>
+              <p className="text-sm text-ink-600">{verificationMessage}</p>
             </div>
             <button
               type="button"
               onClick={() => setVerificationMessage(null)}
-              className="flex-shrink-0 p-1 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100"
+              className="flex-shrink-0 rounded-md p-1 text-ink-400 hover:bg-ink-100 hover:text-ink-600"
               aria-label="Cerrar"
             >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-              </svg>
+              <X className="h-5 w-5" />
             </button>
           </div>
         </div>
