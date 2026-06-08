@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
+import { ArrowLeft } from 'lucide-react'
+import { Card, CardBody, Button } from '@/shared/ui/components'
 import { useLoading } from '@/contexts/LoadingContext'
 import {
   getDocument,
@@ -20,7 +22,7 @@ export default function DocumentReviewPage() {
   const router = useRouter()
   const documentId = params.document_id as string
   const { withLoading } = useLoading()
-  
+
   const [document, setDocument] = useState<Document | null>(null)
   const [pdfUrl, setPdfUrl] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -30,20 +32,20 @@ export default function DocumentReviewPage() {
 
   useEffect(() => {
     let blobUrl: string | null = null
-    
+
     async function loadDocument() {
       try {
         setLoading(true)
         setError(null)
-        
+
         const [doc, runs, versions] = await Promise.all([
           getDocument(documentId),
           getDocumentRuns(documentId),
           getDocumentVersions(documentId),
         ])
-        
+
         setDocument(doc)
-        
+
         // PDF desde la versión en revisión (fuente de verdad: content_html o content_markdown)
         const inReviewVersion = versions?.find((v: { version_status: string }) => v.version_status === 'IN_REVIEW')
         const pdfSourceUrl = inReviewVersion
@@ -51,7 +53,7 @@ export default function DocumentReviewPage() {
           : runs.length > 0 && runs[0].artifacts.pdf
             ? (runs[0].artifacts.pdf.startsWith('http') ? runs[0].artifacts.pdf : `${API_URL}${runs[0].artifacts.pdf}`)
             : null
-        
+
         if (pdfSourceUrl) {
           const urlWithCacheBust = `${pdfSourceUrl}${pdfSourceUrl.includes('?') ? '&' : '?'}t=${Date.now()}`
           try {
@@ -77,7 +79,7 @@ export default function DocumentReviewPage() {
     if (documentId) {
       loadDocument()
     }
-    
+
     // Cleanup: revocar blob URL cuando el componente se desmonte
     return () => {
       if (blobUrl) {
@@ -139,8 +141,8 @@ export default function DocumentReviewPage() {
   if (loading) {
     return (
       <div className="p-8">
-        <div className="max-w-7xl mx-auto">
-          <div className="animate-pulse text-gray-500">Cargando documento...</div>
+        <div className="mx-auto max-w-7xl">
+          <div className="animate-pulse text-ink-500">Cargando documento...</div>
         </div>
       </div>
     )
@@ -149,15 +151,12 @@ export default function DocumentReviewPage() {
   if (error && !document) {
     return (
       <div className="p-8">
-        <div className="max-w-7xl mx-auto">
-          <div className="bg-red-50 border border-red-200 rounded-md p-4">
-            <p className="text-red-700">Error: {error}</p>
-            <button
-              onClick={() => router.push('/dashboard/approval-queue')}
-              className="mt-4 px-4 py-2 bg-gray-200 rounded-md hover:bg-gray-300"
-            >
+        <div className="mx-auto max-w-7xl">
+          <div className="rounded-md border border-danger-bd bg-danger-bg p-4">
+            <p className="mb-3 text-sm text-danger">Error: {error}</p>
+            <Button variant="secondary" size="sm" onClick={() => router.push('/dashboard/approval-queue')}>
               Volver a la cola de aprobación
-            </button>
+            </Button>
           </div>
         </div>
       </div>
@@ -170,95 +169,96 @@ export default function DocumentReviewPage() {
 
   return (
     <div className="p-8">
-      <div className="max-w-7xl mx-auto">
+      <div className="mx-auto max-w-7xl">
         {/* Header */}
         <div className="mb-6">
           <button
             onClick={() => router.push('/dashboard/approval-queue')}
-            className="text-sm text-gray-600 hover:text-gray-900 mb-4"
+            className="mb-4 flex items-center gap-1.5 text-sm font-semibold text-ink-500 hover:text-ink-800"
           >
-            ← Volver a la cola de aprobación
+            <ArrowLeft className="h-4 w-4" />
+            Volver a la cola de aprobación
           </button>
-          <h1 className="text-3xl font-bold text-gray-900">
-            Revisar Documento: {document.name}
+          <h1 className="text-h1 text-ink-900">
+            Revisar documento: {document.name}
           </h1>
-          <p className="text-gray-600 mt-1">
+          <p className="mt-1 text-sm text-ink-500">
             Estado: {document.status === 'pending_validation' ? 'Pendiente de validación' : document.status}
           </p>
         </div>
 
         {error && (
-          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-md text-red-700">
+          <div className="mb-6 rounded-md border border-danger-bd bg-danger-bg p-4 text-sm text-danger">
             {error}
           </div>
         )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
           {/* Columna izquierda: Preview del PDF */}
           <div className="lg:col-span-2">
-            <div className="bg-white rounded-lg border border-gray-200 p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Vista Previa del Documento</h2>
-              
-              {pdfUrl ? (
-                <div className="border border-gray-200 rounded-lg overflow-hidden">
-                  <iframe
-                    src={`${pdfUrl}#toolbar=0`}
-                    className="w-full h-[600px]"
-                    title="Preview del documento"
-                  />
-                </div>
-              ) : (
-                <div className="h-96 flex items-center justify-center bg-gray-50 rounded">
-                  <p className="text-gray-500">No hay PDF disponible para este documento</p>
-                </div>
-              )}
-            </div>
+            <Card>
+              <CardBody>
+                <h2 className="mb-4 text-h3 text-ink-900">Vista previa del documento</h2>
+
+                {pdfUrl ? (
+                  <div className="overflow-hidden rounded-lg border border-ink-200">
+                    <iframe
+                      src={`${pdfUrl}#toolbar=0`}
+                      className="h-[600px] w-full"
+                      title="Preview del documento"
+                    />
+                  </div>
+                ) : (
+                  <div className="flex h-96 items-center justify-center rounded-lg bg-ink-50">
+                    <p className="text-ink-500">No hay PDF disponible para este documento</p>
+                  </div>
+                )}
+              </CardBody>
+            </Card>
           </div>
 
           {/* Columna derecha: Formulario de revisión */}
           <div className="lg:col-span-1">
-            <div className="bg-white rounded-lg border border-gray-200 p-6 sticky top-4">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Revisión</h2>
-              
-              <div className="mb-4">
-                <label htmlFor="observations" className="block text-sm font-medium text-gray-700 mb-2">
-                  Observaciones
-                </label>
-                <textarea
-                  id="observations"
-                  value={observations}
-                  onChange={(e) => setObservations(e.target.value)}
-                  placeholder="Agrega tus observaciones sobre el documento..."
-                  rows={8}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                />
-                <p className="mt-1 text-xs text-gray-500">
-                  Las observaciones son opcionales al aprobar, pero requeridas al rechazar.
-                </p>
-              </div>
+            <Card className="sticky top-4">
+              <CardBody>
+                <h2 className="mb-4 text-h3 text-ink-900">Revisión</h2>
 
-              <div className="space-y-3">
-                <button
-                  onClick={handleApprove}
-                  disabled={processing}
-                  className="w-full px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
-                >
-                  {processing ? 'Procesando...' : 'Aprobar Documento'}
-                </button>
-                
-                <button
-                  onClick={handleReject}
-                  disabled={processing || !observations.trim()}
-                  className="w-full px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
-                >
-                  {processing ? 'Procesando...' : 'Rechazar Documento'}
-                </button>
-              </div>
-            </div>
+                <div className="mb-4">
+                  <label htmlFor="observations" className="mb-2 block text-sm font-semibold text-ink-700">
+                    Observaciones
+                  </label>
+                  <textarea
+                    id="observations"
+                    value={observations}
+                    onChange={(e) => setObservations(e.target.value)}
+                    placeholder="Agregá tus observaciones sobre el documento..."
+                    rows={8}
+                    className="w-full rounded-md border border-ink-300 bg-white px-3 py-2 text-body text-ink-800 placeholder:text-ink-500 transition-colors focus:border-action focus:outline-none focus:ring-[3px] focus:ring-action-ring"
+                  />
+                  <p className="mt-1 text-xs text-ink-500">
+                    Las observaciones son opcionales al aprobar, pero requeridas al rechazar.
+                  </p>
+                </div>
+
+                <div className="space-y-3">
+                  <Button variant="create" className="w-full" onClick={handleApprove} disabled={processing}>
+                    {processing ? 'Procesando...' : 'Aprobar documento'}
+                  </Button>
+
+                  <Button
+                    variant="danger"
+                    className="w-full"
+                    onClick={handleReject}
+                    disabled={processing || !observations.trim()}
+                  >
+                    {processing ? 'Procesando...' : 'Rechazar documento'}
+                  </Button>
+                </div>
+              </CardBody>
+            </Card>
           </div>
         </div>
       </div>
     </div>
   )
 }
-

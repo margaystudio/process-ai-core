@@ -1,7 +1,9 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { Plus, FileText } from 'lucide-react'
+import { Card, CardBody, Button, buttonVariants } from '@/shared/ui/components'
 import { createProcessRun } from '@/lib/api'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
 import { useLoading } from '@/contexts/LoadingContext'
@@ -24,14 +26,14 @@ export default function NewProcessPage() {
   const [detailLevel, setDetailLevel] = useState('')
   const [contextText, setContextText] = useState('')
   const [description, setDescription] = useState('')
-  
+
   const [files, setFiles] = useState<FileItemData[]>([])
   const [isModalOpen, setIsModalOpen] = useState(false)
-  
+
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<any>(null)
-  
+
   // Hook para manejar visualización de artifacts
   const { openArtifactFromRun, ModalComponent } = usePdfViewer()
 
@@ -51,7 +53,7 @@ export default function NewProcessPage() {
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
-    
+
     await withLoading(async () => {
       setIsSubmitting(true)
       setError(null)
@@ -59,31 +61,31 @@ export default function NewProcessPage() {
 
       try {
         const formData = new FormData()
-        
+
         // Campos requeridos
         formData.append('process_name', processName)
         formData.append('mode', mode)
-        
+
         // Campos requeridos
         if (!folderId) {
           throw new Error('Debes seleccionar una carpeta')
         }
         formData.append('folder_id', folderId)
-        
+
         // Campos opcionales (solo si tienen valor)
         if (detailLevel) formData.append('detail_level', detailLevel)
         if (contextText.trim()) formData.append('context_text', contextText.trim())
         if (description.trim()) formData.append('description', description.trim())
-        
+
         // Agregar archivos según su tipo
         files.forEach((fileItem) => {
           const fieldName = `${fileItem.type}_files`
           formData.append(fieldName, fileItem.file)
         })
-        
+
         const response = await createProcessRun(formData)
         setResult(response)
-        
+
         // Si se creó un documento, redirigir a su página de detalles
         if (response.document_id) {
           // Pequeño delay para que el usuario vea el mensaje de éxito
@@ -101,159 +103,155 @@ export default function NewProcessPage() {
 
   return (
     <div className="p-8">
-      <div className="max-w-6xl mx-auto">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="mx-auto max-w-6xl">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
           {/* Columna izquierda: Árbol de carpetas */}
           <div className="lg:col-span-1">
             {!selectedWorkspaceId ? (
-              <div className="bg-white rounded-lg border border-gray-200 p-6">
-                <p className="text-sm text-gray-600 mb-4">
-                  Por favor, selecciona un espacio de trabajo en el header para continuar.
-                </p>
-                {selectedWorkspace && (
-                  <div className="mt-4 p-3 bg-blue-50 rounded-md">
-                    <p className="text-sm font-medium text-blue-900">Espacio de trabajo actual:</p>
-                    <p className="text-sm text-blue-700">{selectedWorkspace.name}</p>
-                  </div>
-                )}
-              </div>
+              <Card>
+                <CardBody>
+                  <p className="text-sm text-ink-600">
+                    Seleccioná un espacio de trabajo en el encabezado para continuar.
+                  </p>
+                </CardBody>
+              </Card>
             ) : (
               <>
                 <div className="mb-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Carpeta * <span className="text-red-500">*</span>
+                  <label className="mb-2 block text-sm font-semibold text-ink-700">
+                    Carpeta <span className="text-danger">*</span>
                   </label>
                   {!folderId && (
-                    <p className="text-xs text-red-600 mb-2">Debes seleccionar una carpeta para continuar</p>
+                    <p className="mb-2 text-xs text-danger">Debés seleccionar una carpeta para continuar</p>
                   )}
                 </div>
-                <FolderTree
-                  workspaceId={selectedWorkspaceId}
-                  selectedFolderId={folderId}
-                  onSelectFolder={(id) => setFolderId(id || '')}
-                  showSelectable={true}
-                  showCrud={true}
-                  showDocuments={false}
-                />
+                <Card>
+                  <CardBody className="p-4">
+                    <FolderTree
+                      workspaceId={selectedWorkspaceId}
+                      selectedFolderId={folderId}
+                      onSelectFolder={(id) => setFolderId(id || '')}
+                      showSelectable={true}
+                      showCrud={true}
+                      showDocuments={false}
+                    />
+                  </CardBody>
+                </Card>
               </>
             )}
           </div>
 
           {/* Columna derecha: Formulario */}
           <div className="lg:col-span-2">
-            <div className="bg-white rounded-lg shadow-sm p-8">
-              <h1 className="text-3xl font-bold mb-6">Nuevo Proceso</h1>
+            <Card>
+              <CardBody className="p-8">
+                <h1 className="mb-6 text-h1 text-ink-900">Nuevo proceso</h1>
 
-              {!selectedWorkspaceId ? (
-                <div className="p-6 bg-yellow-50 border border-yellow-200 rounded-md">
-                  <p className="text-sm text-yellow-800">
-                    Por favor, selecciona un espacio de trabajo en el header para crear un proceso.
-                  </p>
-                </div>
-              ) : (
-                <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-md">
-                  <p className="text-sm font-medium text-blue-900">Espacio de trabajo:</p>
-                  <p className="text-sm text-blue-700">{selectedWorkspace?.name}</p>
-                </div>
-              )}
-
-              <form onSubmit={handleSubmit} className="space-y-6">
-                <ProcessNameInput 
-                  value={processName}
-                  onChange={setProcessName}
-                />
-
-                <ModeSelector 
-                  value={mode}
-                  onChange={setMode}
-                />
-
-                <OptionalFields
-                  detailLevel={detailLevel}
-                  contextText={contextText}
-                  description={description}
-                  onDetailLevelChange={setDetailLevel}
-                  onContextTextChange={setContextText}
-                  onDescriptionChange={setDescription}
-                />
-
-                <div className="pt-6 border-t">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-lg font-medium text-gray-900">Archivos</h3>
-                    <button
-                      type="button"
-                      onClick={() => setIsModalOpen(true)}
-                      className="px-4 py-2 text-sm font-medium text-blue-600 hover:text-blue-700 border border-blue-600 rounded-md hover:bg-blue-50"
-                    >
-                      + Agregar archivo
-                    </button>
+                {!selectedWorkspaceId ? (
+                  <div className="rounded-md border border-warning-bd bg-warning-bg p-4">
+                    <p className="text-sm text-ink-700">
+                      Seleccioná un espacio de trabajo en el encabezado para crear un proceso.
+                    </p>
                   </div>
-
-                  <FileList files={files} onRemove={handleRemoveFile} />
-                </div>
-
-                <div className="pt-6 border-t">
-                  <div className="flex gap-4">
-                    <button
-                      type="submit"
-                      disabled={isSubmitting || !processName.trim() || files.length === 0 || !selectedWorkspaceId || !folderId}
-                      className="px-6 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
-                    >
-                      {isSubmitting ? 'Procesando...' : 'Generar Documento'}
-                    </button>
-                    
-                    <a
-                      href="/"
-                      className="px-6 py-3 border border-gray-300 rounded-md hover:bg-gray-50 font-medium"
-                    >
-                      Cancelar
-                    </a>
+                ) : (
+                  <div className="mb-4 rounded-md border border-info-bd bg-info-bg p-4">
+                    <p className="text-sm font-semibold text-ink-700">Espacio de trabajo</p>
+                    <p className="text-sm text-ink-600">{selectedWorkspace?.name}</p>
                   </div>
-                </div>
-              </form>
+                )}
 
-              {error && (
-                <div className="mt-6 p-4 bg-red-50 border border-red-200 rounded-md text-red-700">
-                  <p className="font-semibold">Error</p>
-                  <p className="text-sm mt-1">{error}</p>
-                </div>
-              )}
+                <form onSubmit={handleSubmit} className="space-y-6">
+                  <ProcessNameInput
+                    value={processName}
+                    onChange={setProcessName}
+                  />
 
-              {result && (
-                <div className="mt-6 p-4 bg-green-50 border border-green-200 rounded-md">
-                  <p className="font-semibold text-green-800">¡Documento generado exitosamente!</p>
-                  <p className="text-sm text-green-700 mt-2">Run ID: {result.run_id}</p>
-                  {result.artifacts && (
-                    <div className="mt-4 space-y-2">
-                      {result.artifacts.json && (
-                        <button
-                          onClick={() => openArtifactFromRun(result.artifacts.json!, 'json')}
-                          className="block text-blue-600 hover:underline text-left"
-                        >
-                          📄 Ver JSON
-                        </button>
-                      )}
-                      {result.artifacts.markdown && (
-                        <button
-                          onClick={() => openArtifactFromRun(result.artifacts.markdown!, 'markdown')}
-                          className="block text-blue-600 hover:underline text-left"
-                        >
-                          📝 Ver Markdown
-                        </button>
-                      )}
-                      {result.artifacts.pdf && (
-                        <button
-                          onClick={() => openArtifactFromRun(result.artifacts.pdf!, 'pdf')}
-                          className="block text-blue-600 hover:underline text-left"
-                        >
-                          📑 Ver PDF
-                        </button>
-                      )}
+                  <ModeSelector
+                    value={mode}
+                    onChange={setMode}
+                  />
+
+                  <OptionalFields
+                    detailLevel={detailLevel}
+                    contextText={contextText}
+                    description={description}
+                    onDetailLevelChange={setDetailLevel}
+                    onContextTextChange={setContextText}
+                    onDescriptionChange={setDescription}
+                  />
+
+                  <div className="border-t border-ink-200 pt-6">
+                    <div className="mb-4 flex items-center justify-between">
+                      <h3 className="text-h3 text-ink-900">Archivos</h3>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => setIsModalOpen(true)}
+                      >
+                        <Plus />
+                        Agregar archivo
+                      </Button>
                     </div>
-                  )}
-                </div>
-              )}
-            </div>
+
+                    <FileList files={files} onRemove={handleRemoveFile} />
+                  </div>
+
+                  <div className="border-t border-ink-200 pt-6">
+                    <div className="flex gap-4">
+                      <Button
+                        type="submit"
+                        variant="create"
+                        size="lg"
+                        disabled={isSubmitting || !processName.trim() || files.length === 0 || !selectedWorkspaceId || !folderId}
+                      >
+                        {isSubmitting ? 'Procesando...' : 'Generar documento'}
+                      </Button>
+
+                      <a href="/" className={buttonVariants({ variant: 'secondary', size: 'lg' })}>
+                        Cancelar
+                      </a>
+                    </div>
+                  </div>
+                </form>
+
+                {error && (
+                  <div className="mt-6 rounded-md border border-danger-bd bg-danger-bg p-4 text-danger">
+                    <p className="font-semibold">Error</p>
+                    <p className="mt-1 text-sm">{error}</p>
+                  </div>
+                )}
+
+                {result && (
+                  <div className="mt-6 rounded-md border border-success-bd bg-success-bg p-4">
+                    <p className="font-semibold text-success-fg">¡Documento generado exitosamente!</p>
+                    <p className="mt-2 text-sm text-ink-700">Run ID: {result.run_id}</p>
+                    {result.artifacts && (
+                      <div className="mt-4 flex flex-col items-start gap-1">
+                        {result.artifacts.json && (
+                          <Button variant="ghost" size="sm" onClick={() => openArtifactFromRun(result.artifacts.json!, 'json')}>
+                            <FileText />
+                            Ver JSON
+                          </Button>
+                        )}
+                        {result.artifacts.markdown && (
+                          <Button variant="ghost" size="sm" onClick={() => openArtifactFromRun(result.artifacts.markdown!, 'markdown')}>
+                            <FileText />
+                            Ver Markdown
+                          </Button>
+                        )}
+                        {result.artifacts.pdf && (
+                          <Button variant="ghost" size="sm" onClick={() => openArtifactFromRun(result.artifacts.pdf!, 'pdf')}>
+                            <FileText />
+                            Ver PDF
+                          </Button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </CardBody>
+            </Card>
           </div>
         </div>
       </div>
