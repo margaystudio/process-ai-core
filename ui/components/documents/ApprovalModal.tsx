@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { X } from 'lucide-react'
 import { Document, getDocumentRuns } from '@/lib/api'
 import { formatDate } from '@/utils/dateFormat'
 
@@ -71,7 +72,7 @@ export default function ApprovalModal({
               disabled={processing}
               className="text-ink-400 hover:text-ink-600"
             >
-              ✕
+              <X className="h-4 w-4" />
             </button>
           </div>
 

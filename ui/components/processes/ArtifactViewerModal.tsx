@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
+import { X } from 'lucide-react'
 import { getVersionPreviewPdfUrl } from '@/lib/api'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
@@ -172,7 +173,7 @@ export default function ArtifactViewerModal({
               onClick={onClose}
               className="text-ink-400 hover:text-ink-600 text-2xl"
             >
-              ✕
+              <X className="h-4 w-4" />
             </button>
           </div>
 

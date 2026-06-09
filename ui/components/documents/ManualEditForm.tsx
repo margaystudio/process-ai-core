@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { X } from 'lucide-react'
 import { getCurrentDocumentVersion } from '@/lib/api'
 
 interface ManualEditFormProps {
@@ -50,10 +51,10 @@ export default function ManualEditForm({
 
   if (loading) {
     return (
-      <div className="bg-white border-2 border-blue-400 rounded-lg p-6">
+      <div className="bg-white border-2 border-accent rounded-lg p-6">
         <div className="text-center py-8">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2"></div>
-          <p className="text-sm text-gray-600">Cargando contenido...</p>
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent mx-auto mb-2"></div>
+          <p className="text-sm text-ink-600">Cargando contenido...</p>
         </div>
       </div>
     )
@@ -61,24 +62,24 @@ export default function ManualEditForm({
 
   if (error) {
     return (
-      <div className="bg-white border-2 border-red-400 rounded-lg p-6">
-        <div className="bg-red-50 border border-red-200 rounded-md p-4">
-          <p className="text-red-800">Error: {error}</p>
+      <div className="bg-white border-2 border-danger-bd rounded-lg p-6">
+        <div className="bg-danger-bg border border-danger-bd rounded-md p-4">
+          <p className="text-danger">Error: {error}</p>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="bg-white border-2 border-blue-400 rounded-lg p-6">
+    <div className="bg-white border-2 border-accent rounded-lg p-6">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-xl font-semibold text-gray-900">✏️ Edición Manual</h3>
+        <h3 className="text-h2 text-ink-900">Edición Manual</h3>
         <button
           onClick={onCancel}
           disabled={processing}
-          className="text-gray-400 hover:text-gray-600"
+          className="text-ink-400 hover:text-ink-600"
         >
-          ✕
+          <X className="h-4 w-4" />
         </button>
       </div>
 
@@ -86,7 +87,7 @@ export default function ManualEditForm({
         <div className="mb-4">
           <label
             htmlFor="json-content"
-            className="block text-sm font-medium text-gray-700 mb-2"
+            className="block text-sm font-medium text-ink-700 mb-2"
           >
             Editor JSON
           </label>
@@ -95,11 +96,11 @@ export default function ManualEditForm({
             value={jsonContent}
             onChange={(e) => setJsonContent(e.target.value)}
             rows={20}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md font-mono text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            className="w-full px-3 py-2 border border-ink-300 rounded-md font-mono text-sm focus:ring-2 focus:ring-action-ring focus:border-accent"
             disabled={processing}
           />
-          <p className="text-xs text-gray-500 mt-1">
-            ⚠️ Requiere conocimiento técnico. El JSON será validado antes de guardar.
+          <p className="text-xs text-ink-500 mt-1">
+            Requiere conocimiento técnico. El JSON será validado antes de guardar.
           </p>
         </div>
 
@@ -108,14 +109,14 @@ export default function ManualEditForm({
             type="button"
             onClick={onCancel}
             disabled={processing}
-            className="px-4 py-2 text-sm text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 disabled:opacity-50"
+            className="px-4 py-2 text-sm text-ink-700 bg-ink-100 rounded-md hover:bg-ink-200 disabled:opacity-50"
           >
             Cancelar
           </button>
           <button
             type="submit"
             disabled={processing}
-            className="px-4 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
+            className="px-4 py-2 text-sm bg-action text-white rounded-md hover:bg-action-hover disabled:opacity-50 disabled:cursor-not-allowed transition"
           >
             {processing ? 'Guardando...' : 'Guardar Cambios'}
           </button>

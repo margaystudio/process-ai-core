@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Check as CheckIcon, FileText } from 'lucide-react'
+import { Check as CheckIcon, FileText, ArrowLeft } from 'lucide-react'
 import { useParams, useRouter } from 'next/navigation'
 import {
   getDocument,
@@ -699,7 +699,7 @@ export default function DocumentDetailPage() {
             onClick={() => router.back()}
             className="text-sm text-ink-600 hover:text-ink-900 mb-4"
           >
-            ← Volver
+            <ArrowLeft className="h-4 w-4" /> Volver
           </button>
           <div className="flex items-center justify-between">
             <h1 className="text-3xl font-bold text-ink-900">

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { X } from 'lucide-react'
 import { getEditableContent, saveEditableContent, submitVersionForReview } from '@/lib/api'
 import ManualEditorTiptap, { type ManualEditorTiptapRef } from './ManualEditorTiptap'
 
@@ -120,27 +121,27 @@ export default function ManualEditPanel({
 
   if (loading) {
     return (
-      <div className="bg-white border-2 border-gray-200 rounded-lg p-8">
+      <div className="bg-white border-2 border-ink-200 rounded-lg p-8">
         <div className="animate-pulse space-y-4">
-          <div className="h-6 bg-gray-200 rounded w-1/3" />
-          <div className="h-4 bg-gray-100 rounded w-full" />
-          <div className="h-4 bg-gray-100 rounded w-full" />
-          <div className="h-64 bg-gray-100 rounded" />
+          <div className="h-6 bg-ink-200 rounded w-1/3" />
+          <div className="h-4 bg-ink-100 rounded w-full" />
+          <div className="h-4 bg-ink-100 rounded w-full" />
+          <div className="h-64 bg-ink-100 rounded" />
         </div>
-        <p className="text-sm text-gray-500 mt-4 text-center">Cargando contenido editable...</p>
+        <p className="text-sm text-ink-500 mt-4 text-center">Cargando contenido editable...</p>
       </div>
     )
   }
 
   if (error && !html) {
     return (
-      <div className="bg-white border-2 border-red-200 rounded-lg p-6">
-        <p className="text-red-800 mb-4">{error}</p>
+      <div className="bg-white border-2 border-danger-bd rounded-lg p-6">
+        <p className="text-danger mb-4">{error}</p>
         <div className="flex gap-3">
-          <button type="button" onClick={() => loadContent()} className="px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300">
+          <button type="button" onClick={() => loadContent()} className="px-4 py-2 bg-ink-200 rounded-lg hover:bg-ink-300">
             Reintentar
           </button>
-          <button type="button" onClick={onCancel} className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
+          <button type="button" onClick={onCancel} className="px-4 py-2 border border-ink-300 rounded-lg hover:bg-ink-50">
             Cancelar
           </button>
         </div>
@@ -149,9 +150,9 @@ export default function ManualEditPanel({
   }
 
   return (
-    <div className="bg-white border-2 border-gray-200 rounded-lg p-6">
+    <div className="bg-white border-2 border-ink-200 rounded-lg p-6">
       <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-        <h3 className="text-xl font-semibold text-gray-900">✏️ Edición Manual</h3>
+        <h3 className="text-h2 text-ink-900">Edición Manual</h3>
         <button
           type="button"
           onClick={() => {
@@ -159,21 +160,21 @@ export default function ManualEditPanel({
             onCancel()
           }}
           disabled={saving || submitting}
-          className="text-gray-400 hover:text-gray-600 p-1"
+          className="text-ink-400 hover:text-ink-600 p-1"
           aria-label="Cerrar"
         >
-          ✕
+          <X className="h-4 w-4" />
         </button>
       </div>
 
       {(savedAt || justSaved) && (
-        <p className={`text-sm mb-2 ${justSaved ? 'text-green-600 font-medium' : 'text-gray-500'}`}>
+        <p className={`text-sm mb-2 ${justSaved ? 'text-success font-medium' : 'text-ink-500'}`}>
           {justSaved ? 'Guardado correctamente' : formatSavedAt(savedAt!)}
         </p>
       )}
 
       {error && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-800 text-sm" role="alert">
+        <div className="mb-4 p-3 bg-danger-bg border border-danger-bd rounded-lg text-danger text-sm" role="alert">
           {error}
         </div>
       )}
@@ -192,7 +193,7 @@ export default function ManualEditPanel({
           type="button"
           onClick={handleSubmitForReview}
           disabled={submitting || saving || !userId || !workspaceId || !versionId}
-          className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+          className="px-4 py-2 bg-create text-white rounded-lg hover:bg-create-hover disabled:opacity-50 disabled:cursor-not-allowed font-medium"
         >
           {submitting ? 'Enviando...' : 'Enviar a validación'}
         </button>
@@ -203,12 +204,12 @@ export default function ManualEditPanel({
             onCancel()
           }}
           disabled={saving || submitting}
-          className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 font-medium"
+          className="px-4 py-2 border border-ink-300 rounded-lg hover:bg-ink-50 font-medium"
         >
           Cancelar
         </button>
         {dirty && (
-          <span className="text-sm text-amber-600">Hay cambios sin guardar</span>
+          <span className="text-sm text-warning">Hay cambios sin guardar</span>
         )}
       </div>
     </div>

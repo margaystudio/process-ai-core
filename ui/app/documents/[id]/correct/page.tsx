@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { ArrowLeft } from 'lucide-react'
 import { useRouter, useParams } from 'next/navigation'
 import {
   getDocument,
@@ -134,7 +135,7 @@ export default function CorrectDocumentPage() {
             onClick={() => router.back()}
             className="text-accent hover:text-accent-ink mb-4"
           >
-            ← Volver
+            <ArrowLeft className="h-4 w-4" /> Volver
           </button>
           <h1 className="text-h1 text-ink-900">Corregir Documento</h1>
           <p className="text-ink-600 mt-1">{document.name}</p>

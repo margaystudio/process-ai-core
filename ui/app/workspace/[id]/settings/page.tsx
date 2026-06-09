@@ -961,7 +961,7 @@ export default function WorkspaceSettingsPage() {
                           </div>
                         )}
                         <p className={`text-xs mt-2 ${limits.can_create_users ? 'text-success' : 'text-danger'}`}>
-                          {limits.can_create_users ? '✓ Puede agregar usuarios' : '✗ Límite alcanzado'}
+                          {limits.can_create_users ? 'Puede agregar usuarios' : 'Límite alcanzado'}
                         </p>
                       </div>
 
@@ -986,7 +986,7 @@ export default function WorkspaceSettingsPage() {
                           </div>
                         )}
                         <p className={`text-xs mt-2 ${limits.can_create_documents ? 'text-success' : 'text-danger'}`}>
-                          {limits.can_create_documents ? '✓ Puede crear documentos' : '✗ Límite alcanzado'}
+                          {limits.can_create_documents ? 'Puede crear documentos' : 'Límite alcanzado'}
                         </p>
                       </div>
 
@@ -1011,7 +1011,7 @@ export default function WorkspaceSettingsPage() {
                           </div>
                         )}
                         <p className={`text-xs mt-2 ${limits.can_create_documents_this_month ? 'text-success' : 'text-danger'}`}>
-                          {limits.can_create_documents_this_month ? '✓ Puede crear documentos' : '✗ Límite mensual alcanzado'}
+                          {limits.can_create_documents_this_month ? 'Puede crear documentos' : 'Límite mensual alcanzado'}
                         </p>
                       </div>
 

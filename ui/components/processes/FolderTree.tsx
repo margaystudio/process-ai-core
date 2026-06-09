@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Folder as FolderIcon, FileText, Plus, Pencil, Trash2 } from 'lucide-react'
+import { Folder as FolderIcon, FileText, Plus, Pencil, Trash2, ChevronDown, ChevronRight, Check } from 'lucide-react'
 import { listFolders, listDocuments, createFolder, updateFolder, deleteFolder, Folder, Document as DocumentType } from '@/lib/api'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
 import FolderCrud from './FolderCrud'
@@ -238,7 +238,7 @@ function FolderTreeNode({
               setIsExpanded(!isExpanded)
             }}
           >
-            {isExpanded ? '▼' : '▶'}
+            {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
           </span>
         ) : (
           <span className="w-4" />
@@ -279,7 +279,7 @@ function FolderTreeNode({
           <span className="text-xs text-ink-500">({displayDocs.length})</span>
         )}
         {isSelected && (
-          <span className="text-xs text-accent">✓</span>
+          <Check className="h-3.5 w-3.5 text-accent" />
         )}
         {showCrud && !isEditing && (
           <div className="flex items-center gap-1 ml-2" onClick={(e) => e.stopPropagation()}>
