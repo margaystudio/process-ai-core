@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { Plus, Pencil, Trash2 } from 'lucide-react'
 import { createFolder, updateFolder, deleteFolder, Folder, listFolders } from '@/lib/api'
 
 interface FolderCrudProps {
@@ -122,7 +123,7 @@ export default function FolderCrud({ workspaceId, folders, onFoldersChange, pare
   return (
     <div className="space-y-3">
       {error && (
-        <div className="p-3 bg-red-50 border border-red-200 rounded-md text-red-700 text-sm">
+        <div className="p-3 bg-danger-bg border border-danger-bd rounded-md text-danger text-sm">
           {error}
         </div>
       )}
@@ -134,7 +135,7 @@ export default function FolderCrud({ workspaceId, folders, onFoldersChange, pare
             setIsCreating(true)
             setParentIdForNew(null)
           }}
-          className="w-full px-2 py-1.5 text-xs text-gray-500 hover:text-gray-700 border border-gray-200 rounded hover:bg-gray-50 transition"
+          className="w-full px-2 py-1.5 text-xs text-ink-500 hover:text-ink-700 border border-ink-200 rounded hover:bg-ink-50 transition"
           title="Crear nueva carpeta"
         >
           + Nueva Carpeta
@@ -143,13 +144,13 @@ export default function FolderCrud({ workspaceId, folders, onFoldersChange, pare
 
       {/* Formulario de creación */}
       {isCreating && (
-        <div className="p-3 bg-gray-50 border border-gray-200 rounded-md space-y-2">
+        <div className="p-3 bg-ink-50 border border-ink-200 rounded-md space-y-2">
           <input
             type="text"
             value={newFolderName}
             onChange={(e) => setNewFolderName(e.target.value)}
             placeholder="Nombre de la carpeta *"
-            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            className="w-full px-3 py-2 text-sm border border-ink-300 rounded-md focus:ring-2 focus:ring-action-ring focus:border-accent"
             autoFocus
           />
           <input
@@ -157,12 +158,12 @@ export default function FolderCrud({ workspaceId, folders, onFoldersChange, pare
             value={newFolderPath}
             onChange={(e) => setNewFolderPath(e.target.value)}
             placeholder="Path (opcional, se usa el nombre si está vacío)"
-            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            className="w-full px-3 py-2 text-sm border border-ink-300 rounded-md focus:ring-2 focus:ring-action-ring focus:border-accent"
           />
           <div className="flex gap-2">
             <button
               onClick={handleCreate}
-              className="flex-1 px-3 py-1.5 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700"
+              className="flex-1 px-3 py-1.5 text-sm bg-action text-white rounded-md hover:bg-action-hover"
             >
               Crear
             </button>
@@ -174,7 +175,7 @@ export default function FolderCrud({ workspaceId, folders, onFoldersChange, pare
                 setParentIdForNew(null)
                 setError(null)
               }}
-              className="flex-1 px-3 py-1.5 text-sm border border-gray-300 rounded-md hover:bg-gray-50"
+              className="flex-1 px-3 py-1.5 text-sm border border-ink-300 rounded-md hover:bg-ink-50"
             >
               Cancelar
             </button>
@@ -187,7 +188,7 @@ export default function FolderCrud({ workspaceId, folders, onFoldersChange, pare
         {filteredFolders.map((folder) => (
           <div
             key={folder.id}
-            className="p-3 bg-white border border-gray-200 rounded-md hover:border-gray-300"
+            className="p-3 bg-white border border-ink-200 rounded-md hover:border-ink-300"
           >
             {editingId === folder.id ? (
               // Modo edición
@@ -196,19 +197,19 @@ export default function FolderCrud({ workspaceId, folders, onFoldersChange, pare
                   type="text"
                   value={editFolderName}
                   onChange={(e) => setEditFolderName(e.target.value)}
-                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-3 py-2 text-sm border border-ink-300 rounded-md focus:ring-2 focus:ring-action-ring focus:border-accent"
                   autoFocus
                 />
                 <input
                   type="text"
                   value={editFolderPath}
                   onChange={(e) => setEditFolderPath(e.target.value)}
-                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-3 py-2 text-sm border border-ink-300 rounded-md focus:ring-2 focus:ring-action-ring focus:border-accent"
                 />
                 <div className="flex gap-2">
                   <button
                     onClick={() => handleUpdate(folder.id)}
-                    className="flex-1 px-3 py-1.5 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                    className="flex-1 px-3 py-1.5 text-sm bg-action text-white rounded-md hover:bg-action-hover"
                   >
                     Guardar
                   </button>
@@ -217,7 +218,7 @@ export default function FolderCrud({ workspaceId, folders, onFoldersChange, pare
                       setEditingId(null)
                       setError(null)
                     }}
-                    className="flex-1 px-3 py-1.5 text-sm border border-gray-300 rounded-md hover:bg-gray-50"
+                    className="flex-1 px-3 py-1.5 text-sm border border-ink-300 rounded-md hover:bg-ink-50"
                   >
                     Cancelar
                   </button>
@@ -228,11 +229,11 @@ export default function FolderCrud({ workspaceId, folders, onFoldersChange, pare
               <div>
                 <div className="flex items-center justify-between">
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-gray-900 truncate">
+                    <div className="text-sm font-medium text-ink-900 truncate">
                       {folder.name}
                     </div>
                     {folder.path !== folder.name && (
-                      <div className="text-xs text-gray-500 truncate">
+                      <div className="text-xs text-ink-500 truncate">
                         {folder.path}
                       </div>
                     )}
@@ -246,28 +247,28 @@ export default function FolderCrud({ workspaceId, folders, onFoldersChange, pare
                         // Establecer parent_id para crear subcarpeta
                         setParentIdForNew(folder.id)
                       }}
-                      className="px-2 py-1 text-xs text-blue-600 hover:text-blue-900 hover:bg-blue-50 rounded"
+                      className="px-2 py-1 text-xs text-accent hover:text-accent-ink hover:bg-accent-tint rounded"
                       title="Crear subcarpeta"
                     >
-                      ➕
+                      <Plus className="h-3.5 w-3.5" />
                     </button>
                     <button
                       onClick={() => handleStartEdit(folder)}
-                      className="px-2 py-1 text-xs text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded"
+                      className="px-2 py-1 text-xs text-ink-600 hover:text-ink-900 hover:bg-ink-100 rounded"
                       title="Editar"
                     >
-                      ✏️
+                      <Pencil className="h-3.5 w-3.5" />
                     </button>
                     <button
                       onClick={() => {
                         setDeletingId(folder.id)
                         handleDelete(folder.id)
                       }}
-                      className="px-2 py-1 text-xs text-red-600 hover:text-red-900 hover:bg-red-50 rounded"
+                      className="px-2 py-1 text-xs text-danger hover:text-danger hover:bg-danger-bg rounded"
                       title="Eliminar"
                       disabled={deletingId === folder.id}
                     >
-                      🗑️
+                      <Trash2 className="h-3.5 w-3.5" />
                     </button>
                   </div>
                 </div>
@@ -277,7 +278,7 @@ export default function FolderCrud({ workspaceId, folders, onFoldersChange, pare
                   const showSubfolders = subfolders.length > 0 || (isCreating && parentIdForNew === folder.id)
                   if (showSubfolders) {
                     return (
-                      <div className="mt-2 ml-4 pl-3 border-l-2 border-gray-200">
+                      <div className="mt-2 ml-4 pl-3 border-l-2 border-ink-200">
                         <FolderCrud
                           workspaceId={workspaceId}
                           folders={folders}
@@ -296,7 +297,7 @@ export default function FolderCrud({ workspaceId, folders, onFoldersChange, pare
       </div>
 
       {filteredFolders.length === 0 && !isCreating && parentId === null && (
-        <p className="text-sm text-gray-500 text-center py-4">
+        <p className="text-sm text-ink-500 text-center py-4">
           No hay carpetas {parentId ? 'en esta carpeta' : 'en la raíz'}. Hacé clic en "+ Nueva Carpeta" para crear la primera.
         </p>
       )}

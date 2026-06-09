@@ -166,11 +166,11 @@ export default function ArtifactViewerModal({
         {/* Modal */}
         <div className="relative bg-white rounded-lg shadow-xl max-w-6xl w-full h-[90vh] flex flex-col">
           {/* Header */}
-          <div className="flex items-center justify-between p-6 border-b border-gray-200">
-            <h2 className="text-xl font-semibold text-gray-900">{getTitle()}</h2>
+          <div className="flex items-center justify-between p-6 border-b border-ink-200">
+            <h2 className="text-h2 text-ink-900">{getTitle()}</h2>
             <button
               onClick={onClose}
-              className="text-gray-400 hover:text-gray-600 text-2xl"
+              className="text-ink-400 hover:text-ink-600 text-2xl"
             >
               ✕
             </button>
@@ -183,38 +183,38 @@ export default function ArtifactViewerModal({
             }`}
           >
             {showPdfLoadingState ? (
-              <div className="flex h-full min-h-[24rem] items-center justify-center rounded-lg border border-gray-200 bg-white">
+              <div className="flex h-full min-h-[24rem] items-center justify-center rounded-lg border border-ink-200 bg-white">
                 <div className="flex flex-col items-center gap-4">
                   <img
                     src="/margay-spiner.png"
                     alt="Cargando PDF"
                     className="h-16 w-16 object-contain animate-spin"
                   />
-                  <p className="text-sm font-medium text-gray-600">Cargando PDF...</p>
+                  <p className="text-sm font-medium text-ink-600">Cargando PDF...</p>
                 </div>
               </div>
             ) : loading ? (
               <div className="flex items-center justify-center h-96">
                 <div className="text-center">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2"></div>
-                  <p className="text-sm text-gray-600">Cargando contenido...</p>
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent mx-auto mb-2"></div>
+                  <p className="text-sm text-ink-600">Cargando contenido...</p>
                 </div>
               </div>
             ) : error ? (
               <div className="flex items-center justify-center h-96">
                 <div className="text-center">
-                  <p className="text-red-600">{error}</p>
+                  <p className="text-danger">{error}</p>
                 </div>
               </div>
             ) : type === 'pdf' && pdfUrl ? (
-              <div className="relative h-full min-h-0 border border-gray-200 rounded-lg overflow-hidden flex flex-col">
-                <div className="flex items-center justify-end gap-3 p-3 border-b border-gray-200 bg-gray-50">
+              <div className="relative h-full min-h-0 border border-ink-200 rounded-lg overflow-hidden flex flex-col">
+                <div className="flex items-center justify-end gap-3 p-3 border-b border-ink-200 bg-ink-50">
                   <div className="flex items-center gap-2">
                     <a
                       href={pdfUrl}
                       target="_blank"
                       rel="noreferrer"
-                      className="px-3 py-1.5 text-sm border border-gray-300 rounded-md hover:bg-gray-100"
+                      className="px-3 py-1.5 text-sm border border-ink-300 rounded-md hover:bg-ink-100"
                     >
                       Abrir en pestaña
                     </a>
@@ -234,19 +234,19 @@ export default function ArtifactViewerModal({
                         alt="Cargando PDF"
                         className="h-16 w-16 object-contain animate-spin"
                       />
-                      <p className="text-sm font-medium text-gray-600">Cargando PDF...</p>
+                      <p className="text-sm font-medium text-ink-600">Cargando PDF...</p>
                     </div>
                   </div>
                 )}
               </div>
             ) : type === 'json' && content ? (
-              <div className="border border-gray-200 rounded-lg overflow-hidden">
-                <pre className="p-4 bg-gray-50 overflow-auto max-h-[600px] text-sm">
+              <div className="border border-ink-200 rounded-lg overflow-hidden">
+                <pre className="p-4 bg-ink-50 overflow-auto max-h-[600px] text-sm">
                   {JSON.stringify(JSON.parse(content), null, 2)}
                 </pre>
               </div>
             ) : type === 'markdown' && content ? (
-              <div className="border border-gray-200 rounded-lg overflow-hidden">
+              <div className="border border-ink-200 rounded-lg overflow-hidden">
                 <div className="p-4 bg-white overflow-auto max-h-[600px] prose prose-sm max-w-none">
                   <pre className="whitespace-pre-wrap text-sm font-mono">{content}</pre>
                 </div>
@@ -255,10 +255,10 @@ export default function ArtifactViewerModal({
           </div>
 
           {/* Footer */}
-          <div className="flex items-center justify-end gap-3 p-6 border-t border-gray-200">
+          <div className="flex items-center justify-end gap-3 p-6 border-t border-ink-200">
             <button
               onClick={onClose}
-              className="px-4 py-2 text-sm text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200"
+              className="px-4 py-2 text-sm text-ink-700 bg-ink-100 rounded-md hover:bg-ink-200"
             >
               Cerrar
             </button>

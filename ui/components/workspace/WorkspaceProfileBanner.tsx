@@ -21,13 +21,13 @@ export default function WorkspaceProfileBanner({
 
   return (
     <div
-      className={`rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 ${className}`}
+      className={`rounded-md border border-warning-bd bg-warning-bg px-4 py-3 text-sm text-warning flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 ${className}`}
       role="status"
     >
       <p>{WORKSPACE_PROFILE_BANNER_MESSAGE}</p>
       <Link
         href={settingsUrl}
-        className="inline-flex shrink-0 items-center justify-center rounded-md bg-amber-100 px-3 py-1.5 text-sm font-medium text-amber-900 hover:bg-amber-200 border border-amber-300"
+        className="inline-flex shrink-0 items-center justify-center rounded-md bg-warning-bg px-3 py-1.5 text-sm font-medium text-warning hover:bg-warning-bg border border-warning-bd"
       >
         {canEditSettings ? 'Completar configuración' : 'Ver configuración'}
       </Link>

@@ -41,22 +41,22 @@ export default function DocumentPreview({ documentId }: DocumentPreviewProps) {
   }, [documentId])
 
   return (
-    <div className="bg-white rounded-lg border border-gray-200 p-4 sticky top-4">
-      <h3 className="text-lg font-semibold text-gray-900 mb-4">Preview del Documento</h3>
+    <div className="bg-white rounded-lg border border-ink-200 p-4 sticky top-4">
+      <h3 className="text-h3 text-ink-900 mb-4">Preview del Documento</h3>
 
       {loading ? (
-        <div className="h-96 flex items-center justify-center bg-gray-50 rounded">
+        <div className="h-96 flex items-center justify-center bg-ink-50 rounded">
           <div className="text-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2"></div>
-            <p className="text-sm text-gray-600">Cargando PDF...</p>
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent mx-auto mb-2"></div>
+            <p className="text-sm text-ink-600">Cargando PDF...</p>
           </div>
         </div>
       ) : error ? (
-        <div className="h-96 flex items-center justify-center bg-gray-50 rounded">
-          <p className="text-sm text-gray-500">{error}</p>
+        <div className="h-96 flex items-center justify-center bg-ink-50 rounded">
+          <p className="text-sm text-ink-500">{error}</p>
         </div>
       ) : pdfUrl ? (
-        <div className="border border-gray-200 rounded overflow-hidden">
+        <div className="border border-ink-200 rounded overflow-hidden">
           <iframe
             src={pdfUrl}
             className="w-full h-96"

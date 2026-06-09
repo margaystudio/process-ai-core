@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { Folder as FolderIcon, FileText, Plus, Pencil, Trash2 } from 'lucide-react'
 import { listFolders, listDocuments, createFolder, updateFolder, deleteFolder, Folder, Document as DocumentType } from '@/lib/api'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
 import FolderCrud from './FolderCrud'
@@ -223,15 +224,15 @@ function FolderTreeNode({
         className={`
           flex items-center gap-2 py-1.5 px-2 rounded-md
           ${isSelected 
-            ? 'bg-blue-100 text-blue-900 font-medium' 
-            : 'hover:bg-gray-100 text-gray-700'
+            ? 'bg-accent-tint text-accent-ink font-medium' 
+            : 'hover:bg-ink-100 text-ink-700'
           }
         `}
         style={{ paddingLeft: `${level * 1.5 + 0.5}rem` }}
       >
         {hasContent ? (
           <span 
-            className="text-gray-400 text-xs w-4 cursor-pointer"
+            className="text-ink-400 text-xs w-4 cursor-pointer"
             onClick={(e) => {
               e.stopPropagation()
               setIsExpanded(!isExpanded)
@@ -243,14 +244,14 @@ function FolderTreeNode({
           <span className="w-4" />
         )}
         <span 
-          className="text-gray-500 text-sm mr-1 cursor-pointer flex-1 flex items-center gap-2"
+          className="text-ink-500 text-sm mr-1 cursor-pointer flex-1 flex items-center gap-2"
           onClick={() => {
             if (onSelectFolder) {
               onSelectFolder(isSelected ? null : node.folder.id)
             }
           }}
         >
-          <span>📁</span>
+          <FolderIcon className="h-4 w-4" />
           <span className="text-sm flex-1">
             {isEditing ? (
               <input
@@ -266,7 +267,7 @@ function FolderTreeNode({
                   }
                 }}
                 onClick={(e) => e.stopPropagation()}
-                className="px-2 py-1 text-sm border border-blue-500 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="px-2 py-1 text-sm border border-accent rounded focus:outline-none focus:ring-1 focus:ring-action-ring"
                 autoFocus
               />
             ) : (
@@ -275,10 +276,10 @@ function FolderTreeNode({
           </span>
         </span>
         {displayDocs.length > 0 && (
-          <span className="text-xs text-gray-500">({displayDocs.length})</span>
+          <span className="text-xs text-ink-500">({displayDocs.length})</span>
         )}
         {isSelected && (
-          <span className="text-xs text-blue-600">✓</span>
+          <span className="text-xs text-accent">✓</span>
         )}
         {showCrud && !isEditing && (
           <div className="flex items-center gap-1 ml-2" onClick={(e) => e.stopPropagation()}>
@@ -289,10 +290,10 @@ function FolderTreeNode({
                 setNewSubfolderName('')
                 setCrudError(null)
               }}
-              className="px-1.5 py-0.5 text-xs text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded"
+              className="px-1.5 py-0.5 text-xs text-accent hover:text-accent-ink hover:bg-accent-tint rounded"
               title="Crear subcarpeta"
             >
-              ➕
+              <Plus className="h-3.5 w-3.5" />
             </button>
             <button
               onClick={(e) => {
@@ -301,31 +302,31 @@ function FolderTreeNode({
                 setEditFolderName(node.folder.name)
                 setCrudError(null)
               }}
-              className="px-1.5 py-0.5 text-xs text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded"
+              className="px-1.5 py-0.5 text-xs text-ink-600 hover:text-ink-800 hover:bg-ink-100 rounded"
               title="Renombrar"
             >
-              ✏️
+              <Pencil className="h-3.5 w-3.5" />
             </button>
             <button
               onClick={(e) => {
                 e.stopPropagation()
                 handleDeleteFolder()
               }}
-              className="px-1.5 py-0.5 text-xs text-red-600 hover:text-red-800 hover:bg-red-50 rounded"
+              className="px-1.5 py-0.5 text-xs text-danger hover:text-danger hover:bg-danger-bg rounded"
               title="Eliminar"
             >
-              🗑️
+              <Trash2 className="h-3.5 w-3.5" />
             </button>
           </div>
         )}
       </div>
       {crudError && (
-        <div className="text-xs text-red-600 px-2 py-1" style={{ paddingLeft: `${level * 1.5 + 0.5}rem` }}>
+        <div className="text-xs text-danger px-2 py-1" style={{ paddingLeft: `${level * 1.5 + 0.5}rem` }}>
           {crudError}
         </div>
       )}
       {isCreatingSubfolder && (
-        <div className="px-2 py-2 bg-gray-50 border border-gray-200 rounded-md mx-2 my-1" style={{ marginLeft: `${(level + 1) * 1.5 + 0.5}rem` }}>
+        <div className="px-2 py-2 bg-ink-50 border border-ink-200 rounded-md mx-2 my-1" style={{ marginLeft: `${(level + 1) * 1.5 + 0.5}rem` }}>
           <input
             type="text"
             value={newSubfolderName}
@@ -339,13 +340,13 @@ function FolderTreeNode({
               }
             }}
             placeholder="Nombre de la subcarpeta"
-            className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className="w-full px-2 py-1 text-xs border border-ink-300 rounded focus:outline-none focus:ring-1 focus:ring-action-ring"
             autoFocus
           />
           <div className="flex gap-1 mt-1">
             <button
               onClick={handleCreateSubfolder}
-              className="flex-1 px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
+              className="flex-1 px-2 py-1 text-xs bg-action text-white rounded hover:bg-action-hover"
             >
               Crear
             </button>
@@ -355,7 +356,7 @@ function FolderTreeNode({
                 setNewSubfolderName('')
                 setCrudError(null)
               }}
-              className="flex-1 px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50"
+              className="flex-1 px-2 py-1 text-xs border border-ink-300 rounded hover:bg-ink-50"
             >
               Cancelar
             </button>
@@ -384,7 +385,7 @@ function FolderTreeNode({
           {showDocuments && (
             <>
               {loadingDocs ? (
-                <div className="text-xs text-gray-400 px-2 py-1" style={{ paddingLeft: `${(level + 1) * 1.5 + 0.5}rem` }}>
+                <div className="text-xs text-ink-400 px-2 py-1" style={{ paddingLeft: `${(level + 1) * 1.5 + 0.5}rem` }}>
                   Cargando...
                 </div>
               ) : displayDocs.length > 0 ? (
@@ -392,11 +393,11 @@ function FolderTreeNode({
                   <a
                     key={doc.id}
                     href={`/documents/${doc.id}`}
-                    className="flex items-center gap-2 py-1 px-2 text-xs text-gray-600 hover:bg-gray-50 hover:text-blue-600 cursor-pointer"
+                    className="flex items-center gap-2 py-1 px-2 text-xs text-ink-600 hover:bg-ink-50 hover:text-accent cursor-pointer"
                     style={{ paddingLeft: `${(level + 1) * 1.5 + 0.5}rem` }}
                     title={doc.description || doc.name}
                   >
-                    <span className="w-4">📄</span>
+                    <FileText className="h-4 w-4" />
                     <span className="flex-1 truncate">{doc.name}</span>
                   </a>
                 ))
@@ -408,12 +409,12 @@ function FolderTreeNode({
             displayDocs.map(doc => (
               <div
                 key={doc.id}
-                className="flex items-center gap-2 py-1 px-2 text-xs text-gray-400 cursor-default"
+                className="flex items-center gap-2 py-1 px-2 text-xs text-ink-400 cursor-default"
                 style={{ paddingLeft: `${(level + 1) * 1.5 + 0.5}rem` }}
                 title={doc.description || doc.name}
                 onClick={(e) => e.stopPropagation()}
               >
-                <span className="w-4">📄</span>
+                <FileText className="h-4 w-4" />
                 <span className="flex-1 truncate">{doc.name}</span>
               </div>
             ))
@@ -487,24 +488,24 @@ export default function FolderTree({
 
   if (!workspaceId) {
     return (
-      <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
-        <p className="text-sm text-gray-500">Seleccioná un espacio de trabajo para ver las carpetas</p>
+      <div className="p-4 bg-ink-50 rounded-lg border border-ink-200">
+        <p className="text-sm text-ink-500">Seleccioná un espacio de trabajo para ver las carpetas</p>
       </div>
     )
   }
 
   if (loading) {
     return (
-      <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
-        <div className="animate-pulse text-sm text-gray-500">Cargando estructura de carpetas...</div>
+      <div className="p-4 bg-ink-50 rounded-lg border border-ink-200">
+        <div className="animate-pulse text-sm text-ink-500">Cargando estructura de carpetas...</div>
       </div>
     )
   }
 
   if (error) {
     return (
-      <div className="p-4 bg-red-50 rounded-lg border border-red-200">
-        <p className="text-sm text-red-700">Error: {error}</p>
+      <div className="p-4 bg-danger-bg rounded-lg border border-danger-bd">
+        <p className="text-sm text-danger">Error: {error}</p>
       </div>
     )
   }
@@ -512,15 +513,15 @@ export default function FolderTree({
   const tree = folders.length > 0 ? buildTree(folders) : []
 
   return (
-    <div className="bg-white rounded-lg border border-gray-200 p-4">
+    <div className="bg-white rounded-lg border border-ink-200 p-4">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-semibold text-gray-900">
+        <h3 className="text-sm font-semibold text-ink-900">
           {showCrud ? 'Gestión de Carpetas' : 'Estructura de Carpetas'}
         </h3>
         {selectedFolderId && showSelectable && !showCrud && (
           <button
             onClick={() => onSelectFolder?.(null)}
-            className="text-xs text-gray-500 hover:text-gray-700"
+            className="text-xs text-ink-500 hover:text-ink-700"
           >
             Limpiar selección
           </button>
@@ -529,8 +530,8 @@ export default function FolderTree({
 
 
       {folders.length === 0 ? (
-        <div className="p-4 bg-gray-50 rounded-md">
-          <p className="text-sm text-gray-500 text-center">
+        <div className="p-4 bg-ink-50 rounded-md">
+          <p className="text-sm text-ink-500 text-center">
             No hay carpetas en este espacio de trabajo
           </p>
         </div>
@@ -553,29 +554,29 @@ export default function FolderTree({
             ))}
             {/* Documentos sin carpeta */}
             {documents.filter(d => !d.folder_id).length > 0 && (
-              <div className="mt-2 pt-2 border-t border-gray-200">
-                <div className="text-xs text-gray-500 px-2 py-1 mb-1">Sin carpeta</div>
+              <div className="mt-2 pt-2 border-t border-ink-200">
+                <div className="text-xs text-ink-500 px-2 py-1 mb-1">Sin carpeta</div>
                 {documents.filter(d => !d.folder_id).map(doc => (
                   showDocuments ? (
                     <a
                       key={doc.id}
                       href={`/documents/${doc.id}`}
-                      className="flex items-center gap-2 py-1 px-2 text-xs text-gray-600 hover:bg-gray-50 hover:text-blue-600 cursor-pointer"
+                      className="flex items-center gap-2 py-1 px-2 text-xs text-ink-600 hover:bg-ink-50 hover:text-accent cursor-pointer"
                       style={{ paddingLeft: '0.5rem' }}
                       title={doc.description || doc.name}
                     >
-                      <span className="w-4">📄</span>
+                      <FileText className="h-4 w-4" />
                       <span className="flex-1 truncate">{doc.name}</span>
                     </a>
                   ) : (
                     <div
                       key={doc.id}
-                      className="flex items-center gap-2 py-1 px-2 text-xs text-gray-400 cursor-default"
+                      className="flex items-center gap-2 py-1 px-2 text-xs text-ink-400 cursor-default"
                       style={{ paddingLeft: '0.5rem' }}
                       title={doc.description || doc.name}
                       onClick={(e) => e.stopPropagation()}
                     >
-                      <span className="w-4">📄</span>
+                      <FileText className="h-4 w-4" />
                       <span className="flex-1 truncate">{doc.name}</span>
                     </div>
                   )
@@ -584,8 +585,8 @@ export default function FolderTree({
             )}
           </div>
           {selectedFolderId && showSelectable && (
-            <div className="mt-3 pt-3 border-t border-gray-200">
-              <p className="text-xs text-gray-600">
+            <div className="mt-3 pt-3 border-t border-ink-200">
+              <p className="text-xs text-ink-600">
                 <span className="font-medium">Ubicación seleccionada:</span>{' '}
                 {folders.find(f => f.id === selectedFolderId)?.path || 
                  folders.find(f => f.id === selectedFolderId)?.name}
