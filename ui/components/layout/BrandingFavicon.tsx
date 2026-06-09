@@ -3,7 +3,9 @@
 import { useEffect } from 'react'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
 
-const DEFAULT_FAVICON = '/margay-logo.png'
+// Favicon por defecto = emblema del módulo Process AI (no el logo genérico de Margay).
+// Si el workspace tiene branding propio, ese ícono lo sobreescribe.
+const DEFAULT_FAVICON = '/brand/modules/process-tile.svg'
 
 function ensureIconLink(rel: string) {
   let link = document.querySelector(`link[rel="${rel}"]`) as HTMLLinkElement | null
