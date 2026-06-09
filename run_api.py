@@ -77,7 +77,7 @@ def main():
     os.environ.setdefault('LOG_LEVEL', 'INFO')
     
     # Obtener configuración de puerto y host
-    api_port = os.getenv('API_PORT', '8000' if env == 'local' else '8001' if env == 'test' else '8000')
+    api_port = os.getenv('API_PORT', '8300' if env == 'local' else '8001' if env == 'test' else '8000')
     api_host = os.getenv('API_HOST', '0.0.0.0')
     cors_origins = os.getenv('CORS_ORIGINS', 'http://localhost:3000,http://localhost:3001')
     
