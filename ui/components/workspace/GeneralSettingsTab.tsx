@@ -189,13 +189,13 @@ export default function GeneralSettingsTab({
   }
 
   if (loading) {
-    return <p className="text-gray-500 text-sm">Cargando configuración...</p>
+    return <p className="text-ink-500 text-sm">Cargando configuración...</p>
   }
 
   return (
     <div>
       <h2 className="text-xl font-semibold mb-2">Configuración General</h2>
-      <p className="text-gray-600 text-sm mb-6">
+      <p className="text-ink-600 text-sm mb-6">
         Preferencias del módulo Process AI para la generación de documentos. El nombre de la
         organización se gestiona en el hub de workspace.
       </p>
@@ -209,57 +209,57 @@ export default function GeneralSettingsTab({
       )}
 
       {error && (
-        <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+        <div className="mb-4 rounded-md border border-danger-bd bg-danger-bg px-4 py-3 text-sm text-danger">
           {error}
         </div>
       )}
       {success && (
-        <div className="mb-4 rounded-md border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
+        <div className="mb-4 rounded-md border border-success-bd bg-success-bg px-4 py-3 text-sm text-success-fg">
           {success}
         </div>
       )}
 
       <form onSubmit={handleSubmit} className="space-y-8 max-w-2xl">
-        <section className="rounded-lg border border-gray-200 bg-gray-50 p-4 space-y-3">
-          <h3 className="text-sm font-semibold text-gray-800">Organización</h3>
+        <section className="rounded-lg border border-ink-200 bg-ink-50 p-4 space-y-3">
+          <h3 className="text-sm font-semibold text-ink-800">Organización</h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Nombre</label>
+              <label className="block text-xs font-medium text-ink-600 mb-1">Nombre</label>
               <input
                 type="text"
                 value={name}
                 readOnly
-                className="w-full px-3 py-2 border border-gray-200 rounded-md bg-white text-gray-700 text-sm"
+                className="w-full px-3 py-2 border border-ink-200 rounded-md bg-white text-ink-700 text-sm"
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Identificador (slug)</label>
+              <label className="block text-xs font-medium text-ink-600 mb-1">Identificador (slug)</label>
               <input
                 type="text"
                 value={slug}
                 readOnly
-                className="w-full px-3 py-2 border border-gray-200 rounded-md bg-white text-gray-700 text-sm font-mono"
+                className="w-full px-3 py-2 border border-ink-200 rounded-md bg-white text-ink-700 text-sm font-mono"
               />
             </div>
           </div>
           {tenantId && (
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Tenant ID</label>
+              <label className="block text-xs font-medium text-ink-600 mb-1">Tenant ID</label>
               <input
                 type="text"
                 value={tenantId}
                 readOnly
-                className="w-full px-3 py-2 border border-gray-200 rounded-md bg-white text-gray-500 text-xs font-mono"
+                className="w-full px-3 py-2 border border-ink-200 rounded-md bg-white text-ink-500 text-xs font-mono"
               />
             </div>
           )}
           {hubUrl && (
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-ink-500">
               <a
                 href={hubUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-blue-600 hover:underline"
+                className="text-accent hover:underline"
               >
                 Abrir hub de workspace
               </a>
@@ -270,10 +270,10 @@ export default function GeneralSettingsTab({
         </section>
 
         <section className="space-y-4">
-          <h3 className="text-sm font-semibold text-gray-800">Preferencias de documentación</h3>
+          <h3 className="text-sm font-semibold text-ink-800">Preferencias de documentación</h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label htmlFor="country" className="block text-sm font-medium text-gray-700 mb-1">
+              <label htmlFor="country" className="block text-sm font-medium text-ink-700 mb-1">
                 País
               </label>
               <select
@@ -281,7 +281,7 @@ export default function GeneralSettingsTab({
                 value={country}
                 onChange={(e) => setCountry(e.target.value)}
                 disabled={!canEdit}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm disabled:bg-gray-100"
+                className="w-full px-3 py-2 border border-ink-300 rounded-md text-sm disabled:bg-ink-100"
               >
                 {COUNTRY_OPTIONS.map((c) => (
                   <option key={c.value} value={c.value}>
@@ -291,7 +291,7 @@ export default function GeneralSettingsTab({
               </select>
             </div>
             <div>
-              <label htmlFor="languageStyle" className="block text-sm font-medium text-gray-700 mb-1">
+              <label htmlFor="languageStyle" className="block text-sm font-medium text-ink-700 mb-1">
                 Estilo de idioma
               </label>
               <select
@@ -299,7 +299,7 @@ export default function GeneralSettingsTab({
                 value={languageStyle}
                 onChange={(e) => setLanguageStyle(e.target.value)}
                 disabled={!canEdit}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm disabled:bg-gray-100"
+                className="w-full px-3 py-2 border border-ink-300 rounded-md text-sm disabled:bg-ink-100"
               >
                 {languageStyleOptions.map((o) => (
                   <option key={o.value} value={o.value}>
@@ -311,7 +311,7 @@ export default function GeneralSettingsTab({
           </div>
 
           <div>
-            <label htmlFor="businessType" className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="businessType" className="block text-sm font-medium text-ink-700 mb-1">
               Tipo de negocio
             </label>
             {businessTypeOptions.length > 0 ? (
@@ -320,7 +320,7 @@ export default function GeneralSettingsTab({
                 value={businessType}
                 onChange={(e) => setBusinessType(e.target.value)}
                 disabled={!canEdit}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm disabled:bg-gray-100"
+                className="w-full px-3 py-2 border border-ink-300 rounded-md text-sm disabled:bg-ink-100"
               >
                 <option value="">— Sin especificar —</option>
                 {businessTypeOptions.map((o) => (
@@ -337,14 +337,14 @@ export default function GeneralSettingsTab({
                 onChange={(e) => setBusinessType(e.target.value)}
                 disabled={!canEdit}
                 placeholder="Ej: estaciones_servicio"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm disabled:bg-gray-100"
+                className="w-full px-3 py-2 border border-ink-300 rounded-md text-sm disabled:bg-ink-100"
               />
             )}
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label htmlFor="defaultAudience" className="block text-sm font-medium text-gray-700 mb-1">
+              <label htmlFor="defaultAudience" className="block text-sm font-medium text-ink-700 mb-1">
                 Audiencia por defecto
               </label>
               <select
@@ -352,7 +352,7 @@ export default function GeneralSettingsTab({
                 value={defaultAudience}
                 onChange={(e) => setDefaultAudience(e.target.value)}
                 disabled={!canEdit}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm disabled:bg-gray-100"
+                className="w-full px-3 py-2 border border-ink-300 rounded-md text-sm disabled:bg-ink-100"
               >
                 {audienceOptions.map((o) => (
                   <option key={o.value} value={o.value}>
@@ -362,7 +362,7 @@ export default function GeneralSettingsTab({
               </select>
             </div>
             <div>
-              <label htmlFor="defaultDetailLevel" className="block text-sm font-medium text-gray-700 mb-1">
+              <label htmlFor="defaultDetailLevel" className="block text-sm font-medium text-ink-700 mb-1">
                 Nivel de detalle por defecto
               </label>
               <select
@@ -370,7 +370,7 @@ export default function GeneralSettingsTab({
                 value={defaultDetailLevel}
                 onChange={(e) => setDefaultDetailLevel(e.target.value)}
                 disabled={!canEdit}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm disabled:bg-gray-100"
+                className="w-full px-3 py-2 border border-ink-300 rounded-md text-sm disabled:bg-ink-100"
               >
                 {detailLevelOptions.map((o) => (
                   <option key={o.value} value={o.value}>
@@ -383,9 +383,9 @@ export default function GeneralSettingsTab({
         </section>
 
         <section className="space-y-4">
-          <h3 className="text-sm font-semibold text-gray-800">Contexto para la IA</h3>
+          <h3 className="text-sm font-semibold text-ink-800">Contexto para la IA</h3>
           <div>
-            <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="description" className="block text-sm font-medium text-ink-700 mb-1">
               Descripción corta (opcional)
             </label>
             <input
@@ -396,11 +396,11 @@ export default function GeneralSettingsTab({
               disabled={!canEdit}
               maxLength={500}
               placeholder="Ej: Red de estaciones de servicio en Uruguay"
-              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm disabled:bg-gray-100"
+              className="w-full px-3 py-2 border border-ink-300 rounded-md text-sm disabled:bg-ink-100"
             />
           </div>
           <div>
-            <label htmlFor="contextText" className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="contextText" className="block text-sm font-medium text-ink-700 mb-1">
               Contexto del negocio
             </label>
             <textarea
@@ -411,9 +411,9 @@ export default function GeneralSettingsTab({
               rows={6}
               maxLength={8000}
               placeholder="Rubro, turnos, regulaciones, vocabulario interno, qué evitar en la redacción..."
-              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm disabled:bg-gray-100"
+              className="w-full px-3 py-2 border border-ink-300 rounded-md text-sm disabled:bg-ink-100"
             />
-            <p className="mt-1 text-xs text-gray-500">
+            <p className="mt-1 text-xs text-ink-500">
               Se usa al generar procesos y recetas. Los documentos nuevos heredan audiencia y detalle
               configurados arriba; se pueden ajustar por documento.
             </p>
@@ -425,13 +425,13 @@ export default function GeneralSettingsTab({
             <button
               type="submit"
               disabled={saving}
-              className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+              className="px-4 py-2 bg-action text-white rounded-md text-sm font-medium hover:bg-action-hover disabled:opacity-50"
             >
               {saving ? 'Guardando...' : 'Guardar cambios'}
             </button>
           </div>
         ) : (
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-ink-500">
             Solo los roles owner o creator pueden editar esta configuración.
           </p>
         )}

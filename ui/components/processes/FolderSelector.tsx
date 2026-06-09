@@ -40,19 +40,19 @@ export default function FolderSelector({ workspaceId, value, onChange, required 
 
   return (
     <div>
-      <label htmlFor="folder" className="block text-sm font-medium text-gray-700 mb-2">
+      <label htmlFor="folder" className="block text-sm font-medium text-ink-700 mb-2">
         Ubicación (Carpeta) {required && '*'}
       </label>
       {loading ? (
-        <div className="w-full px-4 py-2 border border-gray-300 rounded-md bg-gray-100 animate-pulse">
+        <div className="w-full px-4 py-2 border border-ink-300 rounded-md bg-ink-100 animate-pulse">
           Cargando carpetas...
         </div>
       ) : error ? (
-        <div className="w-full px-4 py-2 border border-red-300 rounded-md bg-red-50 text-red-700 text-sm">
+        <div className="w-full px-4 py-2 border border-danger-bd rounded-md bg-danger-bg text-danger text-sm">
           Error: {error}
         </div>
       ) : folders.length === 0 ? (
-        <div className="w-full px-4 py-2 border border-gray-300 rounded-md bg-gray-50 text-gray-500 text-sm">
+        <div className="w-full px-4 py-2 border border-ink-300 rounded-md bg-ink-50 text-ink-500 text-sm">
           No hay carpetas disponibles. Crea una carpeta primero.
         </div>
       ) : (
@@ -62,7 +62,7 @@ export default function FolderSelector({ workspaceId, value, onChange, required 
           value={value}
           onChange={(e) => onChange(e.target.value)}
           required={required}
-          className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          className="w-full px-4 py-2 border border-ink-300 rounded-md focus:ring-2 focus:ring-action-ring focus:border-accent"
         >
           <option value="">Seleccionar carpeta...</option>
           {folders.map((folder) => (
@@ -72,7 +72,7 @@ export default function FolderSelector({ workspaceId, value, onChange, required 
           ))}
         </select>
       )}
-      <p className="mt-1 text-sm text-gray-500">
+      <p className="mt-1 text-sm text-ink-500">
         La ubicación del proceso ayuda a inferir el contexto y tipo de proceso.
       </p>
     </div>

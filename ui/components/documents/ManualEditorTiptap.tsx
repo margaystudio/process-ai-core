@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { Link as LinkIcon, Image as ImageIcon, Table as TableIcon, Undo2, Redo2, AlertTriangle } from 'lucide-react'
 import { useEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Link from '@tiptap/extension-link'
@@ -176,7 +177,7 @@ export default function ManualEditorTiptap({
 
   if (!editor) {
     return (
-      <div className="animate-pulse rounded-lg bg-gray-100 h-64 flex items-center justify-center text-gray-500">
+      <div className="animate-pulse rounded-lg bg-ink-100 h-64 flex items-center justify-center text-ink-500">
         Cargando editor...
       </div>
     )
@@ -200,7 +201,7 @@ export default function ManualEditorTiptap({
       onClick={onClick}
       disabled={disabled}
       title={title}
-      className={`p-2 rounded hover:bg-gray-200 disabled:opacity-50 ${active ? 'bg-gray-300' : ''}`}
+      className={`p-2 rounded hover:bg-ink-200 disabled:opacity-50 ${active ? 'bg-ink-300' : ''}`}
     >
       {children}
     </button>
@@ -209,7 +210,7 @@ export default function ManualEditorTiptap({
   return (
     <div className={className}>
       {!readOnly && (
-        <div className="flex flex-wrap items-center gap-1 p-2 border border-gray-200 rounded-t-lg bg-gray-50 border-b-0">
+        <div className="flex flex-wrap items-center gap-1 p-2 border border-ink-200 rounded-t-lg bg-ink-50 border-b-0">
           <ToolbarButton
             onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
             active={editor.isActive('heading', { level: 1 })}
@@ -231,7 +232,7 @@ export default function ManualEditorTiptap({
           >
             H3
           </ToolbarButton>
-          <span className="w-px h-6 bg-gray-300 mx-1" />
+          <span className="w-px h-6 bg-ink-300 mx-1" />
           <ToolbarButton
             onClick={() => editor.chain().focus().toggleBold().run()}
             active={editor.isActive('bold')}
@@ -246,7 +247,7 @@ export default function ManualEditorTiptap({
           >
             <em>I</em>
           </ToolbarButton>
-          <span className="w-px h-6 bg-gray-300 mx-1" />
+          <span className="w-px h-6 bg-ink-300 mx-1" />
           <ToolbarButton
             onClick={() => editor.chain().focus().toggleBulletList().run()}
             active={editor.isActive('bulletList')}
@@ -262,23 +263,23 @@ export default function ManualEditorTiptap({
             1.
           </ToolbarButton>
           <ToolbarButton onClick={setLink} active={editor.isActive('link')} title="Enlace">
-            🔗
+            <LinkIcon className="h-4 w-4" />
           </ToolbarButton>
           <ToolbarButton onClick={addImage} title="Insertar imagen">
-            🖼️
+            <ImageIcon className="h-4 w-4" />
           </ToolbarButton>
           <ToolbarButton
             onClick={() => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()}
             title="Insertar tabla"
           >
-            ⊞
+            <TableIcon className="h-4 w-4" />
           </ToolbarButton>
-          <span className="w-px h-6 bg-gray-300 mx-1" />
+          <span className="w-px h-6 bg-ink-300 mx-1" />
           <ToolbarButton onClick={() => editor.chain().focus().undo().run()} disabled={!editor.can().undo()} title="Deshacer">
-            ↩
+            <Undo2 className="h-4 w-4" />
           </ToolbarButton>
           <ToolbarButton onClick={() => editor.chain().focus().redo().run()} disabled={!editor.can().redo()} title="Rehacer">
-            ↪
+            <Redo2 className="h-4 w-4" />
           </ToolbarButton>
         </div>
       )}
@@ -295,9 +296,9 @@ export default function ManualEditorTiptap({
         }}
       />
 
-      <div className="bg-white border border-gray-200 rounded-b-lg shadow-sm overflow-hidden">
+      <div className="bg-white border border-ink-200 rounded-b-lg shadow-sm overflow-hidden">
         {/* Paper mode: ancho tipo A4, padding */}
-        <div className="max-w-[210mm] mx-auto min-h-[297mm] py-10 px-12 text-gray-900">
+        <div className="max-w-[210mm] mx-auto min-h-[297mm] py-10 px-12 text-ink-900">
           <EditorContent editor={editor} />
         </div>
       </div>
@@ -324,14 +325,14 @@ export default function ManualEditorTiptap({
       `}</style>
 
       {imageError && (
-        <p className="mt-2 text-sm text-red-600" role="alert">
+        <p className="mt-2 text-sm text-danger" role="alert">
           {imageError}
         </p>
       )}
 
       {saveWarning && (
-        <p className="mt-2 text-sm text-red-600 font-medium" role="alert">
-          ⚠️ {saveWarning}
+        <p className="mt-2 text-sm text-danger font-medium" role="alert">
+          <AlertTriangle className="mr-1 inline h-4 w-4" /> {saveWarning}
         </p>
       )}
 
@@ -341,7 +342,7 @@ export default function ManualEditorTiptap({
             type="button"
             onClick={handleSave}
             disabled={saving}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium inline-flex items-center gap-2"
+            className="px-4 py-2 bg-action text-white rounded-lg hover:bg-action-hover disabled:opacity-50 disabled:cursor-not-allowed font-medium inline-flex items-center gap-2"
           >
             {saving && (
               <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" aria-hidden="true">

@@ -50,7 +50,7 @@ export default function LoadingOverlay() {
             <ellipse cx="50" cy="60" rx="5" ry="3" fill="#654321" opacity="0.6"/>
           </svg>
         </div>
-        <p className="text-gray-700 font-medium">Procesando...</p>
+        <p className="text-ink-700 font-medium">Procesando...</p>
       </div>
     </div>
   )
