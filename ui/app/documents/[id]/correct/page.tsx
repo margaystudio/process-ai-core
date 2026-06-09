@@ -98,8 +98,8 @@ export default function CorrectDocumentPage() {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Cargando documento...</p>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-accent mx-auto mb-4"></div>
+          <p className="text-ink-600">Cargando documento...</p>
         </div>
       </div>
     )
@@ -109,11 +109,11 @@ export default function CorrectDocumentPage() {
     return (
       <div className="p-8">
         <div className="max-w-7xl mx-auto">
-          <div className="bg-red-50 border border-red-200 rounded-lg p-6">
-            <p className="text-red-800">Error: {error || 'Documento no encontrado'}</p>
+          <div className="bg-danger-bg border border-danger-bd rounded-lg p-6">
+            <p className="text-danger">Error: {error || 'Documento no encontrado'}</p>
             <button
               onClick={() => router.back()}
-              className="mt-4 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700"
+              className="mt-4 px-4 py-2 bg-danger text-white rounded-md hover:bg-danger"
             >
               Volver
             </button>
@@ -132,28 +132,28 @@ export default function CorrectDocumentPage() {
         <div className="mb-6">
           <button
             onClick={() => router.back()}
-            className="text-blue-600 hover:text-blue-700 mb-4"
+            className="text-accent hover:text-accent-ink mb-4"
           >
             ← Volver
           </button>
-          <h1 className="text-3xl font-bold text-gray-900">Corregir Documento</h1>
-          <p className="text-gray-600 mt-1">{document.name}</p>
+          <h1 className="text-h1 text-ink-900">Corregir Documento</h1>
+          <p className="text-ink-600 mt-1">{document.name}</p>
         </div>
 
         {/* Observaciones del Rechazo */}
         {lastRejection && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-6 mb-6">
-            <h2 className="text-lg font-semibold text-red-900 mb-2">
+          <div className="bg-danger-bg border border-danger-bd rounded-lg p-6 mb-6">
+            <h2 className="text-lg font-semibold text-danger mb-2">
               Observaciones del Rechazo
             </h2>
-            <p className="text-red-800 whitespace-pre-wrap">{lastRejection.observations}</p>
+            <p className="text-danger whitespace-pre-wrap">{lastRejection.observations}</p>
             {lastRejection.validator_user_id && (
-              <p className="text-sm text-red-600 mt-2">
+              <p className="text-sm text-danger mt-2">
                 Rechazado por usuario: {lastRejection.validator_user_id}
               </p>
             )}
             {lastRejection.completed_at && (
-              <p className="text-sm text-red-600">
+              <p className="text-sm text-danger">
                 Fecha: {formatDate(lastRejection.completed_at)}
               </p>
             )}
@@ -168,7 +168,7 @@ export default function CorrectDocumentPage() {
             {!selectedOption && (
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                 <CorrectionOptionCard
-                  title="🤖 Patch por IA"
+                  title="Patch por IA"
                   description="Correcciones automáticas usando IA"
                   idealFor={[
                     'Errores gramaticales',
@@ -180,7 +180,7 @@ export default function CorrectDocumentPage() {
                 />
 
                 <CorrectionOptionCard
-                  title="✏️ Edición Manual"
+                  title="Edición Manual"
                   description="Editor visual tipo Word: texto, listas, imágenes y tablas"
                   idealFor={[
                     'Cambios de redacción',
@@ -192,7 +192,7 @@ export default function CorrectDocumentPage() {
                 />
 
                 <CorrectionOptionCard
-                  title="🔄 Regenerar Documento"
+                  title="Regenerar Documento"
                   description="Crea una nueva versión con nuevos archivos multimedia"
                   idealFor={[
                     'Nuevos archivos disponibles',

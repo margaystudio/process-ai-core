@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { Check as CheckIcon, FileText } from 'lucide-react'
 import { useParams, useRouter } from 'next/navigation'
 import {
   getDocument,
@@ -639,11 +640,11 @@ export default function DocumentDetailPage() {
     return (
       <div className="p-8">
         <div className="max-w-4xl mx-auto">
-          <div className="bg-red-50 border border-red-200 rounded-md p-4">
-            <p className="text-red-700">Error: {error}</p>
+          <div className="bg-danger-bg border border-danger-bd rounded-md p-4">
+            <p className="text-danger">Error: {error}</p>
             <button
               onClick={() => router.push('/')}
-              className="mt-4 px-4 py-2 bg-gray-200 rounded-md hover:bg-gray-300"
+              className="mt-4 px-4 py-2 bg-ink-200 rounded-md hover:bg-ink-300"
             >
               Volver al inicio
             </button>
@@ -665,13 +666,13 @@ export default function DocumentDetailPage() {
     return (
       <div className="p-8">
         <div className="max-w-4xl mx-auto">
-          <div className="bg-red-50 border border-red-200 rounded-lg p-6">
-            <p className="text-red-800">
+          <div className="bg-danger-bg border border-danger-bd rounded-lg p-6">
+            <p className="text-danger">
               No tienes permisos para ver este documento. Solo puedes consultar documentos aprobados.
             </p>
             <button
               onClick={() => router.push('/dashboard/view')}
-              className="mt-4 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 font-medium"
+              className="mt-4 px-4 py-2 bg-danger text-white rounded-md hover:bg-danger font-medium"
             >
               Volver a documentos aprobados
             </button>
@@ -687,8 +688,8 @@ export default function DocumentDetailPage() {
 
         {/* Banner de borrador guardado */}
         {savedDraftBanner && (
-          <div className="mb-4 flex items-center gap-3 px-5 py-3 bg-green-600 text-white rounded-lg shadow-lg text-sm font-medium animate-pulse">
-            <span className="text-lg">✅</span>
+          <div className="mb-4 flex items-center gap-3 px-5 py-3 bg-create text-white rounded-lg shadow-lg text-sm font-medium animate-pulse">
+            <CheckIcon className="h-5 w-5 text-success" />
             <span>Borrador guardado. Ya podés usar <strong>Ver PDF</strong> para ver los cambios o <strong>Enviar a revisión</strong>.</span>
           </div>
         )}
@@ -696,12 +697,12 @@ export default function DocumentDetailPage() {
         <div className="mb-6">
           <button
             onClick={() => router.back()}
-            className="text-sm text-gray-600 hover:text-gray-900 mb-4"
+            className="text-sm text-ink-600 hover:text-ink-900 mb-4"
           >
             ← Volver
           </button>
           <div className="flex items-center justify-between">
-            <h1 className="text-3xl font-bold text-gray-900">
+            <h1 className="text-3xl font-bold text-ink-900">
               {isEditing ? 'Editar Documento' : document.name}
             </h1>
             {!isEditing && (
@@ -709,7 +710,7 @@ export default function DocumentDetailPage() {
               {allowEditMetadata && (
                 <button
                   onClick={() => setIsEditing(true)}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                  className="px-4 py-2 bg-action text-white rounded-md hover:bg-action-hover"
                 >
                   Editar
                 </button>
@@ -718,7 +719,7 @@ export default function DocumentDetailPage() {
                 <button
                   onClick={handleSubmitForReview}
                   disabled={isSubmittingForReview}
-                  className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="px-4 py-2 bg-create text-white rounded-md hover:bg-create-hover disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isSubmittingForReview ? 'Enviando...' : 'Enviar a revisión'}
                 </button>
@@ -727,7 +728,7 @@ export default function DocumentDetailPage() {
                 <button
                   onClick={() => setShowDeleteConfirm(true)}
                   disabled={isDeleting}
-                  className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="px-4 py-2 bg-danger text-white rounded-md hover:bg-danger disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isDeleting ? 'Eliminando...' : 'Eliminar'}
                 </button>
@@ -738,16 +739,16 @@ export default function DocumentDetailPage() {
         </div>
         
         {error && (
-          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-md text-red-700">
+          <div className="mb-6 p-4 bg-danger-bg border border-danger-bd rounded-md text-danger">
             {error}
           </div>
         )}
 
         {/* Banner contextual: Pendiente de validación */}
         {isPendingValidation && document && (
-          <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-lg">
-            <p className="text-amber-900 font-medium mb-1">Este documento está pendiente de validación.</p>
-            <p className="text-amber-800 text-sm mb-4">
+          <div className="mb-6 p-4 bg-warning-bg border border-warning-bd rounded-lg">
+            <p className="text-warning font-medium mb-1">Este documento está pendiente de validación.</p>
+            <p className="text-warning text-sm mb-4">
               Enviado el {inReviewVersion ? formatDateTime(inReviewVersion.created_at) : '—'} por{' '}
               {inReviewVersion?.created_by ? (
                 <span title={inReviewVersion.created_by}>
@@ -763,7 +764,7 @@ export default function DocumentDetailPage() {
                 type="button"
                 onClick={() => setShowCancelSubmitConfirm(true)}
                 disabled={isCancelling}
-                className="px-4 py-2 border border-amber-600 text-amber-800 bg-white rounded-md hover:bg-amber-50 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+                className="px-4 py-2 border border-warning-bd text-warning bg-white rounded-md hover:bg-warning-bg disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
               >
                 {isCancelling ? 'Cancelando...' : 'Cancelar envío y volver a borrador'}
               </button>
@@ -776,7 +777,7 @@ export default function DocumentDetailPage() {
           {isEditing && selectedWorkspaceId && (
             <div className="lg:col-span-1">
               <div className="mb-2">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-ink-700 mb-2">
                   Carpeta
                 </label>
               </div>
@@ -802,7 +803,7 @@ export default function DocumentDetailPage() {
                   className="space-y-6"
                 >
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                    <label className="block text-sm font-medium text-ink-700 mb-2">
                       Nombre *
                     </label>
                     <input
@@ -810,30 +811,30 @@ export default function DocumentDetailPage() {
                       value={name}
                       onChange={(e) => setName(e.target.value)}
                       required
-                      className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full px-4 py-2 border border-ink-300 rounded-md focus:ring-2 focus:ring-action-ring focus:border-accent"
                     />
                   </div>
                   
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                    <label className="block text-sm font-medium text-ink-700 mb-2">
                       Descripción
                     </label>
                     <textarea
                       value={description}
                       onChange={(e) => setDescription(e.target.value)}
                       rows={4}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full px-4 py-2 border border-ink-300 rounded-md focus:ring-2 focus:ring-action-ring focus:border-accent"
                     />
                   </div>
                   
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                    <label className="block text-sm font-medium text-ink-700 mb-2">
                       Estado
                     </label>
                     <select
                       value={status}
                       onChange={(e) => setStatus(e.target.value)}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full px-4 py-2 border border-ink-300 rounded-md focus:ring-2 focus:ring-action-ring focus:border-accent"
                     >
                       <option value="draft">Borrador</option>
                       <option value="pending_validation">Pendiente de Validación</option>
@@ -846,13 +847,13 @@ export default function DocumentDetailPage() {
                   {document.document_type === 'process' && (
                     <>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                        <label className="block text-sm font-medium text-ink-700 mb-2">
                           Audiencia
                         </label>
                         <select
                           value={audience}
                           onChange={(e) => setAudience(e.target.value)}
-                          className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          className="w-full px-4 py-2 border border-ink-300 rounded-md focus:ring-2 focus:ring-action-ring focus:border-accent"
                         >
                           <option value="">Seleccionar...</option>
                           {audienceOptions.map(opt => (
@@ -864,13 +865,13 @@ export default function DocumentDetailPage() {
                       </div>
                       
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                        <label className="block text-sm font-medium text-ink-700 mb-2">
                           Nivel de Detalle
                         </label>
                         <select
                           value={detailLevel}
                           onChange={(e) => setDetailLevel(e.target.value)}
-                          className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          className="w-full px-4 py-2 border border-ink-300 rounded-md focus:ring-2 focus:ring-action-ring focus:border-accent"
                         >
                           <option value="">Seleccionar...</option>
                           {detailLevelOptions.map(opt => (
@@ -882,14 +883,14 @@ export default function DocumentDetailPage() {
                       </div>
                       
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                        <label className="block text-sm font-medium text-ink-700 mb-2">
                           Contexto
                         </label>
                         <textarea
                           value={contextText}
                           onChange={(e) => setContextText(e.target.value)}
                           rows={4}
-                          className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          className="w-full px-4 py-2 border border-ink-300 rounded-md focus:ring-2 focus:ring-action-ring focus:border-accent"
                           placeholder="Contexto adicional del proceso..."
                         />
                       </div>
@@ -900,14 +901,14 @@ export default function DocumentDetailPage() {
                     <button
                       type="submit"
                       disabled={isSaving || !name.trim()}
-                      className="px-6 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+                      className="px-6 py-3 bg-action text-white rounded-md hover:bg-action-hover disabled:opacity-50 disabled:cursor-not-allowed font-medium"
                     >
                       {isSaving ? 'Guardando...' : 'Guardar'}
                     </button>
                     <button
                       type="button"
                       onClick={handleCancel}
-                      className="px-6 py-3 border border-gray-300 rounded-md hover:bg-gray-50 font-medium"
+                      className="px-6 py-3 border border-ink-300 rounded-md hover:bg-ink-50 font-medium"
                     >
                       Cancelar
                     </button>
@@ -916,42 +917,42 @@ export default function DocumentDetailPage() {
               ) : (
                 <div className="space-y-6">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-ink-700 mb-1">
                       Nombre
                     </label>
-                    <p className="text-gray-900">{document.name}</p>
+                    <p className="text-ink-900">{document.name}</p>
                   </div>
                   
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-ink-700 mb-1">
                       Descripción
                     </label>
-                    <p className="text-gray-900 whitespace-pre-wrap">
+                    <p className="text-ink-900 whitespace-pre-wrap">
                       {document.description || '(Sin descripción)'}
                     </p>
                   </div>
 
                   {openQuestions && (
-                    <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
-                      <label className="block text-sm font-medium text-amber-900 mb-1">
+                    <div className="p-4 bg-warning-bg border border-warning-bd rounded-lg">
+                      <label className="block text-sm font-medium text-warning mb-1">
                         Preguntas abiertas / pendientes
                       </label>
-                      <p className="text-amber-900 whitespace-pre-wrap text-sm">
+                      <p className="text-warning whitespace-pre-wrap text-sm">
                         {openQuestions}
                       </p>
                     </div>
                   )}
                   
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-ink-700 mb-1">
                       Estado
                     </label>
                     <span className={`inline-block px-3 py-1 rounded-full text-sm ${
-                      document.status === 'approved' ? 'bg-green-100 text-green-800' :
-                      document.status === 'pending_validation' ? 'bg-yellow-100 text-yellow-800' :
-                      document.status === 'rejected' ? 'bg-red-100 text-red-800' :
-                      document.status === 'archived' ? 'bg-gray-100 text-gray-800' :
-                      'bg-gray-100 text-gray-800'
+                      document.status === 'approved' ? 'bg-success-bg text-success-fg' :
+                      document.status === 'pending_validation' ? 'bg-warning-bg text-warning' :
+                      document.status === 'rejected' ? 'bg-danger-bg text-danger' :
+                      document.status === 'archived' ? 'bg-ink-100 text-ink-800' :
+                      'bg-ink-100 text-ink-800'
                     }`}>
                       {document.status === 'approved' ? 'Aprobado' :
                        document.status === 'pending_validation' ? 'Pendiente de Validación' :
@@ -962,17 +963,17 @@ export default function DocumentDetailPage() {
                   </div>
                   
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-ink-700 mb-1">
                       Tipo
                     </label>
-                    <p className="text-gray-900 capitalize">{document.document_type}</p>
+                    <p className="text-ink-900 capitalize">{document.document_type}</p>
                   </div>
                   
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-ink-700 mb-1">
                       Creado
                     </label>
-                    <p className="text-gray-900">
+                    <p className="text-ink-900">
                       {formatDateTime(document.created_at)}
                     </p>
                   </div>
@@ -982,15 +983,15 @@ export default function DocumentDetailPage() {
               {/* Sección de Validación - Layout con PDF y botones lado a lado */}
               {shouldShowValidationSection && (
                 <div className="mt-8 pt-8 border-t">
-                  <h2 className="text-xl font-semibold text-gray-900 mb-4">Validación</h2>
+                  <h2 className="text-xl font-semibold text-ink-900 mb-4">Validación</h2>
                   
                   {/* Layout de dos columnas cuando hay versión IN_REVIEW y permisos */}
                   {showValidationPanel && hasInReviewVersion ? (
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                       {/* Columna izquierda: Preview del PDF */}
                       <div className="lg:col-span-2">
-                        <div className="bg-white rounded-lg border border-gray-200 p-6">
-                          <h3 className="text-lg font-semibold text-gray-900 mb-4">Vista Previa del Documento</h3>
+                        <div className="bg-white rounded-lg border border-ink-200 p-6">
+                          <h3 className="text-lg font-semibold text-ink-900 mb-4">Vista Previa del Documento</h3>
                           
                           {(() => {
                             // PDF desde la versión en revisión (fuente de verdad: content_html o content_markdown)
@@ -998,7 +999,7 @@ export default function DocumentDetailPage() {
                             if (relevantPdfVersion) {
                               const pdfUrl = getVersionPreviewPdfUrl(documentId, relevantPdfVersion.id)
                               return (
-                                <div className="border border-gray-200 rounded-lg overflow-hidden">
+                                <div className="border border-ink-200 rounded-lg overflow-hidden">
                                   <iframe
                                     src={`${pdfUrl}#toolbar=0`}
                                     className="w-full h-[600px]"
@@ -1008,8 +1009,8 @@ export default function DocumentDetailPage() {
                               )
                             }
                             return (
-                              <div className="h-96 flex items-center justify-center bg-gray-50 rounded">
-                                <p className="text-gray-500">No hay PDF disponible para este documento</p>
+                              <div className="h-96 flex items-center justify-center bg-ink-50 rounded">
+                                <p className="text-ink-500">No hay PDF disponible para este documento</p>
                               </div>
                             )
                           })()}
@@ -1018,20 +1019,20 @@ export default function DocumentDetailPage() {
 
                       {/* Columna derecha: Formulario de validación */}
                       <div className="lg:col-span-1">
-                        <div className="bg-white rounded-lg border border-gray-200 p-6 sticky top-4">
-                          <h3 className="text-lg font-semibold text-gray-900 mb-4">Decisión de Validación</h3>
+                        <div className="bg-white rounded-lg border border-ink-200 p-6 sticky top-4">
+                          <h3 className="text-lg font-semibold text-ink-900 mb-4">Decisión de Validación</h3>
                           
                           {/* Aprobar */}
                           <div className="mb-6">
                             <div className="mb-3">
-                              <label className="block text-sm font-medium text-gray-700 mb-2">
+                              <label className="block text-sm font-medium text-ink-700 mb-2">
                                 Observaciones (opcional)
                               </label>
                               <textarea
                                 value={approveObservations}
                                 onChange={(e) => setApproveObservations(e.target.value)}
                                 rows={3}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                                className="w-full px-3 py-2 border border-ink-300 rounded-md focus:ring-2 focus:ring-create-ring focus:border-create"
                                 placeholder="Observaciones adicionales para la aprobación..."
                               />
                             </div>
@@ -1039,24 +1040,24 @@ export default function DocumentDetailPage() {
                               <button
                                 onClick={handleApproveDocument}
                                 disabled={isValidating}
-                                className="w-full px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                                className="w-full px-4 py-2 bg-create text-white rounded-md hover:bg-create-hover disabled:opacity-50 disabled:cursor-not-allowed transition"
                               >
-                                {isValidating ? 'Aprobando...' : '✓ Aprobar Documento'}
+                                {isValidating ? 'Aprobando...' : 'Aprobar Documento'}
                               </button>
                             )}
                           </div>
                           
                           {/* Rechazar */}
-                          <div className="pt-6 border-t border-gray-300">
+                          <div className="pt-6 border-t border-ink-300">
                             <div className="mb-3">
-                              <label className="block text-sm font-medium text-gray-700 mb-2">
-                                Motivo del rechazo <span className="text-red-600">*</span>
+                              <label className="block text-sm font-medium text-ink-700 mb-2">
+                                Motivo del rechazo <span className="text-danger">*</span>
                               </label>
                               <textarea
                                 value={rejectObservations}
                                 onChange={(e) => setRejectObservations(e.target.value)}
                                 rows={5}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                                className="w-full px-3 py-2 border border-ink-300 rounded-md focus:ring-2 focus:ring-danger focus:border-danger"
                                 placeholder="Describe las razones del rechazo y las correcciones necesarias..."
                                 required
                               />
@@ -1065,9 +1066,9 @@ export default function DocumentDetailPage() {
                               <button
                                 onClick={handleRejectDocument}
                                 disabled={isValidating || !rejectObservations.trim()}
-                                className="w-full px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                                className="w-full px-4 py-2 bg-danger text-white rounded-md hover:bg-danger disabled:opacity-50 disabled:cursor-not-allowed transition"
                               >
-                                {isValidating ? 'Rechazando...' : '✗ Rechazar y Devolver'}
+                                {isValidating ? 'Rechazando...' : 'Rechazar y Devolver'}
                               </button>
                             )}
                           </div>
@@ -1076,20 +1077,20 @@ export default function DocumentDetailPage() {
                     </div>
                   ) : showValidationPanel ? (
                     // Si hay panel pero no versión IN_REVIEW, mostrar solo el formulario
-                    <div className="mb-6 p-6 bg-gray-50 rounded-lg border border-gray-200">
-                      <h3 className="text-lg font-medium text-gray-900 mb-4">Decisión de Validación</h3>
+                    <div className="mb-6 p-6 bg-ink-50 rounded-lg border border-ink-200">
+                      <h3 className="text-lg font-medium text-ink-900 mb-4">Decisión de Validación</h3>
                       
                       {/* Aprobar */}
                       <div className="mb-6">
                         <div className="mb-3">
-                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                          <label className="block text-sm font-medium text-ink-700 mb-2">
                             Observaciones (opcional)
                           </label>
                           <textarea
                             value={approveObservations}
                             onChange={(e) => setApproveObservations(e.target.value)}
                             rows={2}
-                            className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                            className="w-full px-4 py-2 border border-ink-300 rounded-md focus:ring-2 focus:ring-create-ring focus:border-create"
                             placeholder="Observaciones adicionales para la aprobación..."
                           />
                         </div>
@@ -1097,24 +1098,24 @@ export default function DocumentDetailPage() {
                           <button
                             onClick={handleApproveDocument}
                             disabled={isValidating}
-                            className="px-6 py-3 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+                            className="px-6 py-3 bg-create text-white rounded-md hover:bg-create-hover disabled:opacity-50 disabled:cursor-not-allowed font-medium"
                           >
-                            {isValidating ? 'Aprobando...' : '✓ Aprobar Documento'}
+                            {isValidating ? 'Aprobando...' : 'Aprobar Documento'}
                           </button>
                         )}
                       </div>
                       
                       {/* Rechazar */}
-                      <div className="pt-6 border-t border-gray-300">
+                      <div className="pt-6 border-t border-ink-300">
                         <div className="mb-3">
-                          <label className="block text-sm font-medium text-gray-700 mb-2">
-                            Motivo del rechazo <span className="text-red-600">*</span>
+                          <label className="block text-sm font-medium text-ink-700 mb-2">
+                            Motivo del rechazo <span className="text-danger">*</span>
                           </label>
                           <textarea
                             value={rejectObservations}
                             onChange={(e) => setRejectObservations(e.target.value)}
                             rows={4}
-                            className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                            className="w-full px-4 py-2 border border-ink-300 rounded-md focus:ring-2 focus:ring-danger focus:border-danger"
                             placeholder="Describe las razones del rechazo y las correcciones necesarias..."
                             required
                           />
@@ -1123,9 +1124,9 @@ export default function DocumentDetailPage() {
                           <button
                             onClick={handleRejectDocument}
                             disabled={isValidating || !rejectObservations.trim()}
-                            className="px-6 py-3 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+                            className="px-6 py-3 bg-danger text-white rounded-md hover:bg-danger disabled:opacity-50 disabled:cursor-not-allowed font-medium"
                           >
-                            {isValidating ? 'Rechazando...' : '✗ Rechazar y Devolver'}
+                            {isValidating ? 'Rechazando...' : 'Rechazar y Devolver'}
                           </button>
                         )}
                       </div>
@@ -1134,8 +1135,8 @@ export default function DocumentDetailPage() {
                     
                     {/* Mensaje si hay versión IN_REVIEW pero el usuario no tiene permisos */}
                     {isPendingValidation && hasInReviewVersion && !hasApprovePermission && !hasRejectPermission && (
-                      <div className="mb-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
-                        <p className="text-sm text-blue-800">
+                      <div className="mb-6 p-4 bg-accent-tint rounded-lg border border-accent">
+                        <p className="text-sm text-accent-ink">
                           El documento tiene una versión en revisión, pero no tienes permisos para aprobar o rechazar documentos.
                         </p>
                       </div>
@@ -1143,8 +1144,8 @@ export default function DocumentDetailPage() {
                     
                     {/* Mensaje si no hay versión IN_REVIEW */}
                     {isPendingValidation && !hasInReviewVersion && (
-                      <div className="mb-6 p-4 bg-yellow-50 rounded-lg border border-yellow-200">
-                        <p className="text-sm text-yellow-800">
+                      <div className="mb-6 p-4 bg-warning-bg rounded-lg border border-warning-bd">
+                        <p className="text-sm text-warning">
                           No hay versión en revisión. El documento debe tener una versión enviada a revisión para poder validarla.
                         </p>
                       </div>
@@ -1153,7 +1154,7 @@ export default function DocumentDetailPage() {
                     {/* Historial de validaciones */}
                     {validations.length > 0 && (
                       <div className="space-y-4">
-                        <h3 className="text-md font-medium text-gray-900">Historial de Validaciones</h3>
+                        <h3 className="text-md font-medium text-ink-900">Historial de Validaciones</h3>
                         {[...validations]
                           .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
                           .map((validation, index) => {
@@ -1170,18 +1171,18 @@ export default function DocumentDetailPage() {
                                 : 'Rechazada'
                             const eventActorId = isPending ? (submittedBy ?? validatorId) : validatorId ?? submittedBy
                             return (
-                              <div key={validation.id} className="border border-gray-200 rounded-lg p-4">
+                              <div key={validation.id} className="border border-ink-200 rounded-lg p-4">
                                 <div className="flex items-center gap-2 mb-2 flex-wrap">
                                   <span className={`px-2 py-1 rounded text-xs font-medium ${
-                                    validation.status === 'approved' ? 'bg-green-100 text-green-800' :
-                                    validation.status === 'rejected' ? 'bg-red-100 text-red-800' :
-                                    'bg-yellow-100 text-yellow-800'
+                                    validation.status === 'approved' ? 'bg-success-bg text-success-fg' :
+                                    validation.status === 'rejected' ? 'bg-danger-bg text-danger' :
+                                    'bg-warning-bg text-warning'
                                   }`}>
                                     {validation.status === 'approved' ? 'Aprobada' :
                                      validation.status === 'rejected' ? 'Rechazada' :
                                      'Pendiente'}
                                   </span>
-                                  <span className="text-xs text-gray-600">
+                                  <span className="text-xs text-ink-600">
                                     {eventLabel} el {formatDateTime(validation.created_at)}
                                     {eventActorId && (
                                       <> por <span title={eventActorId}>{userDisplayNames[eventActorId] ?? eventActorId}</span></>
@@ -1189,7 +1190,7 @@ export default function DocumentDetailPage() {
                                   </span>
                                 </div>
                                 {validation.observations && (
-                                  <p className="text-sm text-gray-700 whitespace-pre-wrap mt-2">
+                                  <p className="text-sm text-ink-700 whitespace-pre-wrap mt-2">
                                     {validation.observations}
                                   </p>
                                 )}
@@ -1206,20 +1207,20 @@ export default function DocumentDetailPage() {
                 <div
                   className={`mt-6 p-4 rounded-lg border ${
                     document.status === 'draft'
-                      ? 'bg-blue-50 border-blue-200'
-                      : 'bg-yellow-50 border-yellow-200'
+                      ? 'bg-accent-tint border-accent'
+                      : 'bg-warning-bg border-warning-bd'
                   }`}
                 >
                   <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-lg font-medium text-gray-900">
+                    <h3 className="text-lg font-medium text-ink-900">
                       {document.status === 'draft' ? 'Modificar contenido del documento' : 'Corregir Documento'}
                     </h3>
                     <button
                       onClick={() => setShowCorrectionOptions(!showCorrectionOptions)}
                       className={`px-4 py-2 text-white rounded-md text-sm font-medium ${
                         document.status === 'draft'
-                          ? 'bg-blue-600 hover:bg-blue-700'
-                          : 'bg-yellow-600 hover:bg-yellow-700'
+                          ? 'bg-action hover:bg-action-hover'
+                          : 'bg-warning hover:bg-warning'
                       }`}
                     >
                       {showCorrectionOptions ? 'Ocultar' : 'Mostrar Opciones'}
@@ -1233,8 +1234,8 @@ export default function DocumentDetailPage() {
                           onClick={() => setCorrectionType('ai_patch')}
                           className={`px-4 py-2 rounded-md text-sm font-medium ${
                             correctionType === 'ai_patch'
-                              ? 'bg-blue-600 text-white'
-                              : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
+                              ? 'bg-action text-white'
+                              : 'bg-white border border-ink-300 text-ink-700 hover:bg-ink-50'
                           }`}
                         >
                           Patch por IA
@@ -1243,8 +1244,8 @@ export default function DocumentDetailPage() {
                           onClick={() => setCorrectionType('manual')}
                           className={`px-4 py-2 rounded-md text-sm font-medium ${
                             correctionType === 'manual'
-                              ? 'bg-blue-600 text-white'
-                              : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
+                              ? 'bg-action text-white'
+                              : 'bg-white border border-ink-300 text-ink-700 hover:bg-ink-50'
                           }`}
                         >
                           Edición Manual
@@ -1252,22 +1253,22 @@ export default function DocumentDetailPage() {
                       </div>
                       
                       {correctionType === 'ai_patch' && (
-                        <div className="p-4 bg-white rounded-lg border border-gray-200">
-                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                        <div className="p-4 bg-white rounded-lg border border-ink-200">
+                          <label className="block text-sm font-medium text-ink-700 mb-2">
                             Observaciones para el LLM
                           </label>
                           <textarea
                             value={aiPatchObservations}
                             onChange={(e) => setAiPatchObservations(e.target.value)}
                             rows={4}
-                            className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 mb-3"
+                            className="w-full px-4 py-2 border border-ink-300 rounded-md focus:ring-2 focus:ring-action-ring focus:border-accent mb-3"
                             placeholder="Describe las correcciones que debe aplicar la IA..."
                           />
                           <div className="flex gap-3">
                             <button
                               onClick={handlePatchWithAI}
                               disabled={isPatching || !aiPatchObservations.trim()}
-                              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+                              className="px-4 py-2 bg-action text-white rounded-md hover:bg-action-hover disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
                             >
                               {isPatching ? 'Aplicando Patch...' : 'Aplicar Patch por IA'}
                             </button>
@@ -1276,7 +1277,7 @@ export default function DocumentDetailPage() {
                                 setCorrectionType(null)
                                 setAiPatchObservations('')
                               }}
-                              className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 text-sm font-medium"
+                              className="px-4 py-2 border border-ink-300 rounded-md hover:bg-ink-50 text-sm font-medium"
                             >
                               Cancelar
                             </button>
@@ -1321,57 +1322,57 @@ export default function DocumentDetailPage() {
               {/* Sección de Generar Nueva Versión */}
               <div className="mt-8 pt-8 border-t">
                 <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-xl font-semibold text-gray-900">Versiones Generadas</h2>
+                  <h2 className="text-xl font-semibold text-ink-900">Versiones Generadas</h2>
                   <button
                     onClick={() => allowNewVersion && setShowNewVersionForm(!showNewVersionForm)}
                     disabled={!allowNewVersion}
                     title={!allowNewVersion ? 'Solo disponible cuando el documento está aprobado o rechazado' : undefined}
-                    className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+                    className="px-4 py-2 bg-create text-white rounded-md hover:bg-create-hover disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
                   >
                     {showNewVersionForm ? 'Cancelar' : '+ Nueva Versión'}
                   </button>
                 </div>
                 
                 {showNewVersionForm && (
-                  <div className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
-                    <h3 className="text-lg font-medium text-gray-900 mb-4">Generar Nueva Versión</h3>
-                    <p className="text-sm text-gray-600 mb-4">
+                  <div className="mb-6 p-4 bg-ink-50 rounded-lg border border-ink-200">
+                    <h3 className="text-lg font-medium text-ink-900 mb-4">Generar Nueva Versión</h3>
+                    <p className="text-sm text-ink-600 mb-4">
                       Sube nuevos archivos o agrega instrucciones de revisión para generar una versión corregida del documento.
                       Si no subes archivos nuevos, se reutilizarán los del último run.
                     </p>
                     
                     <div className="mb-4">
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                      <label className="block text-sm font-medium text-ink-700 mb-2">
                         Instrucciones de Revisión
                       </label>
                       <textarea
                         value={revisionNotes}
                         onChange={(e) => setRevisionNotes(e.target.value)}
                         rows={4}
-                        className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        className="w-full px-4 py-2 border border-ink-300 rounded-md focus:ring-2 focus:ring-action-ring focus:border-accent"
                         placeholder="Ej: Corregir errores gramaticales, mejorar la descripción del paso 3, agregar más detalle en la sección de indicadores..."
                       />
-                      <p className="mt-1 text-xs text-gray-500">
+                      <p className="mt-1 text-xs text-ink-500">
                         Describe las correcciones o mejoras que quieres aplicar al documento.
                       </p>
                     </div>
                     
                     <div className="mb-4">
                       <div className="flex items-center justify-between mb-2">
-                        <label className="block text-sm font-medium text-gray-700">
+                        <label className="block text-sm font-medium text-ink-700">
                           Archivos (opcional)
                         </label>
                         <button
                           type="button"
                           onClick={() => setIsNewVersionModalOpen(true)}
-                          className="px-3 py-1.5 text-sm font-medium text-blue-600 hover:text-blue-700 border border-blue-600 rounded-md hover:bg-blue-50"
+                          className="px-3 py-1.5 text-sm font-medium text-accent hover:text-accent-ink border border-accent rounded-md hover:bg-accent-tint"
                         >
                           + Agregar archivo
                         </button>
                       </div>
                       <FileList files={newVersionFiles} onRemove={handleRemoveNewVersionFile} />
                       {newVersionFiles.length === 0 && (
-                        <p className="text-xs text-gray-500 mt-1">
+                        <p className="text-xs text-ink-500 mt-1">
                           Si no agregas archivos nuevos, se reutilizarán los del último run.
                         </p>
                       )}
@@ -1381,7 +1382,7 @@ export default function DocumentDetailPage() {
                       <button
                         onClick={handleGenerateNewVersion}
                         disabled={isGenerating || (newVersionFiles.length === 0 && !revisionNotes.trim())}
-                        className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+                        className="px-4 py-2 bg-create text-white rounded-md hover:bg-create-hover disabled:opacity-50 disabled:cursor-not-allowed font-medium"
                       >
                         {isGenerating ? 'Generando...' : 'Generar Nueva Versión'}
                       </button>
@@ -1391,7 +1392,7 @@ export default function DocumentDetailPage() {
                           setNewVersionFiles([])
                           setRevisionNotes('')
                         }}
-                        className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 font-medium"
+                        className="px-4 py-2 border border-ink-300 rounded-md hover:bg-ink-50 font-medium"
                       >
                         Cancelar
                       </button>
@@ -1403,11 +1404,11 @@ export default function DocumentDetailPage() {
                 {runs.length > 0 ? (
                   <div className="space-y-4">
                     {runs.map((run) => (
-                      <div key={run.run_id} className="border border-gray-200 rounded-lg p-4">
+                      <div key={run.run_id} className="border border-ink-200 rounded-lg p-4">
                         <div className="flex items-center justify-between mb-3">
                           <div>
-                            <p className="text-sm font-medium text-gray-900">Run ID: {run.run_id.substring(0, 8)}...</p>
-                            <p className="text-xs text-gray-500">
+                            <p className="text-sm font-medium text-ink-900">Run ID: {run.run_id.substring(0, 8)}...</p>
+                            <p className="text-xs text-ink-500">
                               {formatDateTime(run.created_at)}
                             </p>
                           </div>
@@ -1424,25 +1425,25 @@ export default function DocumentDetailPage() {
                                   openArtifactFromRun(run.artifacts.pdf!, 'pdf')
                                 }
                               }}
-                              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm font-medium inline-flex items-center gap-2"
+                              className="px-4 py-2 bg-action text-white rounded-md hover:bg-action-hover text-sm font-medium inline-flex items-center gap-2"
                             >
-                              📑 Ver PDF
+                              <FileText className="h-4 w-4" /> Ver PDF
                             </button>
                           )}
                           {run.artifacts.md && (
                             <button
                               onClick={() => openArtifactFromRun(run.artifacts.md!, 'markdown')}
-                              className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 text-sm font-medium inline-flex items-center gap-2"
+                              className="px-4 py-2 border border-ink-300 rounded-md hover:bg-ink-50 text-sm font-medium inline-flex items-center gap-2"
                             >
-                              📝 Ver Markdown
+                              <FileText className="h-4 w-4" /> Ver Markdown
                             </button>
                           )}
                           {run.artifacts.json && (
                             <button
                               onClick={() => openArtifactFromRun(run.artifacts.json!, 'json')}
-                              className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 text-sm font-medium inline-flex items-center gap-2"
+                              className="px-4 py-2 border border-ink-300 rounded-md hover:bg-ink-50 text-sm font-medium inline-flex items-center gap-2"
                             >
-                              📄 Ver JSON
+                              <FileText className="h-4 w-4" /> Ver JSON
                             </button>
                           )}
                         </div>
@@ -1450,7 +1451,7 @@ export default function DocumentDetailPage() {
                     ))}
                   </div>
                 ) : (
-                  <p className="text-sm text-gray-500 text-center py-8">
+                  <p className="text-sm text-ink-500 text-center py-8">
                     No hay versiones generadas aún. Usa el botón "Nueva Versión" para crear la primera.
                   </p>
                 )}
@@ -1466,12 +1467,12 @@ export default function DocumentDetailPage() {
               {showCancelSubmitConfirm && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true">
                   <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
-                    <p className="text-gray-900 mb-6">¿Querés cancelar el envío y volver a borrador?</p>
+                    <p className="text-ink-900 mb-6">¿Querés cancelar el envío y volver a borrador?</p>
                     <div className="flex gap-3 justify-end">
                       <button
                         type="button"
                         onClick={() => setShowCancelSubmitConfirm(false)}
-                        className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50"
+                        className="px-4 py-2 border border-ink-300 rounded-md hover:bg-ink-50"
                       >
                         No
                       </button>
@@ -1479,7 +1480,7 @@ export default function DocumentDetailPage() {
                         type="button"
                         onClick={handleCancelSubmission}
                         disabled={isCancelling}
-                        className="px-4 py-2 bg-amber-600 text-white rounded-md hover:bg-amber-700 disabled:opacity-50"
+                        className="px-4 py-2 bg-warning text-white rounded-md hover:bg-warning disabled:opacity-50"
                       >
                         {isCancelling ? 'Cancelando...' : 'Sí, volver a borrador'}
                       </button>
@@ -1492,12 +1493,12 @@ export default function DocumentDetailPage() {
               {showApproveConfirm && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true">
                   <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
-                    <p className="text-gray-900 mb-6">¿Confirmar aprobación?</p>
+                    <p className="text-ink-900 mb-6">¿Confirmar aprobación?</p>
                     <div className="flex gap-3 justify-end">
                       <button
                         type="button"
                         onClick={() => setShowApproveConfirm(false)}
-                        className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50"
+                        className="px-4 py-2 border border-ink-300 rounded-md hover:bg-ink-50"
                       >
                         Cancelar
                       </button>
@@ -1508,7 +1509,7 @@ export default function DocumentDetailPage() {
                           await handleApproveDocument()
                         }}
                         disabled={isValidating}
-                        className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50"
+                        className="px-4 py-2 bg-create text-white rounded-md hover:bg-create-hover disabled:opacity-50"
                       >
                         {isValidating ? 'Aprobando...' : 'Aprobar'}
                       </button>
@@ -1521,8 +1522,8 @@ export default function DocumentDetailPage() {
               {showDeleteConfirm && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true" aria-labelledby="delete-dialog-title">
                   <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
-                    <h3 id="delete-dialog-title" className="text-lg font-medium text-gray-900 mb-2">Eliminar documento</h3>
-                    <p className="text-gray-700 mb-6">
+                    <h3 id="delete-dialog-title" className="text-lg font-medium text-ink-900 mb-2">Eliminar documento</h3>
+                    <p className="text-ink-700 mb-6">
                       ¿Estás seguro de que deseas eliminar el documento &quot;{document?.name}&quot;?
                       Esta acción no se puede deshacer y eliminará el documento, todas sus versiones y todos los archivos generados.
                     </p>
@@ -1530,7 +1531,7 @@ export default function DocumentDetailPage() {
                       <button
                         type="button"
                         onClick={() => setShowDeleteConfirm(false)}
-                        className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50"
+                        className="px-4 py-2 border border-ink-300 rounded-md hover:bg-ink-50"
                       >
                         Cancelar
                       </button>
@@ -1538,7 +1539,7 @@ export default function DocumentDetailPage() {
                         type="button"
                         onClick={handleDelete}
                         disabled={isDeleting}
-                        className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50"
+                        className="px-4 py-2 bg-danger text-white rounded-md hover:bg-danger disabled:opacity-50"
                       >
                         {isDeleting ? 'Eliminando...' : 'Eliminar'}
                       </button>
@@ -1551,15 +1552,15 @@ export default function DocumentDetailPage() {
               {showRejectConfirm && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true">
                   <div className="bg-white rounded-lg shadow-xl p-6 max-w-lg w-full mx-4">
-                    <h3 className="text-lg font-medium text-gray-900 mb-2">Rechazar documento</h3>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Motivo del rechazo <span className="text-red-600">*</span>
+                    <h3 className="text-lg font-medium text-ink-900 mb-2">Rechazar documento</h3>
+                    <label className="block text-sm font-medium text-ink-700 mb-2">
+                      Motivo del rechazo <span className="text-danger">*</span>
                     </label>
                     <textarea
                       value={rejectObservations}
                       onChange={(e) => setRejectObservations(e.target.value)}
                       rows={4}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-red-500 mb-4"
+                      className="w-full px-3 py-2 border border-ink-300 rounded-md focus:ring-2 focus:ring-danger mb-4"
                       placeholder="Describe las razones del rechazo y las correcciones necesarias..."
                     />
                     <div className="flex gap-3 justify-end">
@@ -1568,7 +1569,7 @@ export default function DocumentDetailPage() {
                         onClick={() => {
                           setShowRejectConfirm(false)
                         }}
-                        className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50"
+                        className="px-4 py-2 border border-ink-300 rounded-md hover:bg-ink-50"
                       >
                         Cancelar
                       </button>
@@ -1579,7 +1580,7 @@ export default function DocumentDetailPage() {
                           await handleRejectDocument()
                         }}
                         disabled={isValidating || !rejectObservations.trim()}
-                        className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50"
+                        className="px-4 py-2 bg-danger text-white rounded-md hover:bg-danger disabled:opacity-50"
                       >
                         {isValidating ? 'Rechazando...' : 'Confirmar rechazo'}
                       </button>
@@ -1593,7 +1594,7 @@ export default function DocumentDetailPage() {
               {/* Sección de Historial y Trazabilidad */}
               <div className="mt-8 pt-8 border-t">
                 <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-xl font-semibold text-gray-900">Historial y Trazabilidad</h2>
+                  <h2 className="text-xl font-semibold text-ink-900">Historial y Trazabilidad</h2>
                   <button
                     onClick={async () => {
                       if (!showHistory) {
@@ -1611,7 +1612,7 @@ export default function DocumentDetailPage() {
                       }
                       setShowHistory(!showHistory)
                     }}
-                    className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 text-sm font-medium"
+                    className="px-4 py-2 bg-ink-700 text-white rounded-md hover:bg-ink-800 text-sm font-medium"
                   >
                     {showHistory ? 'Ocultar Historial' : 'Ver Historial'}
                   </button>
@@ -1625,43 +1626,43 @@ export default function DocumentDetailPage() {
                       if (approvedVersions.length === 0) {
                         return (
                           <div>
-                            <h3 className="text-lg font-medium text-gray-900 mb-3">Versiones Aprobadas</h3>
-                            <p className="text-sm text-gray-500">No hay versiones aprobadas.</p>
+                            <h3 className="text-lg font-medium text-ink-900 mb-3">Versiones Aprobadas</h3>
+                            <p className="text-sm text-ink-500">No hay versiones aprobadas.</p>
                           </div>
                         )
                       }
                       return (
                       <div>
-                        <h3 className="text-lg font-medium text-gray-900 mb-3">Versiones Aprobadas</h3>
+                        <h3 className="text-lg font-medium text-ink-900 mb-3">Versiones Aprobadas</h3>
                         <div className="space-y-3">
                           {approvedVersions.map((version) => (
                             <div
                               key={version.id}
                               className={`border rounded-lg p-4 ${
                                 version.is_current
-                                  ? 'border-green-500 bg-green-50'
-                                  : 'border-gray-200 bg-white'
+                                  ? 'border-create bg-success-bg'
+                                  : 'border-ink-200 bg-white'
                               }`}
                             >
                               <div className="flex items-center justify-between">
                                 <div>
                                   <div className="flex items-center gap-2 mb-1">
-                                    <span className="font-medium text-gray-900">
+                                    <span className="font-medium text-ink-900">
                                       Versión {version.version_number}
                                     </span>
                                     {version.is_current && (
-                                      <span className="px-2 py-1 bg-green-100 text-green-800 rounded text-xs font-medium">
+                                      <span className="px-2 py-1 bg-success-bg text-success-fg rounded text-xs font-medium">
                                         Actual
                                       </span>
                                     )}
-                                    <span className="text-xs text-gray-500">
+                                    <span className="text-xs text-ink-500">
                                       {version.content_type === 'generated' ? 'Generada' :
                                        version.content_type === 'manual_edit' ? 'Edición Manual' :
                                        version.content_type === 'ai_patch' ? 'Patch por IA' :
                                        version.content_type}
                                     </span>
                                   </div>
-                                  <p className="text-xs text-gray-500">
+                                  <p className="text-xs text-ink-500">
                                     {version.approved_at && (
                                       <>
                                         Aprobada: {formatDateTime(version.approved_at)}
@@ -1670,7 +1671,7 @@ export default function DocumentDetailPage() {
                                     )}
                                   </p>
                                   {version.run_id && (
-                                    <p className="text-xs text-gray-500">
+                                    <p className="text-xs text-ink-500">
                                       Run ID: {version.run_id.substring(0, 8)}...
                                     </p>
                                   )}
@@ -1686,42 +1687,42 @@ export default function DocumentDetailPage() {
                     {/* Audit Log */}
                     {auditLog.length > 0 && (
                       <div>
-                        <h3 className="text-lg font-medium text-gray-900 mb-3">Registro de Auditoría</h3>
+                        <h3 className="text-lg font-medium text-ink-900 mb-3">Registro de Auditoría</h3>
                         <div className="space-y-2">
                           {auditLog.map((entry) => (
                             <div
                               key={entry.id}
-                              className="border border-gray-200 rounded-lg p-3 bg-white"
+                              className="border border-ink-200 rounded-lg p-3 bg-white"
                             >
                               <div className="flex items-start justify-between">
                                 <div className="flex-1">
                                   <div className="flex items-center gap-2 mb-1">
-                                    <span className="font-medium text-gray-900">
+                                    <span className="font-medium text-ink-900">
                                       {actionToLabel(entry.action)}
                                     </span>
-                                    <span className="text-xs text-gray-500">
+                                    <span className="text-xs text-ink-500">
                                       {entry.entity_type}
                                     </span>
                                   </div>
-                                  <p className="text-xs text-gray-500 mb-1">
+                                  <p className="text-xs text-ink-500 mb-1">
                                     {formatDateTime(entry.created_at)}
                                   </p>
                                   {entry.changes_json && (
                                     <details className="mt-2">
-                                      <summary className="text-xs text-gray-600 cursor-pointer hover:text-gray-900">
+                                      <summary className="text-xs text-ink-600 cursor-pointer hover:text-ink-900">
                                         Ver cambios
                                       </summary>
-                                      <pre className="mt-2 p-2 bg-gray-50 rounded text-xs overflow-auto max-h-40">
+                                      <pre className="mt-2 p-2 bg-ink-50 rounded text-xs overflow-auto max-h-40">
                                         {JSON.stringify(JSON.parse(entry.changes_json), null, 2)}
                                       </pre>
                                     </details>
                                   )}
                                   {entry.metadata_json && (
                                     <details className="mt-2">
-                                      <summary className="text-xs text-gray-600 cursor-pointer hover:text-gray-900">
+                                      <summary className="text-xs text-ink-600 cursor-pointer hover:text-ink-900">
                                         Ver metadata
                                       </summary>
-                                      <pre className="mt-2 p-2 bg-gray-50 rounded text-xs overflow-auto max-h-40">
+                                      <pre className="mt-2 p-2 bg-ink-50 rounded text-xs overflow-auto max-h-40">
                                         {JSON.stringify(JSON.parse(entry.metadata_json), null, 2)}
                                       </pre>
                                     </details>
@@ -1735,7 +1736,7 @@ export default function DocumentDetailPage() {
                     )}
                     
                     {versions.length === 0 && auditLog.length === 0 && (
-                      <p className="text-sm text-gray-500 text-center py-8">
+                      <p className="text-sm text-ink-500 text-center py-8">
                         No hay historial disponible aún.
                       </p>
                     )}
