@@ -245,6 +245,11 @@ async def create_process_run(
                 # PDF opcional, no fallamos si no se puede generar
                 pass
 
+            # Subir los artefactos del run (json/md/pdf + assets) a object storage
+            # para que el endpoint de artefactos los sirva en prod (no-op en local).
+            from process_ai_core.storage import sync_run_dir_to_storage
+            sync_run_dir_to_storage(run_id, output_dir)
+
             # Construir URLs firmadas para los artefactos
             artifacts = {
                 "json": sign_artifact_url(run_id, "process.json", workspace_id),
@@ -259,7 +264,6 @@ async def create_process_run(
             from process_ai_core.db.helpers import (
                 create_process_document,
                 create_run,
-                create_artifact,
                 update_document_status,
             )
             
@@ -290,29 +294,17 @@ async def create_process_run(
                     profile=mode.value,
                     run_id=run_id,  # Usar el ID que ya generamos
                 )
+                # Manifiesto de fuentes (metadata + sha256 + transcripción) para auditoría,
+                # antes de que el temp dir con los originales se borre.
+                from process_ai_core.input_manifest import build_input_manifest_json
+                run.input_manifest_json = build_input_manifest_json(
+                    raw_assets, result.get("enriched_assets"), uploaded_by=user_id
+                )
                 db_session.flush()
-                
-                # Crear Artifacts
-                create_artifact(
-                    session=db_session,
-                    run_id=run_id,
-                    artifact_type="json",
-                    file_path=f"output/{run_id}/process.json",
-                )
-                create_artifact(
-                    session=db_session,
-                    run_id=run_id,
-                    artifact_type="md",
-                    file_path=f"output/{run_id}/process.md",
-                )
-                if pdf_generated:
-                    create_artifact(
-                        session=db_session,
-                        run_id=run_id,
-                        artifact_type="pdf",
-                        file_path=f"output/{run_id}/process.pdf",
-                    )
-                
+
+                # Los artefactos del run (json/md/pdf/assets) viven en object storage
+                # bajo la clave {run_id}/...; no se trackean en una tabla.
+
                 # Crear versión DRAFT desde el run generado y enviarla automáticamente a revisión
                 try:
                     from process_ai_core.db.models import DocumentVersion
@@ -498,6 +490,9 @@ async def generate_pdf_from_run(run_id: str):
             pdf_name="process.pdf",
             branding=pdf_branding,
         )
+
+        from process_ai_core.storage import sync_run_dir_to_storage
+        sync_run_dir_to_storage(run_id, run_dir)
 
         if workspace_id_for_signing:
             pdf_url = sign_artifact_url(run_id, "process.pdf", workspace_id_for_signing)

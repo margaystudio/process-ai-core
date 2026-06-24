@@ -26,6 +26,7 @@ La idea es que:
 from pathlib import Path
 from typing import Any, Dict, List, Sequence, TypedDict
 
+from .assets_json import inject_assets_into_json
 from .core.abstractions import DocumentBuilder, DocumentRenderer
 from .domain_models import EnrichedAsset, RawAsset
 from .llm_client import generate_document_json
@@ -56,6 +57,9 @@ class DocumentRunResult(TypedDict):
 
     evidence_images: List[Dict[str, str]]
     """Imágenes sueltas de evidencia aportadas por el usuario."""
+
+    enriched_assets: List[EnrichedAsset]
+    """Assets enriquecidos (incluyen extracted_text/transcripción) para el manifiesto."""
 
 
 def run_documentation_pipeline(
@@ -130,8 +134,13 @@ def run_documentation_pipeline(
         system_prompt=builder.get_system_prompt(),
     )
 
-    # 4) Parsear (específico del dominio)
+    # 4) Parsear (específico del dominio). Se parsea ANTES de enriquecer el JSON con
+    #    imágenes para que el modelo del dominio no dependa del bloque `assets`.
     doc = builder.parse_document(json_str)
+
+    # 4.b) Enriquecer el JSON con las imágenes estructuradas (imagen↔paso + evidencia)
+    #      para que el content_json sea consumible por el RAG / asistente.
+    json_str = inject_assets_into_json(json_str, images_by_step, evidence_images)
 
     # 5) Renderizar (específico del dominio)
     markdown = renderer.render_markdown(
@@ -148,6 +157,7 @@ def run_documentation_pipeline(
         markdown=markdown,
         images_by_step=images_by_step,
         evidence_images=evidence_images,
+        enriched_assets=list(enriched),
     )
 
 
@@ -208,6 +218,7 @@ def run_process_pipeline(
         "markdown": result["markdown"],
         "images_by_step": result["images_by_step"],
         "evidence_images": result["evidence_images"],
+        "enriched_assets": result["enriched_assets"],
     }
 
 
@@ -270,4 +281,5 @@ def run_recipe_pipeline(
         "markdown": result["markdown"],
         "images_by_step": result["images_by_step"],
         "evidence_images": result["evidence_images"],
+        "enriched_assets": result["enriched_assets"],
     }

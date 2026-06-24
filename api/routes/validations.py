@@ -31,6 +31,7 @@ from process_ai_core.db.helpers import (
     reject_version,
     get_in_review_version,
 )
+from ._freeze import freeze_approved_pdf
 import logging
 import json
 from datetime import datetime, UTC
@@ -269,6 +270,8 @@ async def approve_document_validation_direct(
             validation_id=version.validation_id,
             approver_id=user_id,
         )
+        # Congelar el PDF aprobado como artefacto de auditoría (best-effort).
+        freeze_approved_pdf(session, approved_version)
         session.commit()
         session.refresh(doc)
         
@@ -480,6 +483,8 @@ async def approve_document_validation(
                 validation_id=validation_id,
                 approver_id=user_id,
             )
+            # Congelar el PDF aprobado como artefacto de auditoría (best-effort).
+            freeze_approved_pdf(session, approved_version)
             session.commit()
             session.refresh(validation)
         except ValueError as e:

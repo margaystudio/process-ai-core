@@ -11,12 +11,12 @@ El token es generado por el backend al construir la URL del artefacto
 (api/artifact_signing.py) y expira según ARTIFACT_URL_TTL_SECONDS (default: 15 min).
 """
 
-from pathlib import Path
+from pathlib import PurePosixPath
 
 from fastapi import APIRouter, HTTPException, Query
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import Response
 
-from process_ai_core.config import get_settings
+from process_ai_core.storage import get_storage, normalize_key
 from ..artifact_signing import verify_artifact_token
 
 router = APIRouter(prefix="/api/v1/artifacts", tags=["artifacts"])
@@ -45,22 +45,21 @@ async def get_artifact(
     Returns:
         Archivo solicitado o 404 si token inválido/expirado o el archivo no existe
     """
-    # Verificar token ANTES de tocar el filesystem
+    # Verificar token ANTES de tocar el storage
     if not verify_artifact_token(token, run_id, filename):
         raise HTTPException(status_code=404, detail="Artefacto no encontrado")
 
-    settings = get_settings()
-    artifact_path = Path(settings.output_dir) / run_id / filename
-
-    # Validar que el archivo existe y está dentro de output_dir (seguridad)
-    if not artifact_path.exists():
-        raise HTTPException(status_code=404, detail=f"Artefacto {filename} no encontrado")
-
-    # Validar que no hay path traversal
+    # Clave de blob: {run_id}/{filename}. normalize_key valida traversal.
     try:
-        artifact_path.resolve().relative_to(Path(settings.output_dir).resolve())
+        key = normalize_key(f"{run_id}/{filename}")
     except ValueError:
         raise HTTPException(status_code=403, detail="Acceso denegado")
+
+    storage = get_storage()
+    try:
+        content = storage.get(key)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Artefacto {filename} no encontrado")
 
     # Determinar content-type
     content_type_map = {
@@ -74,13 +73,11 @@ async def get_artifact(
         ".webp": "image/webp",
         ".svg": "image/svg+xml",
     }
-    content_type = content_type_map.get(artifact_path.suffix, "application/octet-stream")
+    suffix = PurePosixPath(key).suffix
+    content_type = content_type_map.get(suffix, "application/octet-stream")
 
     # Para PDFs, servir inline por defecto (para iframes) o forzar descarga
-    if artifact_path.suffix == ".pdf":
-        with open(artifact_path, "rb") as f:
-            content = f.read()
-        
+    if suffix == ".pdf":
         disposition = "attachment" if download else "inline"
         return Response(
             content=content,
@@ -95,10 +92,13 @@ async def get_artifact(
             }
         )
     
-    # Para otros archivos, permitir descarga
-    return FileResponse(
-        path=str(artifact_path),
+    # Para otros archivos, servir los bytes (inline o descarga).
+    disposition = "attachment" if download else "inline"
+    return Response(
+        content=content,
         media_type=content_type,
-        filename=filename,
+        headers={
+            "Content-Disposition": f"{disposition}; filename=\"{PurePosixPath(key).name}\"",
+        },
     )
 

@@ -101,6 +101,13 @@ class Settings:
     # TTL de las URLs firmadas en segundos (default: 15 minutos)
     artifact_url_ttl_seconds: int = 900
 
+    # Almacenamiento de blobs (artefactos: PDF, imágenes, JSON/MD)
+    # backend: "local" (filesystem, dev/test) | "supabase" (Supabase Storage, prod)
+    storage_backend: str = "local"
+    supabase_url: str = ""
+    supabase_service_role_key: str = ""
+    supabase_storage_bucket: str = "process-ai-artifacts"
+
 
 @lru_cache
 def get_settings() -> Settings:
@@ -134,6 +141,10 @@ def get_settings() -> Settings:
         api_base_url=os.getenv("API_BASE_URL", "http://localhost:8000"),
         artifact_signing_secret=os.getenv("ARTIFACT_SIGNING_SECRET", ""),
         artifact_url_ttl_seconds=int(os.getenv("ARTIFACT_URL_TTL_SECONDS", "900")),
+        storage_backend=os.getenv("STORAGE_BACKEND", "local"),
+        supabase_url=os.getenv("SUPABASE_URL", ""),
+        supabase_service_role_key=os.getenv("SUPABASE_SERVICE_ROLE_KEY", ""),
+        supabase_storage_bucket=os.getenv("SUPABASE_STORAGE_BUCKET", "process-ai-artifacts"),
         openai_model_text=os.getenv(
             "OPENAI_MODEL_TEXT",
             "gpt-4.1-mini"

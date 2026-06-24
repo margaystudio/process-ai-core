@@ -28,6 +28,7 @@ from fastapi.testclient import TestClient
 
 from api.artifact_signing import sign_artifact_url, verify_artifact_token
 from process_ai_core.config import get_settings, Settings
+from process_ai_core.storage.local import LocalDiskStorage
 
 
 # ── Helpers de settings con secreto ───────────────────────────────────────────
@@ -189,9 +190,11 @@ def artifact_client(tmp_path):
 
     # Parchear en dos puntos:
     #   1. process_ai_core.config.get_settings → afecta imports tardíos (artifact_signing.py)
-    #   2. api.routes.artifacts.get_settings  → afecta el import de nivel de módulo en artifacts.py
+    #   2. api.routes.artifacts.get_storage   → el endpoint sirve los artefactos vía
+    #      BlobStorage; lo apuntamos a un LocalDiskStorage con raíz en el tmp_path.
+    test_storage = LocalDiskStorage(root=str(tmp_path))
     with patch(_SETTINGS_PATCH, return_value=test_settings):
-        with patch("api.routes.artifacts.get_settings", return_value=test_settings):
+        with patch("api.routes.artifacts.get_storage", return_value=test_storage):
             from api.main import app
             with TestClient(app, raise_server_exceptions=True) as c:
                 yield c, run_id, filename, tmp_path

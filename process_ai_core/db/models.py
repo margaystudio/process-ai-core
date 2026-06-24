@@ -501,26 +501,7 @@ class Run(Base):
 
     # Relaciones
     document: Mapped["Document"] = relationship(back_populates="runs")
-    artifacts: Mapped[list["Artifact"]] = relationship(back_populates="run")
     validation: Mapped["Validation | None"] = relationship("Validation", foreign_keys=[validation_id])
-
-
-class Artifact(Base):
-    """
-    Salida generada por una Run.
-    """
-    __tablename__ = "artifacts"
-
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
-    run_id: Mapped[str] = mapped_column(String(36), ForeignKey("runs.id"), index=True)
-
-    type: Mapped[str] = mapped_column(String(10))  # json|md|pdf
-    path: Mapped[str] = mapped_column(Text)
-
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-
-    # Relaciones
-    run: Mapped["Run"] = relationship(back_populates="artifacts")
 
 
 class Validation(Base):
@@ -645,7 +626,15 @@ class DocumentVersion(Base):
     
     # Indicador de versión actual
     is_current: Mapped[bool] = mapped_column(default=False, index=True)
-    
+
+    # Artefacto de auditoría: PDF congelado al aprobar (Fase B).
+    # Solo se setea en versiones APPROVED. El PDF vive en object storage bajo la
+    # clave canónica; guardamos su ubicación, hash y motor de render para auditar.
+    pdf_storage_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    pdf_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    pdf_generated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    pdf_render_engine: Mapped[str | None] = mapped_column(String(50), nullable=True)
+
     # Usuario que creó esta versión (nullable inicialmente, preparado para backfill)
     created_by: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     

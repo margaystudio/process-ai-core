@@ -429,34 +429,6 @@ def create_run(
     return run
 
 
-def create_artifact(
-    session: Session,
-    run_id: str,
-    artifact_type: str,
-    file_path: str,
-) -> "Artifact":
-    """
-    Crea un Artifact (artefacto generado por un run).
-    
-    Args:
-        session: Sesión de base de datos
-        run_id: ID del run asociado
-        artifact_type: Tipo ("json" | "md" | "pdf")
-        file_path: Ruta relativa al archivo
-    
-    Returns:
-        Artifact creado
-    """
-    from process_ai_core.db.models import Artifact
-    artifact = Artifact(
-        run_id=run_id,
-        type=artifact_type,
-        path=file_path,
-    )
-    session.add(artifact)
-    return artifact
-
-
 def get_workspace_metadata(workspace: Workspace) -> Dict[str, Any]:
     """
     Obtiene la metadata de un workspace como dict.
@@ -1478,7 +1450,6 @@ def delete_document(
     Elimina:
     - El documento (y su registro específico Process/Recipe)
     - Todos los runs asociados
-    - Todos los artifacts asociados
     - Todas las validaciones asociadas
     - Todos los audit logs asociados
     - Todas las versiones asociadas
@@ -1493,24 +1464,18 @@ def delete_document(
     Raises:
         ValueError: Si el documento no existe
     """
-    from process_ai_core.db.models import Run, Artifact, Validation, AuditLog, DocumentVersion
-    
+    from process_ai_core.db.models import Run, Validation, AuditLog, DocumentVersion
+
     document = session.query(Document).filter_by(id=document_id).first()
     if not document:
         raise ValueError(f"Documento {document_id} no encontrado")
-    
+
     # Eliminar en orden (respetando foreign keys)
     # 1. Obtener todos los runs primero
     runs = session.query(Run).filter_by(document_id=document_id).all()
     run_ids = [run.id for run in runs]
-    
+
     if run_ids:
-        # 2. Eliminar Artifacts (dependen de Runs) - CRÍTICO: debe hacerse antes de eliminar runs
-        artifacts_count = session.query(Artifact).filter(Artifact.run_id.in_(run_ids)).count()
-        if artifacts_count > 0:
-            session.query(Artifact).filter(Artifact.run_id.in_(run_ids)).delete(synchronize_session=False)
-            session.flush()  # Asegurar que se ejecute antes de continuar
-        
         # 3. Actualizar AuditLogs para que run_id sea NULL (antes de eliminar runs)
         audit_logs_count = session.query(AuditLog).filter(AuditLog.run_id.in_(run_ids)).count()
         if audit_logs_count > 0:

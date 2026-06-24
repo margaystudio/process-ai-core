@@ -20,9 +20,9 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 from process_ai_core.db.database import get_db_session
-from process_ai_core.db.models import Document, DocumentVersion, Process, Recipe, Workspace, Run, Artifact
+from process_ai_core.db.models import Document, DocumentVersion, Process, Recipe, Workspace, Run
 from process_ai_core.db.helpers import (
-    create_run, create_artifact, delete_document,
+    create_run, delete_document,
     submit_version_for_review, get_or_create_draft, approve_version, reject_version,
     get_in_review_version, get_editable_version, create_audit_log, update_document_status,
     cancel_submission,
@@ -677,8 +677,9 @@ async def get_document_runs(
     """
     Obtiene todos los runs asociados a un documento.
     """
-    from process_ai_core.db.models import Run, Artifact
-    
+    from process_ai_core.db.models import Run
+    from process_ai_core.storage import get_storage
+
     with get_db_session() as session:
         doc = session.query(Document).filter_by(id=document_id).first()
         if not doc:
@@ -698,20 +699,23 @@ async def get_document_runs(
         runs = session.query(Run).filter_by(document_id=document_id).order_by(Run.created_at.desc()).all()
         
         doc_workspace_id = doc.workspace_id
+        storage = get_storage()
+        # Artefactos por convención: {run_id}/process.{json,md,pdf}. Se firman las
+        # URLs de los que existan en storage (ya no hay tabla Artifact).
+        artifact_files = {"json": "process.json", "md": "process.md", "pdf": "process.pdf"}
         result = []
         for run in runs:
-            artifacts = session.query(Artifact).filter_by(run_id=run.id).all()
             artifact_dict = {}
-            for artifact in artifacts:
-                filename = artifact.path.split('/')[-1]
-                artifact_dict[artifact.type] = sign_artifact_url(run.id, filename, doc_workspace_id)
-            
+            for atype, filename in artifact_files.items():
+                if storage.exists(f"{run.id}/{filename}"):
+                    artifact_dict[atype] = sign_artifact_url(run.id, filename, doc_workspace_id)
+
             result.append({
                 "run_id": run.id,
                 "created_at": run.created_at.isoformat(),
                 "artifacts": artifact_dict,
             })
-        
+
         return result
 
 
@@ -966,7 +970,11 @@ async def create_document_run(
                 pdf_generated = True
             except Exception as pdf_error:
                 pass
-            
+
+            # Subir artefactos del run (json/md/pdf + assets) a object storage (no-op en local).
+            from process_ai_core.storage import sync_run_dir_to_storage
+            sync_run_dir_to_storage(run_id, output_dir)
+
             # Construir URLs firmadas para los artefactos
             artifacts = {
                 "json": sign_artifact_url(run_id, "process.json", doc.workspace_id),
@@ -975,32 +983,23 @@ async def create_document_run(
             if pdf_generated:
                 artifacts["pdf"] = sign_artifact_url(run_id, "process.pdf", doc.workspace_id)
             
-            # Persistir Artifacts en la base de datos y crear versión IN_REVIEW automáticamente
+            # Crear versión IN_REVIEW automáticamente.
+            # Los artefactos del run (json/md/pdf/assets) viven en object storage bajo
+            # la clave {run_id}/...; no se trackean en una tabla (se sirven por convención).
             with get_db_session() as db_session:
                 from process_ai_core.db.helpers import update_document_status, get_or_create_draft
-                from process_ai_core.db.models import DocumentVersion
+                from process_ai_core.db.models import DocumentVersion, Run
                 import uuid
-                
-                create_artifact(
-                    session=db_session,
-                    run_id=run_id,
-                    artifact_type="json",
-                    file_path=f"output/{run_id}/process.json",
-                )
-                create_artifact(
-                    session=db_session,
-                    run_id=run_id,
-                    artifact_type="md",
-                    file_path=f"output/{run_id}/process.md",
-                )
-                if pdf_generated:
-                    create_artifact(
-                        session=db_session,
-                        run_id=run_id,
-                        artifact_type="pdf",
-                        file_path=f"output/{run_id}/process.pdf",
+
+                # Registrar el manifiesto de fuentes (metadata + sha256 + transcripción)
+                # en el Run, para defensa de auditoría antes de que el temp se borre.
+                from process_ai_core.input_manifest import build_input_manifest_json
+                run_row = db_session.query(Run).filter_by(id=run_id).first()
+                if run_row is not None:
+                    run_row.input_manifest_json = build_input_manifest_json(
+                        raw_assets, result.get("enriched_assets"), uploaded_by=user_id
                     )
-                
+
                 # Crear versión DRAFT desde el run generado y enviarla automáticamente a revisión
                 try:
                     # Leer el contenido generado
@@ -1744,7 +1743,7 @@ Responde SOLO con el JSON corregido, sin texto adicional.
         
         from process_ai_core.domains.processes.renderer import ProcessRenderer
         from process_ai_core.domains.processes.profiles import get_profile
-        from process_ai_core.db.helpers import create_run, create_artifact, update_document_status
+        from process_ai_core.db.helpers import create_run, update_document_status
         from process_ai_core.config import get_settings
         from process_ai_core.export import export_pdf
         import uuid
@@ -1829,10 +1828,14 @@ Responde SOLO con el JSON corregido, sin texto adicional.
         
         json_path = output_dir / "process.json"
         md_path = output_dir / "process.md"
-        
+
+        # Enriquecer el JSON con las imágenes estructuradas (imagen↔paso + evidencia).
+        from process_ai_core.assets_json import inject_assets_into_json
+        corrected_json = inject_assets_into_json(corrected_json, images_by_step, evidence_images)
+
         json_path.write_text(corrected_json, encoding="utf-8")
         md_path.write_text(markdown, encoding="utf-8")
-        
+
         logger.info(f"Artifacts guardados en {output_dir}")
         
         # Generar PDF
@@ -1855,8 +1858,12 @@ Responde SOLO con el JSON corregido, sin texto adicional.
             logger.info("PDF generado exitosamente")
         except Exception as pdf_error:
             logger.warning(f"Error al generar PDF (opcional): {pdf_error}")
-        
-        # Crear Run y Artifacts en BD (transacción atómica)
+
+        # Subir artefactos del run (json/md/pdf + assets) a object storage (no-op en local).
+        from process_ai_core.storage import sync_run_dir_to_storage
+        sync_run_dir_to_storage(new_run_id, output_dir)
+
+        # Crear Run en BD (transacción atómica)
         with get_db_session() as session:
             from datetime import datetime, UTC
             from process_ai_core.db.models import DocumentVersion, Validation
@@ -1890,28 +1897,10 @@ Responde SOLO con el JSON corregido, sin texto adicional.
                 run_id=new_run_id,  # Usar el ID pre-generado
             )
             session.flush()
-            
-            # Crear artifacts en BD
-            create_artifact(
-                session=session,
-                run_id=new_run_id,
-                artifact_type="json",
-                file_path=f"output/{new_run_id}/process.json",
-            )
-            create_artifact(
-                session=session,
-                run_id=new_run_id,
-                artifact_type="md",
-                file_path=f"output/{new_run_id}/process.md",
-            )
-            if pdf_generated:
-                create_artifact(
-                    session=session,
-                    run_id=new_run_id,
-                    artifact_type="pdf",
-                    file_path=f"output/{new_run_id}/process.pdf",
-                )
-            
+
+            # Los artefactos del run viven en object storage bajo la clave {run_id}/...;
+            # no se trackean en una tabla (se sirven por convención).
+
             try:
                 # Leer el contenido generado del disco
                 json_path = output_dir / "process.json"
