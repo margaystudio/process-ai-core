@@ -10,7 +10,7 @@ import json
 from typing import List
 
 from ...domain_models import EnrichedAsset, VideoRef
-from .models import ProcessDocument, Step
+from .models import ProcessDocument, ProcessDocumentSchema, Step
 from .prompts import get_process_doc_system_prompt
 
 
@@ -134,63 +134,79 @@ class ProcessBuilder:
 
         return "\n".join(parts)
 
+    def validate_document(self, json_str: str) -> ProcessDocumentSchema:
+        """
+        Valida estructuralmente el JSON del LLM contra el esquema estricto.
+
+        Lanza `json.JSONDecodeError` si el texto no es JSON y
+        `pydantic.ValidationError` si la estructura no respeta el esquema
+        (p.ej. `pasos` que no es una lista). Devuelve el esquema validado y
+        normalizado (strings recortados, defaults aplicados).
+        """
+        data = json.loads(json_str)
+        return ProcessDocumentSchema.model_validate(data)
+
+    def is_document_usable(self, doc: ProcessDocument) -> bool:
+        """True si el documento es servible (tiene al menos un paso u objetivo)."""
+        return bool(doc.pasos) or bool(doc.objetivo.strip())
+
     def parse_document(self, json_str: str) -> ProcessDocument:
         """
         Parsea el JSON devuelto por el LLM a un ProcessDocument.
+
+        Valida primero contra `ProcessDocumentSchema` (estructura/tipos) y luego
+        construye el dataclass de dominio. Un JSON estructuralmente roto lanza
+        excepción en vez de degradar silenciosamente a campos vacíos.
         """
-        data = json.loads(json_str)
+        schema = self.validate_document(json_str)
 
-        # Parsear pasos
-        pasos: List[Step] = []
-        for p in data.get("pasos", []):
-            pasos.append(
-                Step(
-                    order=int(p.get("order", 0) or 0),
-                    actor=str(p.get("actor", "")).strip(),
-                    action=str(p.get("action", "")).strip(),
-                    input=str(p.get("input", "")).strip(),
-                    output=str(p.get("output", "")).strip(),
-                    risks=str(p.get("risks", "")).strip(),
-                )
+        pasos: List[Step] = [
+            Step(
+                order=p.order,
+                actor=p.actor,
+                action=p.action,
+                input=p.input,
+                output=p.output,
+                risks=p.risks,
             )
+            for p in schema.pasos
+        ]
 
-        # Parsear videos
-        videos: List[VideoRef] = []
-        for v in data.get("videos", []):
-            videos.append(
-                VideoRef(
-                    title=str(v.get("title", "")).strip(),
-                    url=str(v.get("url", "")).strip() or None,
-                    duration=str(v.get("duration", "")).strip() or None,
-                    description=str(v.get("description", "")).strip() or None,
-                )
+        videos: List[VideoRef] = [
+            VideoRef(
+                title=v.title,
+                url=v.url,
+                duration=v.duration,
+                description=v.description,
             )
+            for v in schema.videos
+        ]
 
         return ProcessDocument(
-            process_name=str(data.get("process_name", "")).strip(),
-            objetivo=str(data.get("objetivo", "")).strip(),
-            contexto=str(data.get("contexto", "")).strip(),
-            alcance=str(data.get("alcance", "")).strip(),
-            inicio=str(data.get("inicio", "")).strip(),
-            fin=str(data.get("fin", "")).strip(),
-            incluidos=str(data.get("incluidos", "")).strip(),
-            excluidos=str(data.get("excluidos", "")).strip(),
-            frecuencia=str(data.get("frecuencia", "")).strip(),
-            disparadores=str(data.get("disparadores", "")).strip(),
-            actores_resumen=str(data.get("actores_resumen", "")).strip(),
-            sistemas=str(data.get("sistemas", "")).strip(),
-            inputs=str(data.get("inputs", "")).strip(),
-            outputs=str(data.get("outputs", "")).strip(),
+            process_name=schema.process_name,
+            objetivo=schema.objetivo,
+            contexto=schema.contexto,
+            alcance=schema.alcance,
+            inicio=schema.inicio,
+            fin=schema.fin,
+            incluidos=schema.incluidos,
+            excluidos=schema.excluidos,
+            frecuencia=schema.frecuencia,
+            disparadores=schema.disparadores,
+            actores_resumen=schema.actores_resumen,
+            sistemas=schema.sistemas,
+            inputs=schema.inputs,
+            outputs=schema.outputs,
             pasos=pasos,
-            variantes=str(data.get("variantes", "")).strip(),
-            excepciones=str(data.get("excepciones", "")).strip(),
-            metricas=str(data.get("metricas", "")).strip(),
-            almacenamiento_datos=str(data.get("almacenamiento_datos", "")).strip(),
-            usos_datos=str(data.get("usos_datos", "")).strip(),
-            problemas=str(data.get("problemas", "")).strip(),
-            oportunidades=str(data.get("oportunidades", "")).strip(),
-            preguntas_abiertas=str(data.get("preguntas_abiertas", "")).strip(),
-            material_referencia=str(data.get("material_referencia", "")).strip(),
+            variantes=schema.variantes,
+            excepciones=schema.excepciones,
+            metricas=schema.metricas,
+            almacenamiento_datos=schema.almacenamiento_datos,
+            usos_datos=schema.usos_datos,
+            problemas=schema.problemas,
+            oportunidades=schema.oportunidades,
+            preguntas_abiertas=schema.preguntas_abiertas,
+            material_referencia=schema.material_referencia,
             videos=videos,
         )
 

@@ -483,12 +483,17 @@ def select_best_frame_for_step(
 # Generación de documentos (genérico)
 # ============================================================
 
+DEFAULT_DOCUMENT_USER_PREFIX = (
+    "A continuación tenés el material bruto (texto, transcripciones, notas). "
+    "Leelo y generá el documento en formato JSON, siguiendo "
+    "estrictamente el esquema indicado en las instrucciones.\n\n"
+)
+
+
 def generate_document_json(
     prompt: str,
     system_prompt: str,
-    user_message_prefix: str = "A continuación tenés el material bruto (texto, transcripciones, notas). "
-    "Leelo y generá el documento en formato JSON, siguiendo "
-    "estrictamente el esquema indicado en las instrucciones.\n\n",
+    user_message_prefix: str = DEFAULT_DOCUMENT_USER_PREFIX,
     temperature: float = 0.2,
 ) -> str:
     """

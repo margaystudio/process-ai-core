@@ -602,19 +602,21 @@ Responde SOLO con el JSON corregido, sin texto adicional.
 
         logger.info("Llamando al LLM para generar documento corregido...")
 
-        # Llamar al LLM para generar el documento corregido
-        from process_ai_core.llm_client import generate_document_json
+        # Llamar al LLM para generar el documento corregido. El helper valida la
+        # estructura y reintenta una vez si el modelo devuelve un JSON inservible.
+        from process_ai_core.engine import generate_validated_document_json
         from process_ai_core.domains.processes.builder import ProcessBuilder
 
         builder = ProcessBuilder()
         system_prompt = builder.get_system_prompt()
 
         try:
-            corrected_json = generate_document_json(
+            corrected_json = generate_validated_document_json(
+                builder=builder,
                 prompt=patch_prompt,
                 system_prompt=system_prompt,
             )
-            logger.info("Documento corregido generado exitosamente")
+            logger.info("Documento corregido generado y validado exitosamente")
         except Exception as e:
             logger.error(f"Error al generar documento corregido: {e}", exc_info=True)
             raise HTTPException(
@@ -622,16 +624,8 @@ Responde SOLO con el JSON corregido, sin texto adicional.
                 detail=f"Error al generar documento corregido: {str(e)}"
             )
 
-        # Parsear y renderizar el documento corregido
-        try:
-            process_doc = builder.parse_document(corrected_json)
-            logger.info("JSON parseado exitosamente")
-        except Exception as e:
-            logger.error(f"Error al parsear JSON corregido: {e}", exc_info=True)
-            raise HTTPException(
-                status_code=500,
-                detail=f"Error al parsear JSON corregido: {str(e)}"
-            )
+        # Reparsear para obtener el modelo de dominio (ya validado por el helper).
+        process_doc = builder.parse_document(corrected_json)
 
         from process_ai_core.domains.processes.renderer import ProcessRenderer
         from process_ai_core.domains.processes.profiles import get_profile

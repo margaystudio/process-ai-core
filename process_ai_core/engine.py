@@ -23,14 +23,85 @@ La idea es que:
 - Cualquier dominio (procesos, recetas, etc.) puede usar el engine genérico.
 """
 
+import logging
 from pathlib import Path
 from typing import Any, Dict, List, Sequence, TypedDict
 
 from .assets_json import inject_assets_into_json
 from .core.abstractions import DocumentBuilder, DocumentRenderer
 from .domain_models import EnrichedAsset, RawAsset
-from .llm_client import generate_document_json
+from .llm_client import DEFAULT_DOCUMENT_USER_PREFIX, generate_document_json
 from .media import enrich_assets
+
+logger = logging.getLogger(__name__)
+
+
+def generate_validated_document_json(
+    builder: DocumentBuilder,
+    prompt: str,
+    system_prompt: str,
+    *,
+    max_retries: int = 1,
+    temperature: float = 0.2,
+) -> str:
+    """
+    Genera el JSON del documento y valida su estructura, reintentando si hace falta.
+
+    En cada intento llama al LLM y valida el resultado con `builder.parse_document`
+    (que lanza si el JSON no respeta el esquema). Si el documento es estructuralmente
+    inválido —o si el builder expone `is_document_usable` y lo considera vacío—,
+    reintenta con una instrucción correctiva. Devuelve el JSON (string) ya validado.
+
+    Args:
+        builder: Builder del dominio (valida vía `parse_document`).
+        prompt: Prompt completo (contexto + material).
+        system_prompt: Prompt de sistema del dominio.
+        max_retries: Reintentos adicionales tras el primer intento (default: 1).
+        temperature: Temperatura de generación.
+
+    Raises:
+        ValueError: si tras agotar los reintentos no se obtuvo un documento válido.
+    """
+    is_usable = getattr(builder, "is_document_usable", None)
+    user_message_prefix = DEFAULT_DOCUMENT_USER_PREFIX
+    last_error: str | None = None
+
+    for attempt in range(max_retries + 1):
+        json_str = generate_document_json(
+            prompt=prompt,
+            system_prompt=system_prompt,
+            user_message_prefix=user_message_prefix,
+            temperature=temperature,
+        )
+
+        try:
+            doc = builder.parse_document(json_str)
+        except Exception as exc:  # JSON inválido o estructura que no respeta el esquema
+            last_error = f"el JSON no respeta el esquema esperado ({exc})"
+        else:
+            if is_usable is not None and not is_usable(doc):
+                last_error = "el documento quedó sin pasos ni objetivo"
+            else:
+                return json_str
+
+        logger.warning(
+            "Generación inválida (intento %d/%d): %s",
+            attempt + 1,
+            max_retries + 1,
+            last_error,
+        )
+        # Anteponer una instrucción correctiva para el siguiente intento.
+        user_message_prefix = (
+            f"El intento anterior falló: {last_error}.\n"
+            "Generá NUEVAMENTE el documento como JSON válido respetando EXACTAMENTE el "
+            "esquema: todos los campos de texto como strings y 'pasos' como una lista de "
+            "objetos con order/actor/action/input/output/risks.\n\n"
+            + DEFAULT_DOCUMENT_USER_PREFIX
+        )
+
+    raise ValueError(
+        f"El LLM no produjo un documento válido tras {max_retries + 1} intentos: {last_error}"
+    )
 
 
 class DocumentRunResult(TypedDict):
@@ -128,8 +199,10 @@ def run_documentation_pipeline(
     prompt_body = builder.build_prompt(document_name, enriched)
     prompt = f"{context_block}{prompt_body}" if context_block else prompt_body
 
-    # 3) LLM → JSON (genérico, pero usa system prompt del dominio)
-    json_str = generate_document_json(
+    # 3) LLM → JSON (genérico, pero usa system prompt del dominio).
+    #    Valida la estructura y reintenta una vez si el modelo devuelve algo roto.
+    json_str = generate_validated_document_json(
+        builder=builder,
         prompt=prompt,
         system_prompt=builder.get_system_prompt(),
     )
