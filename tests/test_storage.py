@@ -124,8 +124,14 @@ def test_sync_run_dir_uploads_on_remote_backend(tmp_path, monkeypatch):
     (run_dir / "assets").mkdir(parents=True)
     (run_dir / "process.json").write_text("{}")
     (run_dir / "assets" / "img1.png").write_bytes(b"PNG")
+    # Originales pesados que NO deben subirse a storage:
+    (run_dir / "assets" / "vid1.mp4").write_bytes(b"VIDEO")
+    (run_dir / "assets" / "vid1.m4a").write_bytes(b"AUDIO")
 
     n = sync_mod.sync_run_dir_to_storage("run-xyz", run_dir)
-    assert n == 2
+    assert n == 2  # solo json + png
     assert captured.exists("run-xyz/process.json")
     assert captured.exists("run-xyz/assets/img1.png")
+    # Los originales de video/audio NO se persisten
+    assert not captured.exists("run-xyz/assets/vid1.mp4")
+    assert not captured.exists("run-xyz/assets/vid1.m4a")

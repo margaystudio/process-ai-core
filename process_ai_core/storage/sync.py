@@ -54,9 +54,14 @@ def sync_run_dir_to_storage(run_id: str, run_dir: str | Path) -> int:
     for path in run_dir.rglob("*"):
         if not path.is_file():
             continue
+        # Subir SOLO artefactos servibles (json/md/pdf/imágenes). Los originales
+        # pesados (video/audio fuente) y cualquier intermedio NO se persisten: el
+        # diseño descarta los originales y guarda solo manifiesto + transcripción.
+        content_type = _CONTENT_TYPES.get(path.suffix.lower())
+        if content_type is None:
+            continue
         rel = path.relative_to(run_dir).as_posix()
         key = f"{run_id}/{rel}"
-        content_type = _CONTENT_TYPES.get(path.suffix.lower(), "application/octet-stream")
         try:
             storage.put(key, path.read_bytes(), content_type=content_type)
             uploaded += 1
