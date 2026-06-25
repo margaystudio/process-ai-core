@@ -774,7 +774,12 @@ async def create_document_run(
                 status_code=403,
                 detail="No tiene acceso para crear runs en la carpeta de este documento"
             )
-        
+        # Límite de almacenamiento del plan (no enforce si no hay suscripción/plan).
+        from process_ai_core.db.helpers import enforce_storage_limit
+        storage_error = enforce_storage_limit(session, doc.workspace_id)
+        if storage_error:
+            raise HTTPException(status_code=402, detail=storage_error)
+
         if doc.document_type != "process":
             raise HTTPException(
                 status_code=400,
@@ -1526,7 +1531,8 @@ async def upload_editor_image(
     ctx: WorkspaceSessionContext = Depends(get_workspace_context),
 ):
     """
-    Sube una imagen para el editor manual. Guarda en output/editor-uploads/{document_id}/.
+    Sube una imagen para el editor manual. Guarda en object storage bajo
+    workspaces/{ws}/editor-uploads/{document_id}/ (tenant-scoped + durable en prod).
     Devuelve la URL pública para insertar en el editor.
     """
     if not file.content_type or not file.content_type.startswith("image/"):
@@ -1537,25 +1543,23 @@ async def upload_editor_image(
         if not doc:
             raise HTTPException(status_code=404, detail="Documento no encontrado")
         _assert_doc_in_active_workspace(doc.workspace_id, resolve_tenant_workspace_id(ctx), document_id)
-        
+
         from process_ai_core.db.permissions import can_create_in_folder
         if not can_create_in_folder(session, user_id, doc.workspace_id, doc.folder_id):
             raise HTTPException(status_code=403, detail="No tiene acceso para editar documentos en esta carpeta")
-
-    settings = get_settings()
-    uploads_dir = Path(settings.output_dir) / "editor-uploads" / document_id
-    uploads_dir.mkdir(parents=True, exist_ok=True)
+        doc_workspace_id = doc.workspace_id
 
     import uuid
     ext = Path(file.filename or "image").suffix or ".png"
     if ext.lower() not in (".png", ".jpg", ".jpeg", ".gif", ".webp"):
         ext = ".png"
     name = f"{uuid.uuid4().hex}{ext}"
-    path = uploads_dir / name
 
+    from process_ai_core.storage import get_storage, workspace_prefix
+    key = f"{workspace_prefix(doc_workspace_id)}/editor-uploads/{document_id}/{name}"
     try:
         contents = await file.read()
-        path.write_bytes(contents)
+        get_storage().put(key, contents, content_type=file.content_type or "image/png")
     except Exception as e:
         logger.exception("Error guardando imagen del editor")
         raise HTTPException(status_code=500, detail="Error al guardar la imagen") from e
@@ -1566,20 +1570,33 @@ async def upload_editor_image(
 
 @router.get("/{document_id}/editor-images/{filename}")
 async def get_editor_image(document_id: str, filename: str):
-    """Sirve una imagen subida por el editor manual."""
+    """Sirve una imagen subida por el editor manual (desde object storage)."""
     if ".." in filename or "/" in filename or "\\" in filename:
         raise HTTPException(status_code=400, detail="Nombre de archivo no válido")
-    settings = get_settings()
-    base = Path(settings.output_dir) / "editor-uploads" / document_id
-    file_path = base / filename
-    if not file_path.exists():
-        raise HTTPException(status_code=404, detail="Imagen no encontrada")
+
+    with get_db_session() as session:
+        doc = session.query(Document).filter_by(id=document_id).first()
+        if not doc:
+            raise HTTPException(status_code=404, detail="Imagen no encontrada")
+        doc_workspace_id = doc.workspace_id
+
+    from process_ai_core.storage import get_storage, workspace_prefix
+    key = f"{workspace_prefix(doc_workspace_id)}/editor-uploads/{document_id}/{filename}"
     try:
-        file_path.resolve().relative_to(base.resolve())
-    except ValueError:
-        raise HTTPException(status_code=403, detail="Acceso denegado")
-    from fastapi.responses import FileResponse
-    return FileResponse(path=str(file_path), filename=filename)
+        content = get_storage().get(key)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Imagen no encontrada")
+
+    from pathlib import PurePosixPath
+    from fastapi.responses import Response
+    ctype_map = {
+        ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+        ".gif": "image/gif", ".webp": "image/webp",
+    }
+    media_type = ctype_map.get(PurePosixPath(filename).suffix.lower(), "application/octet-stream")
+    return Response(content=content, media_type=media_type, headers={
+        "Content-Disposition": f'inline; filename="{filename}"',
+    })
 
 
 @router.post("/{document_id}/patch")
@@ -1622,7 +1639,12 @@ async def patch_document_with_ai(
                     status_code=403,
                     detail="No tiene acceso para modificar documentos en esta carpeta"
                 )
-            
+            # Límite de almacenamiento del plan (no enforce si no hay suscripción/plan).
+            from process_ai_core.db.helpers import enforce_storage_limit
+            storage_error = enforce_storage_limit(session, doc.workspace_id)
+            if storage_error:
+                raise HTTPException(status_code=402, detail=storage_error)
+
             if doc.document_type != "process":
                 raise HTTPException(
                     status_code=400,

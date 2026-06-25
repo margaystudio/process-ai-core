@@ -1853,6 +1853,29 @@ def check_workspace_limit(
     return True, None
 
 
+def enforce_storage_limit(session: Session, workspace_id: str) -> str | None:
+    """
+    Gate de generación por límite de storage. Devuelve un mensaje de error si el
+    workspace está al/por encima de su límite de plan; None si puede generar.
+
+    No enforce si: no hay suscripción activa (billing es un concern aparte) o si el
+    plan tiene `max_storage_gb = None` (ilimitado). Usa `current_storage_gb`, que se
+    mantiene al día tras cada generación/aprobación/borrado (Fase E2).
+    """
+    subscription = get_active_subscription(session, workspace_id)
+    if subscription is None or subscription.plan is None:
+        return None
+    max_gb = subscription.plan.max_storage_gb
+    if max_gb is None:
+        return None
+    if (subscription.current_storage_gb or 0.0) >= max_gb:
+        return (
+            f"Límite de almacenamiento alcanzado ({max_gb} GB). "
+            "Liberá espacio borrando documentos o subí de plan."
+        )
+    return None
+
+
 def increment_workspace_counter(
     session: Session,
     workspace_id: str,

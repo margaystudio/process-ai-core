@@ -101,6 +101,11 @@ async def create_process_run(
                 status_code=403,
                 detail="No tiene acceso para crear documentos en esta carpeta"
             )
+        # Límite de almacenamiento del plan (no enforce si no hay suscripción/plan).
+        from process_ai_core.db.helpers import enforce_storage_limit
+        storage_error = enforce_storage_limit(session, workspace_id)
+        if storage_error:
+            raise HTTPException(status_code=402, detail=storage_error)
 
     # Validar que haya al menos un archivo
     total_files = (
