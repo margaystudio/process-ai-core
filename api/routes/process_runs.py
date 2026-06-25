@@ -83,6 +83,18 @@ async def create_process_run(
                 status_code=403,
                 detail="No tiene permisos para crear documentos"
             )
+        # Validar que el folder exista y pertenezca al workspace ANTES de correr el
+        # pipeline (evita desperdiciar una generación entera para fallar luego con un
+        # FK violation 500 al insertar el documento). El front puede mandar un id viejo.
+        if not folder_id:
+            raise HTTPException(status_code=400, detail="folder_id es requerido")
+        from process_ai_core.db.models import Folder
+        folder = session.query(Folder).filter_by(id=folder_id).first()
+        if folder is None or folder.workspace_id != workspace_id:
+            raise HTTPException(
+                status_code=400,
+                detail="La carpeta seleccionada no existe o no pertenece a este espacio de trabajo. Refrescá la página y volvé a seleccionar la carpeta.",
+            )
         from process_ai_core.db.permissions import can_create_in_folder
         if not can_create_in_folder(session, user_id, workspace_id, folder_id):
             raise HTTPException(

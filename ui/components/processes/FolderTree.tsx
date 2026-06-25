@@ -87,6 +87,7 @@ function FolderTreeNode({
   const [folderDocuments, setFolderDocuments] = useState<DocumentType[]>([])
   const [loadingDocs, setLoadingDocs] = useState(false)
   const [isCreatingSubfolder, setIsCreatingSubfolder] = useState(false)
+  const [isSavingSubfolder, setIsSavingSubfolder] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
   const [newSubfolderName, setNewSubfolderName] = useState('')
   const [editFolderName, setEditFolderName] = useState(node.folder.name)
@@ -118,12 +119,14 @@ function FolderTreeNode({
   const hasContent = hasChildren || displayDocs.length > 0
 
   const handleCreateSubfolder = async () => {
+    if (isSavingSubfolder) return // evitar doble-submit (crea carpetas duplicadas)
     if (!newSubfolderName.trim() || !workspaceId) {
       setCrudError('El nombre es requerido')
       return
     }
 
     try {
+      setIsSavingSubfolder(true)
       setCrudError(null)
       const parentPath = node.folder.path || node.folder.name
       await createFolder({
@@ -139,6 +142,8 @@ function FolderTreeNode({
       }
     } catch (err) {
       setCrudError(err instanceof Error ? err.message : 'Error al crear subcarpeta')
+    } finally {
+      setIsSavingSubfolder(false)
     }
   }
 
@@ -346,9 +351,10 @@ function FolderTreeNode({
           <div className="flex gap-1 mt-1">
             <button
               onClick={handleCreateSubfolder}
-              className="flex-1 px-2 py-1 text-xs bg-action text-white rounded hover:bg-action-hover"
+              disabled={isSavingSubfolder}
+              className="flex-1 px-2 py-1 text-xs bg-action text-white rounded hover:bg-action-hover disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Crear
+              {isSavingSubfolder ? 'Creando...' : 'Crear'}
             </button>
             <button
               onClick={() => {
@@ -549,7 +555,7 @@ export default function FolderTree({
                 showDocuments={showDocuments}
                 showCrud={showCrud}
                 onFoldersChange={loadFolders}
-                skipPerFolderFetch={allDocuments !== undefined}
+                skipPerFolderFetch={true}
               />
             ))}
             {/* Documentos sin carpeta */}

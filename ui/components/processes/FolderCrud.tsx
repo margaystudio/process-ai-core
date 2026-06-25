@@ -13,6 +13,7 @@ interface FolderCrudProps {
 
 export default function FolderCrud({ workspaceId, folders, onFoldersChange, parentId = null }: FolderCrudProps) {
   const [isCreating, setIsCreating] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [parentIdForNew, setParentIdForNew] = useState<string | null>(null)
@@ -30,6 +31,7 @@ export default function FolderCrud({ workspaceId, folders, onFoldersChange, pare
   )
 
   const handleCreate = async () => {
+    if (isSaving) return // evitar doble-submit (crea carpetas duplicadas)
     if (!newFolderName.trim()) {
       setError('El nombre es requerido')
       return
@@ -41,6 +43,7 @@ export default function FolderCrud({ workspaceId, folders, onFoldersChange, pare
     }
 
     try {
+      setIsSaving(true)
       setError(null)
       const actualParentId = parentIdForNew !== null ? parentIdForNew : (parentId || undefined)
       
@@ -76,6 +79,8 @@ export default function FolderCrud({ workspaceId, folders, onFoldersChange, pare
     } catch (err) {
       console.error('Error al crear carpeta:', err)
       setError(err instanceof Error ? err.message : 'Error al crear carpeta')
+    } finally {
+      setIsSaving(false)
     }
   }
 
@@ -163,9 +168,10 @@ export default function FolderCrud({ workspaceId, folders, onFoldersChange, pare
           <div className="flex gap-2">
             <button
               onClick={handleCreate}
-              className="flex-1 px-3 py-1.5 text-sm bg-action text-white rounded-md hover:bg-action-hover"
+              disabled={isSaving}
+              className="flex-1 px-3 py-1.5 text-sm bg-action text-white rounded-md hover:bg-action-hover disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Crear
+              {isSaving ? 'Creando...' : 'Crear'}
             </button>
             <button
               onClick={() => {
