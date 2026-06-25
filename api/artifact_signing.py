@@ -95,20 +95,33 @@ def verify_artifact_token(token: str, run_id: str, filename: str) -> bool:
     Returns:
         True si el token es válido y no ha expirado; False en caso contrario.
     """
+    return verify_and_extract_workspace(token, run_id, filename) is not None
+
+
+def verify_and_extract_workspace(token: str, run_id: str, filename: str) -> str | None:
+    """
+    Verifica el token y, si es válido, devuelve el `workspace_id` embebido en él.
+    Devuelve None si el token es inválido o expiró.
+
+    El `workspace_id` se usa para construir la clave de storage tenant-scoped
+    (`workspaces/{ws}/runs/{run_id}/{filename}`) sin cambiar la URL pública.
+    """
     try:
         parts = token.split(".", 2)
         if len(parts) != 3:
-            return False
+            return None
 
         exp_str, workspace_id, sig = parts
         exp = int(exp_str)
 
         if time.time() > exp:
-            return False
+            return None
 
         msg = f"{run_id}:{filename}:{workspace_id}:{exp}"
         expected = hmac.new(_get_secret(), msg.encode("utf-8"), hashlib.sha256).hexdigest()
-        return hmac.compare_digest(expected, sig)
+        if hmac.compare_digest(expected, sig):
+            return workspace_id
+        return None
 
     except Exception:
-        return False
+        return None

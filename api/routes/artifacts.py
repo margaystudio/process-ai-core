@@ -16,8 +16,8 @@ from pathlib import PurePosixPath
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import Response
 
-from process_ai_core.storage import get_storage, normalize_key
-from ..artifact_signing import verify_artifact_token
+from process_ai_core.storage import get_storage, normalize_key, run_artifact_key
+from ..artifact_signing import verify_and_extract_workspace
 
 router = APIRouter(prefix="/api/v1/artifacts", tags=["artifacts"])
 
@@ -45,13 +45,15 @@ async def get_artifact(
     Returns:
         Archivo solicitado o 404 si token inválido/expirado o el archivo no existe
     """
-    # Verificar token ANTES de tocar el storage
-    if not verify_artifact_token(token, run_id, filename):
+    # Verificar token ANTES de tocar el storage. El token embebe el workspace_id,
+    # que usamos para construir la clave tenant-scoped sin cambiar la URL pública.
+    workspace_id = verify_and_extract_workspace(token, run_id, filename)
+    if workspace_id is None:
         raise HTTPException(status_code=404, detail="Artefacto no encontrado")
 
-    # Clave de blob: {run_id}/{filename}. normalize_key valida traversal.
+    # Clave de blob: workspaces/{ws}/runs/{run_id}/{filename}. normalize_key valida traversal.
     try:
-        key = normalize_key(f"{run_id}/{filename}")
+        key = normalize_key(run_artifact_key(workspace_id, run_id, filename))
     except ValueError:
         raise HTTPException(status_code=403, detail="Acceso denegado")
 

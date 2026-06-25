@@ -207,7 +207,8 @@ async def create_process_run(
         # Ejecutar pipeline PRIMERO (antes de crear nada en BD)
         # Si falla, no se crea nada en la base de datos
         try:
-            output_dir = Path(settings.output_dir) / run_id
+            from ._run_paths import run_dir as _run_dir
+            output_dir = _run_dir(workspace_id, run_id)
             output_dir.mkdir(parents=True, exist_ok=True)
 
             result = run_process_pipeline(
@@ -260,7 +261,7 @@ async def create_process_run(
             # Subir los artefactos del run (json/md/pdf + assets) a object storage
             # para que el endpoint de artefactos los sirva en prod (no-op en local).
             from process_ai_core.storage import sync_run_dir_to_storage
-            sync_run_dir_to_storage(run_id, output_dir)
+            sync_run_dir_to_storage(workspace_id, run_id, output_dir)
 
             # Construir URLs firmadas para los artefactos
             artifacts = {
@@ -412,7 +413,8 @@ async def create_process_run(
 
         except Exception as e:
             # Si el pipeline falla, limpiar el directorio de salida si se creó
-            output_dir = Path(settings.output_dir) / run_id
+            from ._run_paths import run_dir as _run_dir
+            output_dir = _run_dir(workspace_id, run_id)
             if output_dir.exists():
                 import shutil
                 try:
@@ -464,8 +466,23 @@ async def generate_pdf_from_run(run_id: str):
         404: Si el run_id no existe o no tiene markdown
         500: Si falla la generación del PDF
     """
-    settings = get_settings()
-    run_dir = Path(settings.output_dir) / run_id
+    from process_ai_core.db.database import get_db_session
+    from process_ai_core.db.models import Run, Document
+    from ._run_paths import run_dir as _run_dir
+
+    # Resolver workspace del run (necesario para el dir tenant-scoped y la firma)
+    workspace_id_for_signing: str | None = None
+    with get_db_session() as session:
+        run_obj = session.query(Run).filter_by(id=run_id).first()
+        if run_obj and run_obj.document_id:
+            doc_obj = session.query(Document).filter_by(id=run_obj.document_id).first()
+            if doc_obj:
+                workspace_id_for_signing = doc_obj.workspace_id
+
+    if not workspace_id_for_signing:
+        raise HTTPException(status_code=404, detail=f"Run {run_id} no encontrado")
+
+    run_dir = _run_dir(workspace_id_for_signing, run_id)
     md_path = run_dir / "process.md"
 
     # Verificar que el run existe y tiene markdown
@@ -483,18 +500,9 @@ async def generate_pdf_from_run(run_id: str):
     # Generar PDF
     try:
         from process_ai_core.export import export_pdf
-        from process_ai_core.db.database import get_db_session
-        from process_ai_core.db.models import Run, Document
 
-        # Obtener workspace_id del run para firmar la URL
-        workspace_id_for_signing: str | None = None
         with get_db_session() as session:
             pdf_branding = get_run_pdf_branding(session, run_id)
-            run_obj = session.query(Run).filter_by(id=run_id).first()
-            if run_obj and run_obj.document_id:
-                doc_obj = session.query(Document).filter_by(id=run_obj.document_id).first()
-                if doc_obj:
-                    workspace_id_for_signing = doc_obj.workspace_id
 
         pdf_path = export_pdf(
             run_dir=run_dir,
@@ -504,13 +512,9 @@ async def generate_pdf_from_run(run_id: str):
         )
 
         from process_ai_core.storage import sync_run_dir_to_storage
-        sync_run_dir_to_storage(run_id, run_dir)
+        sync_run_dir_to_storage(workspace_id_for_signing, run_id, run_dir)
 
-        if workspace_id_for_signing:
-            pdf_url = sign_artifact_url(run_id, "process.pdf", workspace_id_for_signing)
-        else:
-            # Run no está en BD (caso legacy): URL sin firma, el endpoint devolverá 404 con token faltante
-            pdf_url = f"/api/v1/artifacts/{run_id}/process.pdf"
+        pdf_url = sign_artifact_url(run_id, "process.pdf", workspace_id_for_signing)
 
         return {
             "run_id": run_id,

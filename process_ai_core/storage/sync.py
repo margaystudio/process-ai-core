@@ -32,15 +32,18 @@ _CONTENT_TYPES = {
 }
 
 
-def sync_run_dir_to_storage(run_id: str, run_dir: str | Path) -> int:
+def sync_run_dir_to_storage(workspace_id: str, run_id: str, run_dir: str | Path) -> int:
     """
-    Sube todos los archivos servibles de `run_dir` a storage bajo `{run_id}/...`.
+    Sube los archivos servibles de `run_dir` a storage bajo
+    `workspaces/{workspace_id}/runs/{run_id}/...`.
 
     Devuelve la cantidad de archivos subidos. Best-effort por archivo: loggea y sigue
-    si alguno falla. No-op si el backend es `local` (ya están en la raíz del storage).
+    si alguno falla. No-op si el backend es `local` (el run_dir local ya está bajo la
+    clave canónica, así que el endpoint lo sirve directo).
     """
     from process_ai_core.config import get_settings
     from .factory import get_storage
+    from .keys import run_artifact_key
 
     if (get_settings().storage_backend or "local").lower() == "local":
         return 0
@@ -61,11 +64,11 @@ def sync_run_dir_to_storage(run_id: str, run_dir: str | Path) -> int:
         if content_type is None:
             continue
         rel = path.relative_to(run_dir).as_posix()
-        key = f"{run_id}/{rel}"
+        key = run_artifact_key(workspace_id, run_id, rel)
         try:
             storage.put(key, path.read_bytes(), content_type=content_type)
             uploaded += 1
         except Exception as exc:
             logger.warning("sync_run_dir_to_storage: falló subir %s: %s", key, exc)
-    logger.info("sync_run_dir_to_storage: %d archivos subidos para run %s", uploaded, run_id)
+    logger.info("sync_run_dir_to_storage: %d archivos subidos para run %s (ws %s)", uploaded, run_id, workspace_id)
     return uploaded

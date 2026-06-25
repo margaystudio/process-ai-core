@@ -39,6 +39,7 @@ from fastapi.responses import Response
 
 from ..models.requests import DocumentResponse, DocumentUpdateRequest, ProcessRunResponse
 from ._branding import get_workspace_pdf_branding
+from ._run_paths import run_dir as _run_dir
 from ..artifact_signing import sign_artifact_url
 from api.dependencies import get_current_user_id
 from api.workspace_client import (
@@ -577,16 +578,17 @@ async def delete_document_endpoint(
         # Obtener runs antes de eliminar para limpiar archivos físicos
         runs = session.query(Run).filter_by(document_id=document_id).all()
         run_ids = [run.id for run in runs]
-        
+        doc_workspace_id = doc.workspace_id  # capturar antes del delete (doc se expira)
+
         try:
             # Eliminar el documento y todos sus datos asociados
             delete_document(session, document_id)
-            
+
             # Limpiar archivos físicos de los runs (después del delete en BD, antes del commit)
             settings = get_settings()
             failed_run_dirs: List[str] = []
             for run_id in run_ids:
-                run_dir = Path(settings.output_dir) / run_id
+                run_dir = _run_dir(doc_workspace_id, run_id)
                 if run_dir.exists():
                     try:
                         shutil.rmtree(run_dir)
@@ -896,7 +898,7 @@ async def create_document_run(
         # Si no hay archivos nuevos y se solicita reutilizar, obtener archivos del último run
         if total_new_files == 0 and (reuse_previous_files or has_revision_notes) and last_run:
             # Obtener el directorio del último run para descubrir los archivos originales
-            last_run_dir = Path(settings.output_dir) / last_run.id
+            last_run_dir = _run_dir(doc.workspace_id, last_run.id)
             
             # Buscar archivos en el directorio del último run (assets/, evidence/, etc.)
             if last_run_dir.exists():
@@ -940,9 +942,9 @@ async def create_document_run(
         
         # Ejecutar pipeline
         try:
-            output_dir = Path(settings.output_dir) / run_id
+            output_dir = _run_dir(doc.workspace_id, run_id)
             output_dir.mkdir(parents=True, exist_ok=True)
-            
+
             result = run_process_pipeline(
                 process_name=document_name,
                 raw_assets=raw_assets,
@@ -973,7 +975,7 @@ async def create_document_run(
 
             # Subir artefactos del run (json/md/pdf + assets) a object storage (no-op en local).
             from process_ai_core.storage import sync_run_dir_to_storage
-            sync_run_dir_to_storage(run_id, output_dir)
+            sync_run_dir_to_storage(doc.workspace_id, run_id, output_dir)
 
             # Construir URLs firmadas para los artefactos
             artifacts = {
@@ -1385,12 +1387,15 @@ def _generate_draft_pdf_background(
         with get_db_session() as session:
             branding = get_workspace_pdf_branding(session, workspace_id)
         pdf_dir: Optional[Path] = None
-        if run_id:
-            candidate = Path(output_dir) / run_id
+        if run_id and workspace_id:
+            candidate = _run_dir(workspace_id, run_id)
             if candidate.exists():
                 pdf_dir = candidate
         if pdf_dir is None:
-            pdf_dir = Path(output_dir) / "documents" / document_id
+            base = Path(output_dir)
+            if workspace_id:
+                base = base / "workspaces" / workspace_id
+            pdf_dir = base / "documents" / document_id
             pdf_dir.mkdir(parents=True, exist_ok=True)
 
         # Evita servir un PDF viejo si esta generación falla.
@@ -1647,30 +1652,24 @@ async def patch_document_with_ai(
                         detail=f"Run {run_id} no encontrado"
                     )
                 
-                from process_ai_core.config import get_settings
-                from pathlib import Path
-                settings = get_settings()
-                run_dir = Path(settings.output_dir) / run_id
+                run_dir = _run_dir(patch_workspace_id, run_id)
                 json_path = run_dir / "process.json"
-                
+
                 if not json_path.exists():
                     raise HTTPException(
                         status_code=404,
                         detail=f"JSON del run {run_id} no encontrado"
                     )
-                
+
                 base_json = json_path.read_text(encoding="utf-8")
             else:
                 # Usar último run o última versión aprobada
                 last_run = session.query(Run).filter_by(document_id=document_id).order_by(Run.created_at.desc()).first()
                 
                 if last_run:
-                    from process_ai_core.config import get_settings
-                    from pathlib import Path
-                    settings = get_settings()
-                    run_dir = Path(settings.output_dir) / last_run.id
+                    run_dir = _run_dir(patch_workspace_id, last_run.id)
                     json_path = run_dir / "process.json"
-                    
+
                     if json_path.exists():
                         base_json = json_path.read_text(encoding="utf-8")
                         run_id = last_run.id
@@ -1752,15 +1751,15 @@ Responde SOLO con el JSON corregido, sin texto adicional.
         # Generar run_id antes de crear en BD
         new_run_id = str(uuid.uuid4())
         settings = get_settings()
-        new_run_dir = Path(settings.output_dir) / new_run_id
+        new_run_dir = _run_dir(patch_workspace_id, new_run_id)
         new_run_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Obtener imágenes del run original si existe
         images_by_step = {}
         evidence_images = []
-        
+
         if run_id:
-            original_run_dir = Path(settings.output_dir) / run_id
+            original_run_dir = _run_dir(patch_workspace_id, run_id)
             original_assets_dir = original_run_dir / "assets"
             
             if original_assets_dir.exists():
@@ -1823,9 +1822,9 @@ Responde SOLO con el JSON corregido, sin texto adicional.
         
         # Guardar artifacts en disco primero
         settings = get_settings()
-        output_dir = Path(settings.output_dir) / new_run_id
+        output_dir = _run_dir(patch_workspace_id, new_run_id)
         output_dir.mkdir(parents=True, exist_ok=True)
-        
+
         json_path = output_dir / "process.json"
         md_path = output_dir / "process.md"
 
@@ -1861,7 +1860,7 @@ Responde SOLO con el JSON corregido, sin texto adicional.
 
         # Subir artefactos del run (json/md/pdf + assets) a object storage (no-op en local).
         from process_ai_core.storage import sync_run_dir_to_storage
-        sync_run_dir_to_storage(new_run_id, output_dir)
+        sync_run_dir_to_storage(patch_workspace_id, new_run_id, output_dir)
 
         # Crear Run en BD (transacción atómica)
         with get_db_session() as session:
@@ -2165,8 +2164,8 @@ async def get_version_preview_pdf(
 
     # Mismo directorio que el original cuando la versión tiene run_id (assets/, etc.)
     run_dir = None
-    if version_run_id:
-        run_dir = (Path(settings.output_dir) / version_run_id).resolve()
+    if version_run_id and version_workspace_id:
+        run_dir = _run_dir(version_workspace_id, version_run_id).resolve()
         if not run_dir.exists():
             run_dir = None
     if run_dir is None:

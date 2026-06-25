@@ -1,16 +1,32 @@
 """
 Construcción de claves canónicas de almacenamiento.
 
-Esquema (reemplaza el viejo `output/{run_id}/...` para artefactos auditables):
+Esquema — TODO bajo `workspaces/{workspace_id}/...` (organizado por tenant):
 
-    workspaces/{workspace_id}/documents/{document_id}/versions/{version_id}/document.pdf
-    workspaces/{workspace_id}/documents/{document_id}/versions/{version_id}/assets/{asset_id}.{ext}
+    workspaces/{ws}/runs/{run_id}/process.json|md|pdf
+    workspaces/{ws}/runs/{run_id}/assets/...
+    workspaces/{ws}/documents/{document_id}/versions/{version_id}/document.pdf
+    workspaces/{ws}/documents/{document_id}/versions/{version_id}/assets/{asset_id}.{ext}
 
-Las claves incluyen `workspace_id` para aislamiento multi-tenant verificable.
-Los runs efímeros NO usan estas claves (se renderizan en temp y no se persisten).
+Las claves incluyen `workspace_id` para aislamiento multi-tenant verificable y para
+contabilidad/borrado por tenant triviales (sumar/borrar por prefijo).
 """
 
 from __future__ import annotations
+
+
+def workspace_prefix(workspace_id: str) -> str:
+    return f"workspaces/{workspace_id}"
+
+
+def run_prefix(workspace_id: str, run_id: str) -> str:
+    return f"workspaces/{workspace_id}/runs/{run_id}"
+
+
+def run_artifact_key(workspace_id: str, run_id: str, rel: str) -> str:
+    """Clave de un artefacto de run (rel = ruta relativa dentro del run, estilo POSIX)."""
+    rel = rel.lstrip("/")
+    return f"{run_prefix(workspace_id, run_id)}/{rel}"
 
 
 def version_prefix(workspace_id: str, document_id: str, version_id: str) -> str:

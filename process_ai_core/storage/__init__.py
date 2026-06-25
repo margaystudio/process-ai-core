@@ -12,7 +12,14 @@ Uso típico:
 
 from .base import BlobStorage, StorageError, normalize_key
 from .factory import get_storage
-from .keys import version_asset_key, version_pdf_key, version_prefix
+from .keys import (
+    run_artifact_key,
+    run_prefix,
+    version_asset_key,
+    version_pdf_key,
+    version_prefix,
+    workspace_prefix,
+)
 from .sync import sync_run_dir_to_storage
 
 __all__ = [
@@ -20,8 +27,11 @@ __all__ = [
     "StorageError",
     "normalize_key",
     "get_storage",
+    "workspace_prefix",
     "version_prefix",
     "version_pdf_key",
     "version_asset_key",
+    "run_prefix",
+    "run_artifact_key",
     "sync_run_dir_to_storage",
 ]

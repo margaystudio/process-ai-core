@@ -103,7 +103,7 @@ def test_sync_run_dir_noop_on_local_backend(tmp_path, monkeypatch):
 
     monkeypatch.setattr(get_settings(), "storage_backend", "local", raising=False)
     (tmp_path / "process.json").write_text("{}")
-    assert sync_mod.sync_run_dir_to_storage("run1", tmp_path) == 0
+    assert sync_mod.sync_run_dir_to_storage("ws1", "run1", tmp_path) == 0
 
 
 def test_sync_run_dir_uploads_on_remote_backend(tmp_path, monkeypatch):
@@ -128,10 +128,11 @@ def test_sync_run_dir_uploads_on_remote_backend(tmp_path, monkeypatch):
     (run_dir / "assets" / "vid1.mp4").write_bytes(b"VIDEO")
     (run_dir / "assets" / "vid1.m4a").write_bytes(b"AUDIO")
 
-    n = sync_mod.sync_run_dir_to_storage("run-xyz", run_dir)
+    n = sync_mod.sync_run_dir_to_storage("ws-A", "run-xyz", run_dir)
     assert n == 2  # solo json + png
-    assert captured.exists("run-xyz/process.json")
-    assert captured.exists("run-xyz/assets/img1.png")
+    # Claves tenant-scoped: workspaces/{ws}/runs/{run_id}/...
+    assert captured.exists("workspaces/ws-A/runs/run-xyz/process.json")
+    assert captured.exists("workspaces/ws-A/runs/run-xyz/assets/img1.png")
     # Los originales de video/audio NO se persisten
-    assert not captured.exists("run-xyz/assets/vid1.mp4")
-    assert not captured.exists("run-xyz/assets/vid1.m4a")
+    assert not captured.exists("workspaces/ws-A/runs/run-xyz/assets/vid1.mp4")
+    assert not captured.exists("workspaces/ws-A/runs/run-xyz/assets/vid1.m4a")

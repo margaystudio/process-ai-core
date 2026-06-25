@@ -182,7 +182,9 @@ def artifact_client(tmp_path):
     """
     run_id = "test-run-999"
     filename = "process.pdf"
-    run_dir = tmp_path / run_id
+    # El endpoint sirve desde la clave tenant-scoped workspaces/{ws}/runs/{run_id}/...
+    # El token firma con _WS_A, así que el archivo va en esa ruta.
+    run_dir = tmp_path / "workspaces" / _WS_A / "runs" / run_id
     run_dir.mkdir(parents=True)
     (run_dir / filename).write_bytes(b"%PDF-1.4 fake content")
 
