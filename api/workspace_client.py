@@ -12,7 +12,7 @@ from typing import Optional
 
 import httpx
 from fastapi import Depends, Header, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 logger = logging.getLogger(__name__)
 
@@ -42,13 +42,31 @@ class WorkspaceApplication(BaseModel):
     entry_url: Optional[str] = None
 
 
+class WorkspaceTenantModules(BaseModel):
+    tenant: WorkspaceTenant
+    applications: list[WorkspaceApplication] = []
+
+
 class WorkspaceSessionContext(BaseModel):
     user: WorkspaceUser
     platform_roles: list[str]
     tenant_roles: list[str]
     tenant: WorkspaceTenant
     tenants: list[WorkspaceTenant]
-    applications: list[WorkspaceApplication]
+    # DEPRECATED: derivado de tenant_modules (tenant activo). No leer de Workspace.
+    applications: list[WorkspaceApplication] = []
+    # Fuente de verdad: apps por cada tenant del usuario.
+    tenant_modules: list[WorkspaceTenantModules] = []
+
+    @model_validator(mode="after")
+    def _derive_applications(self) -> "WorkspaceSessionContext":
+        # Apps del tenant activo desde tenant_modules; ignora el campo deprecated.
+        if self.tenant_modules:
+            mod = next(
+                (m for m in self.tenant_modules if m.tenant.id == self.tenant.id), None
+            )
+            self.applications = mod.applications if mod else []
+        return self
 
 
 # ── Caché en memoria ─────────────────────────────────────────────────────────
