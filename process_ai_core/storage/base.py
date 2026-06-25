@@ -87,3 +87,10 @@ class BlobStorage(ABC):
     def usage_bytes(self, prefix: str = "") -> int:
         """Suma de tamaños (bytes) de todos los blobs bajo `prefix`."""
         return sum(b.size for b in self.list_objects(prefix))
+
+    def delete_prefix(self, prefix: str) -> int:
+        """Borra (recursivo) todos los blobs bajo `prefix`. Devuelve cuántos borró."""
+        keys = [b.key for b in self.list_objects(prefix)]
+        for k in keys:
+            self.delete(k)
+        return len(keys)

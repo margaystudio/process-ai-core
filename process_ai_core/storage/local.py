@@ -62,3 +62,16 @@ class LocalDiskStorage(BlobStorage):
                 key = path.relative_to(self._root).as_posix()
                 out.append(BlobInfo(key=key, size=path.stat().st_size))
         return out
+
+    def delete_prefix(self, prefix: str) -> int:
+        import shutil
+
+        base = self._path(prefix) if prefix.strip("/") else self._root
+        if not base.exists():
+            return 0
+        count = sum(1 for p in base.rglob("*") if p.is_file())
+        if base.is_dir():
+            shutil.rmtree(base, ignore_errors=True)
+        else:
+            base.unlink(missing_ok=True)
+        return count

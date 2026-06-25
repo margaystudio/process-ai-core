@@ -1712,6 +1712,66 @@ def recompute_all_workspaces_storage(session: Session) -> dict[str, float]:
     return result
 
 
+def prune_orphan_artifacts(session: Session, dry_run: bool = True) -> dict:
+    """
+    Limpia del storage los artefactos huérfanos:
+      - objetos "flat" del esquema viejo (no bajo `workspaces/`),
+      - `workspaces/{ws}/runs/{run_id}/...` cuyo run ya no existe en la BD,
+      - `workspaces/{ws}/documents/{doc_id}/...` cuyo documento ya no existe.
+
+    Con `dry_run=True` (default) solo reporta qué borraría, sin tocar nada.
+    Devuelve un resumen {flat, orphan_runs, orphan_documents, objects_deleted}.
+    """
+    from process_ai_core.storage import get_storage, run_prefix, workspace_prefix
+    from process_ai_core.db.models import Run, Document
+
+    storage = get_storage()
+    objects = storage.list_objects("")
+
+    run_ws: dict[str, str] = {}   # run_id -> ws
+    doc_ws: dict[str, str] = {}   # doc_id -> ws
+    flat_keys: list[str] = []
+    for b in objects:
+        parts = b.key.split("/")
+        if len(parts) < 4 or parts[0] != "workspaces":
+            flat_keys.append(b.key)
+            continue
+        ws, kind, ident = parts[1], parts[2], parts[3]
+        if kind == "runs":
+            run_ws[ident] = ws
+        elif kind == "documents":
+            doc_ws[ident] = ws
+
+    existing_runs = {
+        rid for (rid,) in session.query(Run.id).filter(Run.id.in_(list(run_ws))).all()
+    } if run_ws else set()
+    existing_docs = {
+        did for (did,) in session.query(Document.id).filter(Document.id.in_(list(doc_ws))).all()
+    } if doc_ws else set()
+
+    orphan_runs = {rid: ws for rid, ws in run_ws.items() if rid not in existing_runs}
+    orphan_docs = {did: ws for did, ws in doc_ws.items() if did not in existing_docs}
+
+    deleted = 0
+    if not dry_run:
+        for rid, ws in orphan_runs.items():
+            deleted += storage.delete_prefix(run_prefix(ws, rid))
+        for did, ws in orphan_docs.items():
+            deleted += storage.delete_prefix(f"{workspace_prefix(ws)}/documents/{did}")
+        for key in flat_keys:
+            storage.delete(key)
+            deleted += 1
+
+    return {
+        "dry_run": dry_run,
+        "flat": len(flat_keys),
+        "orphan_runs": len(orphan_runs),
+        "orphan_documents": len(orphan_docs),
+        "objects_deleted": deleted if not dry_run else 0,
+        "flat_keys_sample": flat_keys[:10],
+    }
+
+
 def create_workspace_subscription(
     session: Session,
     workspace_id: str,

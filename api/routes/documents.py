@@ -584,27 +584,30 @@ async def delete_document_endpoint(
             # Eliminar el documento y todos sus datos asociados
             delete_document(session, document_id)
 
-            # Limpiar archivos físicos de los runs (después del delete en BD, antes del commit)
-            settings = get_settings()
-            failed_run_dirs: List[str] = []
+            # Liberar el storage del documento: sus runs y sus PDFs aprobados (en el
+            # bucket y en disco local — delete_prefix funciona para ambos backends).
+            from process_ai_core.storage import get_storage, run_prefix, workspace_prefix
+            storage = get_storage()
             for run_id in run_ids:
-                run_dir = _run_dir(doc_workspace_id, run_id)
-                if run_dir.exists():
-                    try:
-                        shutil.rmtree(run_dir)
-                    except Exception as e:
-                        logger.warning(f"No se pudo eliminar directorio {run_dir}: {e}")
-                        failed_run_dirs.append(run_id)
-            
+                try:
+                    storage.delete_prefix(run_prefix(doc_workspace_id, run_id))
+                except Exception as e:
+                    logger.warning(f"No se pudo borrar storage del run {run_id}: {e}")
+            try:
+                storage.delete_prefix(f"{workspace_prefix(doc_workspace_id)}/documents/{document_id}")
+            except Exception as e:
+                logger.warning(f"No se pudo borrar storage del documento {document_id}: {e}")
+
+            # Recalcular uso de storage del tenant (best-effort).
+            from process_ai_core.db.helpers import update_workspace_storage_usage
+            update_workspace_storage_usage(session, doc_workspace_id)
+
             session.commit()
-            
-            response: dict = {
+
+            return {
                 "message": f"Documento {document_id} eliminado exitosamente",
                 "deleted_runs": len(run_ids),
             }
-            if failed_run_dirs:
-                response["failed_run_dirs"] = failed_run_dirs
-            return response
         
         except ValueError as e:
             session.rollback()

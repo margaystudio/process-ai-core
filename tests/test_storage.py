@@ -163,3 +163,22 @@ def test_workspace_usage_gb(tmp_path, monkeypatch):
     store.put("workspaces/ws-A/runs/r1/big.pdf", b"x" * 1_000_000)  # 1 MB
     assert abs(acc.workspace_usage_gb("ws-A") - 0.001) < 1e-9  # 1 MB = 0.001 GB
     assert acc.workspace_usage_gb("ws-Z") == 0.0  # sin objetos
+
+
+# --- delete_prefix (E3) -------------------------------------------------------
+
+def test_delete_prefix(storage):
+    storage.put("workspaces/ws-A/runs/r1/a.json", b"1")
+    storage.put("workspaces/ws-A/runs/r1/assets/b.png", b"2")
+    storage.put("workspaces/ws-A/runs/r2/c.json", b"3")  # otro run, no se toca
+
+    n = storage.delete_prefix("workspaces/ws-A/runs/r1")
+    assert n == 2
+    assert not storage.exists("workspaces/ws-A/runs/r1/a.json")
+    assert not storage.exists("workspaces/ws-A/runs/r1/assets/b.png")
+    # El otro run sigue intacto
+    assert storage.exists("workspaces/ws-A/runs/r2/c.json")
+
+
+def test_delete_prefix_missing_is_zero(storage):
+    assert storage.delete_prefix("workspaces/ws-X/runs/nope") == 0

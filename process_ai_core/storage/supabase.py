@@ -117,3 +117,15 @@ class SupabaseStorage(BlobStorage):
 
         _walk(prefix)
         return out
+
+    def delete_prefix(self, prefix: str) -> int:
+        keys = [b.key for b in self.list_objects(prefix)]
+        # remove() acepta una lista; borramos en batches para no exceder límites.
+        _BATCH = 100
+        for i in range(0, len(keys), _BATCH):
+            batch = keys[i : i + _BATCH]
+            try:
+                self._store.remove(batch)
+            except Exception:
+                pass
+        return len(keys)
