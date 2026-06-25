@@ -381,7 +381,7 @@ class TestDocumentsIsolation:
 
     @pytest.fixture(autouse=True)
     def patch_has_permission(self, monkeypatch):
-        import api.routes.documents as docs_route
+        import api.routes.documents.crud as docs_route
         monkeypatch.setattr(docs_route, "has_permission", _membership_based_has_permission)
         # can_view_folder para admin ya hace bypass; lo forzamos a True para simplificar.
         monkeypatch.setattr(docs_route, "can_view_folder", lambda *_: True)
@@ -545,7 +545,7 @@ class TestMultiWorkspaceUserIsolation:
 
     @pytest.fixture(autouse=True)
     def patch_has_permission(self, monkeypatch):
-        import api.routes.documents as docs_route
+        import api.routes.documents.crud as docs_route
         monkeypatch.setattr(docs_route, "has_permission", _membership_based_has_permission)
         monkeypatch.setattr(docs_route, "can_view_folder", lambda *_: True)
 

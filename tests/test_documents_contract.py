@@ -6,7 +6,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from api.routes import documents as documents_route
+# documents.py se partió en un paquete; get_document y los símbolos que este test
+# parchea (get_db_session, has_permission, can_view_folder, resolve_tenant_workspace_id)
+# viven ahora en el sub-router crud.
+from api.routes.documents import crud as documents_route
 from process_ai_core.db.database import get_db_session
 from process_ai_core.db.models import DocumentVersion, Folder, Process, Workspace
 
