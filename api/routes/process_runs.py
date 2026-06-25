@@ -388,7 +388,11 @@ async def create_process_run(
                         document_id=document_id,
                         status="draft",
                     )
-                    
+
+                    # Recalcular uso de storage del tenant (best-effort).
+                    from process_ai_core.db.helpers import update_workspace_storage_usage
+                    update_workspace_storage_usage(db_session, workspace_id)
+
                     db_session.commit()
                 except Exception as e:
                     # Si falla la creación de versión, dejar en draft

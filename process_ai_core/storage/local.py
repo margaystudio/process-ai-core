@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .base import BlobStorage, normalize_key
+from .base import BlobInfo, BlobStorage, normalize_key
 
 
 class LocalDiskStorage(BlobStorage):
@@ -51,3 +51,14 @@ class LocalDiskStorage(BlobStorage):
         # El backend local no expone URLs directas; los artefactos se sirven
         # vía el endpoint firmado de la API. Devolvemos la ruta interna.
         return f"file://{self._path(key)}"
+
+    def list_objects(self, prefix: str = "") -> list[BlobInfo]:
+        base = self._root if not prefix else (self._root / prefix.strip("/"))
+        if not base.exists():
+            return []
+        out: list[BlobInfo] = []
+        for path in base.rglob("*"):
+            if path.is_file():
+                key = path.relative_to(self._root).as_posix()
+                out.append(BlobInfo(key=key, size=path.stat().st_size))
+        return out

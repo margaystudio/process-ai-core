@@ -107,6 +107,10 @@ def freeze_approved_pdf(session: Session, version: DocumentVersion, api_base: st
         version.pdf_generated_at = datetime.now(UTC)
         version.pdf_render_engine = _render_engine_label(fmt)
 
+        # Recalcular el uso de storage del tenant (best-effort).
+        from process_ai_core.db.helpers import update_workspace_storage_usage
+        update_workspace_storage_usage(session, workspace_id)
+
         logger.info(
             "PDF aprobado congelado: version=%s key=%s sha256=%s",
             version.id, key, sha256[:12],

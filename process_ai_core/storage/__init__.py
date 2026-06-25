@@ -10,7 +10,8 @@ Uso típico:
     storage.put(key, pdf_bytes, content_type="application/pdf")
 """
 
-from .base import BlobStorage, StorageError, normalize_key
+from .accounting import workspace_usage_bytes, workspace_usage_gb
+from .base import BlobInfo, BlobStorage, StorageError, normalize_key
 from .factory import get_storage
 from .keys import (
     run_artifact_key,
@@ -24,9 +25,12 @@ from .sync import sync_run_dir_to_storage
 
 __all__ = [
     "BlobStorage",
+    "BlobInfo",
     "StorageError",
     "normalize_key",
     "get_storage",
+    "workspace_usage_bytes",
+    "workspace_usage_gb",
     "workspace_prefix",
     "version_prefix",
     "version_pdf_key",

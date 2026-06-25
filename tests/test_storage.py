@@ -136,3 +136,30 @@ def test_sync_run_dir_uploads_on_remote_backend(tmp_path, monkeypatch):
     # Los originales de video/audio NO se persisten
     assert not captured.exists("workspaces/ws-A/runs/run-xyz/assets/vid1.mp4")
     assert not captured.exists("workspaces/ws-A/runs/run-xyz/assets/vid1.m4a")
+
+
+# --- contabilidad (list_objects / usage por tenant) --------------------------
+
+def test_list_objects_and_usage(storage):
+    storage.put("workspaces/ws-A/runs/r1/a.json", b"12345")  # 5 bytes
+    storage.put("workspaces/ws-A/runs/r1/assets/b.png", b"PNGDATA")  # 7 bytes
+    storage.put("workspaces/ws-B/runs/r2/c.json", b"x")  # 1 byte (otro tenant)
+
+    keys = {b.key for b in storage.list_objects("workspaces/ws-A")}
+    assert keys == {
+        "workspaces/ws-A/runs/r1/a.json",
+        "workspaces/ws-A/runs/r1/assets/b.png",
+    }
+    # Uso por tenant aislado por prefijo
+    assert storage.usage_bytes("workspaces/ws-A") == 12
+    assert storage.usage_bytes("workspaces/ws-B") == 1
+
+
+def test_workspace_usage_gb(tmp_path, monkeypatch):
+    import process_ai_core.storage.accounting as acc
+    store = LocalDiskStorage(root=str(tmp_path))
+    monkeypatch.setattr(acc, "get_storage", lambda: store)
+
+    store.put("workspaces/ws-A/runs/r1/big.pdf", b"x" * 1_000_000)  # 1 MB
+    assert abs(acc.workspace_usage_gb("ws-A") - 0.001) < 1e-9  # 1 MB = 0.001 GB
+    assert acc.workspace_usage_gb("ws-Z") == 0.0  # sin objetos

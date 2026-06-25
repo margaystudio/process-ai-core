@@ -1675,6 +1675,43 @@ def get_subscription(session: Session, workspace_id: str) -> WorkspaceSubscripti
     return session.query(WorkspaceSubscription).filter_by(workspace_id=workspace_id).first()
 
 
+def update_workspace_storage_usage(session: Session, workspace_id: str) -> float | None:
+    """
+    Recalcula el uso de storage del workspace (sumando por prefijo tenant-scoped) y lo
+    persiste en `WorkspaceSubscription.current_storage_gb`. Best-effort.
+
+    Devuelve los GB calculados, o None si no hay suscripción o si falla el cálculo.
+    No lanza: la contabilidad nunca debe romper el flujo principal.
+    """
+    try:
+        subscription = get_subscription(session, workspace_id)
+        if subscription is None:
+            return None  # sin suscripción no hay dónde guardar; evita listar el storage
+
+        from process_ai_core.storage import workspace_usage_gb
+
+        gb = round(workspace_usage_gb(workspace_id), 6)
+        subscription.current_storage_gb = gb
+        return gb
+    except Exception as exc:
+        logger.warning("update_workspace_storage_usage falló para %s: %s", workspace_id, exc)
+        return None
+
+
+def recompute_all_workspaces_storage(session: Session) -> dict[str, float]:
+    """
+    Reconciliación: recalcula `current_storage_gb` de TODOS los workspaces con
+    suscripción. Útil como tarea de mantenimiento/cron. Devuelve {workspace_id: gb}.
+    """
+    result: dict[str, float] = {}
+    subs = session.query(WorkspaceSubscription).all()
+    for sub in subs:
+        gb = update_workspace_storage_usage(session, sub.workspace_id)
+        if gb is not None:
+            result[sub.workspace_id] = gb
+    return result
+
+
 def create_workspace_subscription(
     session: Session,
     workspace_id: str,

@@ -14,7 +14,7 @@ Config requerida (process_ai_core/config.py):
 
 from __future__ import annotations
 
-from .base import BlobStorage, StorageError, normalize_key
+from .base import BlobInfo, BlobStorage, StorageError, normalize_key
 
 
 class SupabaseStorage(BlobStorage):
@@ -81,3 +81,39 @@ class SupabaseStorage(BlobStorage):
         if not url:
             raise StorageError(f"No se pudo firmar URL para {key!r}")
         return url
+
+    def list_objects(self, prefix: str = "") -> list[BlobInfo]:
+        # El SDK lista un nivel por vez; recorremos el árbol. Las "carpetas" vienen
+        # como entradas con id=None (sin metadata). Los archivos traen metadata.size.
+        prefix = prefix.strip("/")
+        out: list[BlobInfo] = []
+        _PAGE = 1000
+
+        def _walk(path: str) -> None:
+            offset = 0
+            while True:
+                try:
+                    entries = self._store.list(
+                        path=path,
+                        options={"limit": _PAGE, "offset": offset},
+                    ) or []
+                except Exception:
+                    return
+                for e in entries:
+                    name = e.get("name")
+                    if not name:
+                        continue
+                    child = f"{path}/{name}" if path else name
+                    meta = e.get("metadata")
+                    if e.get("id") is None or not meta:
+                        # Carpeta: recursar
+                        _walk(child)
+                    else:
+                        size = int(meta.get("size", 0) or 0)
+                        out.append(BlobInfo(key=child, size=size))
+                if len(entries) < _PAGE:
+                    break
+                offset += _PAGE
+
+        _walk(prefix)
+        return out

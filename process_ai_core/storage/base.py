@@ -16,10 +16,18 @@ Las claves NUNCA deben contener `..` (se valida en `normalize_key`).
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 
 
 class StorageError(RuntimeError):
     """Error genérico de la capa de almacenamiento."""
+
+
+@dataclass(frozen=True)
+class BlobInfo:
+    """Metadata mínima de un blob para listados/contabilidad."""
+    key: str
+    size: int
 
 
 def normalize_key(key: str) -> str:
@@ -71,3 +79,11 @@ class BlobStorage(ABC):
         propia (api/artifact_signing.py). Este método es para acceso directo
         opcional; backends que no lo soporten pueden lanzar NotImplementedError.
         """
+
+    @abstractmethod
+    def list_objects(self, prefix: str = "") -> list[BlobInfo]:
+        """Lista (recursivo) todos los blobs bajo `prefix`, con su tamaño."""
+
+    def usage_bytes(self, prefix: str = "") -> int:
+        """Suma de tamaños (bytes) de todos los blobs bajo `prefix`."""
+        return sum(b.size for b in self.list_objects(prefix))
