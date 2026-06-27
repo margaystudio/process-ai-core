@@ -14,7 +14,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
-from .routes import artifacts, catalog, context_files, documents, folders, process_runs, users, validations, workspaces, subscriptions, operational_roles
+from .routes import artifacts, catalog, documents, folders, process_runs, users, validations, workspaces, subscriptions, operational_roles
 from process_ai_core.db.database import warmup_db_pool
 # recipe_runs: dominio "recetas" (experimento B2C, sin auth/workspace) deshabilitado para el MVP. Ver línea de include_router más abajo.
 
@@ -57,7 +57,6 @@ app.add_middleware(
 # Registrar rutas
 app.include_router(catalog.router)
 app.include_router(workspaces.router)
-app.include_router(context_files.router)
 app.include_router(folders.router)
 app.include_router(documents.router)
 app.include_router(process_runs.router)

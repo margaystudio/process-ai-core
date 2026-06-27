@@ -43,7 +43,7 @@ from typing import Optional
 from sqlalchemy import select
 
 from process_ai_core.db.models_catalog import CatalogOption
-from process_ai_core.db.models import Workspace, Document, Process, Recipe, Folder, ContextFile
+from process_ai_core.db.models import Workspace, Document, Process, Recipe, Folder
 from process_ai_core.db.helpers import get_workspace_metadata
 
 
@@ -208,18 +208,28 @@ def build_context_block(session, workspace: Workspace, document: Document) -> st
         lines.append("Contexto del workspace:")
         lines.append(workspace_context.strip())
 
-    # Archivos de contexto del negocio (TXT/MD con contenido extraído)
-    context_files = (
-        session.query(ContextFile)
-        .filter_by(workspace_id=workspace.id)
-        .filter(ContextFile.content.isnot(None), ContextFile.content != "")
+    # Archivos de contexto del negocio: documentos importados aprobados con texto extraído
+    from process_ai_core.db.models import DocumentVersion
+
+    imported_versions = (
+        session.query(DocumentVersion)
+        .join(Document, DocumentVersion.document_id == Document.id)
+        .filter(
+            Document.workspace_id == workspace.id,
+            DocumentVersion.version_status == "APPROVED",
+            DocumentVersion.content_type == "imported",
+            DocumentVersion.is_current == True,
+        )
         .all()
     )
-    for cf in context_files:
-        if cf.content and cf.content.strip():
-            lines.append("")
-            lines.append(f"Documento de contexto ({cf.name}):")
-            lines.append(cf.content.strip())
+    for version in imported_versions:
+        text = (version.content_markdown or "").strip()
+        if not text:
+            continue
+        source_name = version.source_file_name or "documento importado"
+        lines.append("")
+        lines.append(f"Documento de contexto ({source_name}):")
+        lines.append(text)
 
     if document_context_text and document_context_text.strip():
         lines.append("")

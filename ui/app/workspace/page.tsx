@@ -3,13 +3,14 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Plus } from 'lucide-react'
-import { Card, CardBody, Input, buttonVariants } from '@/shared/ui/components'
+import { Plus, Upload } from 'lucide-react'
+import { Card, CardBody, Input, Button, buttonVariants } from '@/shared/ui/components'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
 import { listDocuments, Document } from '@/lib/api'
 import FolderTree from '@/components/processes/FolderTree'
 import DocumentCard from '@/components/documents/DocumentCard'
 import StatusFilterChips from '@/components/documents/StatusFilterChips'
+import FileImportModal from '@/components/processes/FileImportModal'
 import { usePdfViewer } from '@/hooks/usePdfViewer'
 import { useDocumentFilter } from '@/hooks/useDocumentFilter'
 import { useCanApproveDocuments, useCanRejectDocuments, useCanEditWorkspace } from '@/hooks/useHasPermission'
@@ -35,6 +36,7 @@ export default function WorkspacePage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null)
   const [statusFilter, setStatusFilter] = useState<string | null>(null)
+  const [importModalOpen, setImportModalOpen] = useState(false)
 
   // Hooks para permisos y determinar acción principal
   const { hasPermission: canApprove } = useCanApproveDocuments()
@@ -63,32 +65,31 @@ export default function WorkspacePage() {
   }, [activeTenantId])
 
   // Cargar documentos (no cargar si es viewer, será redirigido)
-  useEffect(() => {
-    if (role === 'viewer') return
-
-    async function loadDocuments() {
-      if (!selectedWorkspaceId || !activeTenantId) {
-        setLoading(false)
-        return
-      }
-
-      try {
-        setLoading(true)
-        setError(null)
-        const docs = await listDocuments(
-          selectedWorkspaceId,
-          undefined,
-          'process'
-        )
-        setDocuments(docs)
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Error desconocido')
-        setDocuments([])
-      } finally {
-        setLoading(false)
-      }
+  const loadDocuments = async () => {
+    if (!selectedWorkspaceId || !activeTenantId) {
+      setLoading(false)
+      return
     }
 
+    try {
+      setLoading(true)
+      setError(null)
+      const docs = await listDocuments(
+        selectedWorkspaceId,
+        undefined,
+        'process'
+      )
+      setDocuments(docs)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error desconocido')
+      setDocuments([])
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (role === 'viewer') return
     loadDocuments()
   }, [selectedWorkspaceId, activeTenantId, role])
 
@@ -192,10 +193,20 @@ export default function WorkspacePage() {
               </p>
             </div>
             {canCreateDocuments && (
-              <Link href="/processes/new" className={buttonVariants({ variant: 'create' })}>
-                <Plus />
-                Nuevo proceso
-              </Link>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => setImportModalOpen(true)}
+                >
+                  <Upload />
+                  Importar archivo
+                </Button>
+                <Link href="/processes/new" className={buttonVariants({ variant: 'create' })}>
+                  <Plus />
+                  Nuevo proceso
+                </Link>
+              </div>
             )}
           </div>
 
@@ -336,6 +347,15 @@ export default function WorkspacePage() {
       </div>
 
       <ModalComponent />
+      {selectedWorkspaceId && (
+        <FileImportModal
+          workspaceId={selectedWorkspaceId}
+          defaultFolderId={selectedFolderId}
+          open={importModalOpen}
+          onClose={() => setImportModalOpen(false)}
+          onImported={loadDocuments}
+        />
+      )}
     </div>
   )
 }

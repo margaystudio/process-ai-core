@@ -6,14 +6,14 @@ Incluye los listados especializados (pendientes de aprobación, a revisar).
 
 import json
 import logging
-from typing import Any, Optional
+from typing import Any, Optional, List
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, File, UploadFile, Form
 
 from process_ai_core.db.database import get_db_session
 from process_ai_core.db.models import Document, DocumentVersion, Process, Recipe, Run
 from process_ai_core.db.helpers import delete_document
-from process_ai_core.db.permissions import has_permission, can_view_folder
+from process_ai_core.db.permissions import has_permission, can_view_folder, can_create_in_folder
 
 from api.models.requests import DocumentResponse, DocumentUpdateRequest
 from api.dependencies import get_current_user_id
@@ -271,6 +271,93 @@ async def list_documents(
             )
             for doc in documents
         ]
+
+
+@router.post("/import", response_model=list[DocumentResponse])
+async def import_documents(
+    folder_id: str = Form(...),
+    requires_approval: str = Form("true"),
+    files: List[UploadFile] = File(...),
+    user_id: str = Depends(get_current_user_id),
+    ctx: WorkspaceSessionContext = Depends(get_workspace_context),
+):
+    """
+    Importa uno o más archivos como documentos en una carpeta.
+
+    - requires_approval=True (default): documento en DRAFT, entra al flujo de revisión.
+    - requires_approval=False: documento APPROVED de inmediato.
+    """
+    if not files:
+        raise HTTPException(status_code=400, detail="Debe subir al menos un archivo")
+
+    workspace_id = resolve_tenant_workspace_id(ctx)
+    approval_required = str(requires_approval).lower() not in ("false", "0", "no", "")
+
+    with get_db_session() as session:
+        if not has_permission(session, user_id, workspace_id, "documents.create"):
+            raise HTTPException(
+                status_code=403,
+                detail="No tiene permisos para importar documentos en este workspace",
+            )
+
+        if not can_create_in_folder(session, user_id, workspace_id, folder_id):
+            raise HTTPException(
+                status_code=403,
+                detail="No tiene permisos para importar en la carpeta seleccionada",
+            )
+
+        from process_ai_core.db.helpers import enforce_storage_limit, update_workspace_storage_usage
+        from process_ai_core.document_import import create_imported_document
+
+        storage_error = enforce_storage_limit(session, workspace_id)
+        if storage_error:
+            raise HTTPException(status_code=403, detail=storage_error)
+
+        created: list[DocumentResponse] = []
+
+        try:
+            for upload in files:
+                filename = upload.filename or "archivo"
+                file_bytes = await upload.read()
+                if not file_bytes:
+                    raise HTTPException(status_code=400, detail=f"Archivo vacío: {filename}")
+
+                process, _version = create_imported_document(
+                    session=session,
+                    workspace_id=workspace_id,
+                    folder_id=folder_id,
+                    filename=filename,
+                    file_bytes=file_bytes,
+                    requires_approval=approval_required,
+                    user_id=user_id,
+                )
+                created.append(
+                    DocumentResponse(
+                        id=process.id,
+                        workspace_id=process.workspace_id,
+                        folder_id=process.folder_id,
+                        document_type=process.document_type,
+                        name=process.name,
+                        description=process.description,
+                        status=process.status,
+                        created_at=process.created_at.isoformat(),
+                    )
+                )
+
+            update_workspace_storage_usage(session, workspace_id)
+            session.commit()
+        except ValueError as exc:
+            session.rollback()
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except HTTPException:
+            session.rollback()
+            raise
+        except Exception as exc:
+            session.rollback()
+            logger.exception("Error importando documentos")
+            raise HTTPException(status_code=500, detail=f"Error al importar: {exc}") from exc
+
+        return created
 
 
 @router.get("/{document_id}", response_model=DocumentResponse)

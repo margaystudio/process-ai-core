@@ -7,7 +7,6 @@ import {
   ClipboardList,
   Eye,
   Plus,
-  BookOpen,
   Settings,
   UserCircle,
 } from 'lucide-react'
@@ -83,7 +82,6 @@ export default function ChromeShell({ children }: { children: React.ReactNode })
     {
       label: 'Cuenta',
       items: [
-        { label: 'Contexto', icon: <BookOpen />, active: active('/workspace/context'), onClick: go('/workspace/context') },
         { label: 'Configuración', icon: <Settings />, active: Boolean(pathname?.includes('/settings')), onClick: go(settingsPath) },
         { label: 'Mi perfil', icon: <UserCircle />, active: active('/profile'), onClick: go('/profile') },
       ],
