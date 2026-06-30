@@ -164,7 +164,8 @@ export interface Document {
   id: string;
   workspace_id: string;
   folder_id?: string;
-  document_type: string;
+  domain: string;
+  document_type?: string;
   name: string;
   description: string;
   status: string;
@@ -177,6 +178,7 @@ export interface DocumentUpdateRequest {
   description?: string;
   status?: string;
   folder_id?: string;
+  document_type?: string;
   audience?: string;
   detail_level?: string;
   context_text?: string;
@@ -1157,7 +1159,7 @@ export async function listDocuments(workspaceId?: string, folderId?: string, doc
     const headers = await getAuthHeaders({})
 
     const url = new URL(`${API_URL}/api/v1/documents`)
-    url.searchParams.append('document_type', documentType)
+    url.searchParams.append('domain', documentType)
     if (folderId) {
       url.searchParams.append('folder_id', folderId)
     }

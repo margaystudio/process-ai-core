@@ -141,7 +141,8 @@ async def list_documents_pending_approval(
                 id=doc.id,
                 workspace_id=doc.workspace_id,
                 folder_id=doc.folder_id,
-                document_type=doc.document_type,
+                domain=doc.domain,
+                document_type=getattr(doc, "document_type", "procedimiento"),
                 name=doc.name,
                 description=doc.description,
                 status=doc.status,
@@ -190,7 +191,8 @@ async def list_documents_to_review(
                 id=doc.id,
                 workspace_id=doc.workspace_id,
                 folder_id=doc.folder_id,
-                document_type=doc.document_type,
+                domain=doc.domain,
+                document_type=getattr(doc, "document_type", "procedimiento"),
                 name=doc.name,
                 description=doc.description,
                 status=doc.status,
@@ -203,7 +205,7 @@ async def list_documents_to_review(
 @router.get("", response_model=list[DocumentResponse])
 async def list_documents(
     folder_id: Optional[str] = Query(None, description="ID de la carpeta (opcional)"),
-    document_type: str = Query("process", description="Tipo de documento"),
+    domain: str = Query("process", description="Tipo de documento"),
     status: Optional[str] = Query(None, description="Filtrar por estado (draft|pending_validation|approved|rejected|archived)"),
     user_id: str = Depends(get_current_user_id),
     ctx: WorkspaceSessionContext = Depends(get_workspace_context),
@@ -218,7 +220,7 @@ async def list_documents(
         workspace_id: ID del workspace (query parameter, requerido)
         folder_id: ID de la carpeta (query parameter, opcional - si se especifica, solo documentos de esa carpeta)
                    Si es "null" (string), devuelve solo documentos sin carpeta
-        document_type: Tipo de documento (query parameter, default: "process")
+        domain: Tipo de documento (query parameter, default: "process")
         status: Filtrar por estado (query parameter, opcional)
         user_id: ID del usuario autenticado (desde token JWT)
 
@@ -242,7 +244,7 @@ async def list_documents(
 
         query = session.query(Document).filter_by(
             workspace_id=workspace_id,
-            document_type=document_type
+            domain=domain
         )
 
         if folder_id:
@@ -263,7 +265,8 @@ async def list_documents(
                 id=doc.id,
                 workspace_id=doc.workspace_id,
                 folder_id=doc.folder_id,
-                document_type=doc.document_type,
+                domain=doc.domain,
+                document_type=getattr(doc, "document_type", "procedimiento"),
                 name=doc.name,
                 description=doc.description,
                 status=doc.status,
@@ -329,7 +332,7 @@ async def get_document(
             )
 
         # Si es un Process, obtener los campos específicos
-        if doc.document_type == "process":
+        if doc.domain == "process":
             process = session.query(Process).filter_by(id=document_id).first()
             if process:
                 # Retornar con campos extendidos (aunque DocumentResponse no los incluye,
@@ -341,7 +344,8 @@ async def get_document(
             id=doc.id,
             workspace_id=doc.workspace_id,
             folder_id=doc.folder_id,
-            document_type=doc.document_type,
+            domain=doc.domain,
+            document_type=getattr(doc, "document_type", "procedimiento"),
             name=doc.name,
             description=doc.description,
             status=doc.status,
@@ -420,9 +424,11 @@ async def update_document(
             doc.status = request.status
         if request.folder_id is not None:
             doc.folder_id = request.folder_id
+        if request.document_type is not None:
+            doc.document_type = request.document_type
 
         # Actualizar campos específicos según el tipo
-        if doc.document_type == "process":
+        if doc.domain == "process":
             process = session.query(Process).filter_by(id=document_id).first()
             if not process:
                 # Si no existe el Process, crearlo (no debería pasar, pero por seguridad)
@@ -430,7 +436,7 @@ async def update_document(
                     id=document_id,
                     workspace_id=doc.workspace_id,
                     folder_id=doc.folder_id,
-                    document_type="process",
+                    domain="process",
                     name=doc.name,
                     description=doc.description,
                     status=doc.status,
@@ -443,7 +449,7 @@ async def update_document(
                 process.detail_level = request.detail_level
             if request.context_text is not None:
                 process.context_text = request.context_text
-        elif doc.document_type == "recipe":
+        elif doc.domain == "recipe":
             recipe = session.query(Recipe).filter_by(id=document_id).first()
             if recipe:
                 if request.cuisine is not None:
@@ -461,7 +467,7 @@ async def update_document(
         session.refresh(doc)
 
         # Si es Process, refrescar también el Process
-        if doc.document_type == "process":
+        if doc.domain == "process":
             process = session.query(Process).filter_by(id=document_id).first()
             if process:
                 session.refresh(process)
@@ -470,7 +476,8 @@ async def update_document(
             id=doc.id,
             workspace_id=doc.workspace_id,
             folder_id=doc.folder_id,
-            document_type=doc.document_type,
+            domain=doc.domain,
+            document_type=getattr(doc, "document_type", "procedimiento"),
             name=doc.name,
             description=doc.description,
             status=doc.status,
@@ -616,7 +623,7 @@ async def get_process_details(
                 detail="No tiene acceso a la carpeta de este documento"
             )
 
-        if doc.document_type != "process":
+        if doc.domain != "process":
             raise HTTPException(
                 status_code=400,
                 detail=f"El documento {document_id} no es un proceso"

@@ -53,6 +53,21 @@ import {
 } from '@/lib/documentPermissions'
 import { useUserRole } from '@/hooks/useUserRole'
 
+/** Etiquetas legibles de los tipos documentales (catálogo "document_type"). */
+const DOCUMENT_TYPE_LABELS: Record<string, string> = {
+  procedimiento: 'Procedimiento',
+  instructivo: 'Instructivo',
+  manual_interno: 'Manual interno',
+  manual_externo: 'Manual externo',
+  politica: 'Política',
+  normativa: 'Normativa',
+  formulario: 'Formulario',
+  checklist: 'Checklist',
+  tramite: 'Trámite',
+  faq_validada: 'FAQ validada',
+  presupuesto: 'Presupuesto',
+}
+
 /** Mapea acciones del audit log del backend a etiquetas en español para la UI. */
 function actionToLabel(action: string): string {
   const map: Record<string, string> = {
@@ -192,7 +207,7 @@ export default function DocumentDetailPage() {
         setVersions(docVersions)
         
         // Load catalog options and process-specific fields
-        if (doc.document_type === 'process') {
+        if (doc.domain === 'process') {
           const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
           const { getAccessToken } = await import('@/lib/api-auth')
           const authToken = await getAccessToken()
@@ -303,7 +318,7 @@ export default function DocumentDetailPage() {
         folder_id: folderId || undefined,
       }
       
-      if (document.document_type === 'process') {
+      if (document.domain === 'process') {
         updateData.audience = audience || undefined
         updateData.detail_level = detailLevel || undefined
         updateData.context_text = contextText || undefined
@@ -844,7 +859,7 @@ export default function DocumentDetailPage() {
                     </select>
                   </div>
                   
-                  {document.document_type === 'process' && (
+                  {document.domain === 'process' && (
                     <>
                       <div>
                         <label className="block text-sm font-medium text-ink-700 mb-2">
@@ -964,11 +979,14 @@ export default function DocumentDetailPage() {
                   
                   <div>
                     <label className="block text-sm font-medium text-ink-700 mb-1">
-                      Tipo
+                      Tipo de documento
                     </label>
-                    <p className="text-ink-900 capitalize">{document.document_type}</p>
+                    <p className="text-ink-900">
+                      {DOCUMENT_TYPE_LABELS[document.document_type || 'procedimiento'] ||
+                        document.document_type}
+                    </p>
                   </div>
-                  
+
                   <div>
                     <label className="block text-sm font-medium text-ink-700 mb-1">
                       Creado

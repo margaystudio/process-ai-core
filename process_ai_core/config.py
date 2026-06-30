@@ -84,6 +84,15 @@ class Settings:
     openai_model_transcribe: str              # transcripción simple (sin timestamps)
     openai_model_transcribe_timestamps: str   # transcripción con timestamps (whisper)
 
+    # Modelo "barato" para tareas de bajo costo (clasificación, extracción de
+    # entidades, relaciones candidatas, resúmenes internos). Vacío => se usa
+    # openai_model_text, por lo que el comportamiento es idéntico hasta que se
+    # configure explícitamente. Ver estrategia de costos IA (Technical Architecture).
+    openai_model_text_cheap: str = ""
+
+    # Modelo de embeddings (chunks/RAG de Tyto — aún no usado, reservado).
+    openai_model_embedding: str = "text-embedding-3-small"
+
     # I/O
     input_dir: str = "input"
     output_dir: str = "output"
@@ -158,5 +167,12 @@ def get_settings() -> Settings:
         openai_model_transcribe_timestamps=os.getenv(
             "OPENAI_MODEL_TRANSCRIBE_TIMESTAMPS",
             "whisper-1"
+        ),
+
+        # Tier barato (vacío => usa openai_model_text) y embeddings (reservado).
+        openai_model_text_cheap=os.getenv("OPENAI_MODEL_TEXT_CHEAP", ""),
+        openai_model_embedding=os.getenv(
+            "OPENAI_MODEL_EMBEDDING",
+            "text-embedding-3-small"
         ),
     )

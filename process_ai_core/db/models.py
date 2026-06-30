@@ -88,7 +88,14 @@ class Document(Base):
     workspace_id: Mapped[str] = mapped_column(String(36), ForeignKey("workspaces.id"), index=True)
 
     # Tipo de documento (discriminador para polimorfismo)
-    document_type: Mapped[str] = mapped_column(String(20))  # "process" | "recipe" | "will" | ...
+    domain: Mapped[str] = mapped_column(String(20))  # "process" | "recipe" | "will" | ...
+
+    # Tipo documental del catálogo (domain "document_type"): procedimiento, instructivo,
+    # manual_interno, manual_externo, politica, normativa, formulario, checklist, tramite,
+    # faq_validada, presupuesto. No confundir con domain (discriminador de la clase).
+    document_type: Mapped[str] = mapped_column(
+        String(50), nullable=False, server_default="procedimiento", default="procedimiento"
+    )
 
     # Nombre del documento
     name: Mapped[str] = mapped_column(String(200))
@@ -117,7 +124,7 @@ class Document(Base):
     # Configuración de herencia polimórfica
     __mapper_args__ = {
         "polymorphic_identity": "document",
-        "polymorphic_on": "document_type",
+        "polymorphic_on": "domain",
     }
 
 
@@ -478,7 +485,7 @@ class Run(Base):
     document_id: Mapped[str] = mapped_column(String(36), ForeignKey("documents.id"), index=True)
 
     # Tipo de documento (se infiere del documento asociado, pero lo guardamos para queries rápidas)
-    document_type: Mapped[str] = mapped_column(String(20))  # "process" | "recipe" | ...
+    domain: Mapped[str] = mapped_column(String(20))  # "process" | "recipe" | ...
 
     # Perfil usado (específico del dominio)
     profile: Mapped[str] = mapped_column(String(50), default="")

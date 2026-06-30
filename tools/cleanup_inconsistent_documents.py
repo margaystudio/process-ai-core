@@ -95,11 +95,11 @@ def cleanup_inconsistent_documents(skip_confirmation: bool = False):
                 deleted_runs += 1
             
             # Eliminar Process o Recipe si existe
-            if doc.document_type == "process":
+            if doc.domain == "process":
                 process = session.query(Process).filter_by(id=doc.id).first()
                 if process:
                     session.delete(process)
-            elif doc.document_type == "recipe":
+            elif doc.domain == "recipe":
                 recipe = session.query(Recipe).filter_by(id=doc.id).first()
                 if recipe:
                     session.delete(recipe)

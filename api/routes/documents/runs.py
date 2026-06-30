@@ -148,7 +148,7 @@ async def create_document_run(
         if storage_error:
             raise HTTPException(status_code=402, detail=storage_error)
 
-        if doc.document_type != "process":
+        if doc.domain != "process":
             raise HTTPException(
                 status_code=400,
                 detail="Este endpoint solo funciona para documentos de tipo 'process'"
@@ -179,7 +179,7 @@ async def create_document_run(
         run = create_run(
             session=session,
             document_id=document_id,
-            document_type="process",
+            domain="process",
             profile=process.audience or "operativo",
         )
         session.flush()

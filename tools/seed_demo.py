@@ -65,7 +65,7 @@ def main():
             process = Process(
                 workspace_id=workspace.id,
                 folder_id=root_folder.id,  # Asignar carpeta raíz
-                document_type="process",
+                domain="process",
                 name=proc_name,
                 status="draft",
                 description="Atención al cliente en pista: saludo, carga, cobro y cierre.",

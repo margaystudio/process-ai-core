@@ -99,7 +99,7 @@ def main():
         process = Process(
             workspace_id=workspace.id,
             folder_id=root_folder.id,
-            document_type="process",
+            domain="process",
             name="Proceso de Prueba - Versionado",
             description="Documento para probar el flujo de versionado",
             status="draft",

@@ -9,6 +9,7 @@ import { useWorkspace } from '@/contexts/WorkspaceContext'
 import { useLoading } from '@/contexts/LoadingContext'
 import ProcessNameInput from '@/components/processes/ProcessNameInput'
 import ModeSelector from '@/components/processes/ModeSelector'
+import DocumentTypeSelector from '@/components/processes/DocumentTypeSelector'
 import OptionalFields from '@/components/processes/OptionalFields'
 import FolderTree from '@/components/processes/FolderTree'
 import FileUploadModal, { FileType } from '@/components/processes/FileUploadModal'
@@ -22,6 +23,7 @@ export default function NewProcessPage() {
   const { withLoading } = useLoading()
   const [processName, setProcessName] = useState('')
   const [mode, setMode] = useState<'operativo' | 'gestion'>('operativo')
+  const [documentType, setDocumentType] = useState('procedimiento')
   const [folderId, setFolderId] = useState('')
   const [detailLevel, setDetailLevel] = useState('')
   const [contextText, setContextText] = useState('')
@@ -71,6 +73,7 @@ export default function NewProcessPage() {
           throw new Error('Debes seleccionar una carpeta')
         }
         formData.append('folder_id', folderId)
+        formData.append('document_type', documentType)
 
         // Campos opcionales (solo si tienen valor)
         if (detailLevel) formData.append('detail_level', detailLevel)
@@ -169,6 +172,11 @@ export default function NewProcessPage() {
                   <ModeSelector
                     value={mode}
                     onChange={setMode}
+                  />
+
+                  <DocumentTypeSelector
+                    value={documentType}
+                    onChange={setDocumentType}
                   />
 
                   <OptionalFields
