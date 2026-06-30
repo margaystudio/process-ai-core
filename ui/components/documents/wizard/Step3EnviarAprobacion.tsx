@@ -4,7 +4,8 @@ import { type Approver } from "./data";
 import { WizardIcon } from "./WizardIcon";
 
 export interface Step3State {
-  folder: string;
+  /** Nombre legible de la carpeta destino (para mostrar) */
+  folderName: string;
   approvers: Approver[];
   comment: string;
   sent: boolean;
@@ -63,7 +64,7 @@ export function Step3EnviarAprobacion({
                 Cierre de caja
               </div>
               <div className="text-xs text-ink-400">
-                Borrador · en {s.folder}
+                Borrador · en {s.folderName}
               </div>
             </div>
             <span className="inline-flex items-center gap-1.5 rounded-pill border border-line bg-line-softer px-2.5 py-1 text-[11.5px] font-bold text-ink-500">
@@ -79,7 +80,7 @@ export function Step3EnviarAprobacion({
             </div>
             <div className="mb-3.5 text-xs text-ink-400">
               Según la carpeta{" "}
-              <strong className="text-ink-500">{s.folder}</strong> y los
+              <strong className="text-ink-500">{s.folderName}</strong> y los
               permisos. Elegí uno o varios.
             </div>
             <div className="flex flex-col gap-2">

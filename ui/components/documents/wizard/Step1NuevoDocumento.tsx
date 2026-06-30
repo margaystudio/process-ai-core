@@ -4,13 +4,20 @@ import { type Evidence, CONTEXT_EXAMPLES, DETAIL_LEVELS } from "./data";
 import { FolderSelector } from "./FolderSelector";
 import { EvidenceCard } from "./EvidenceCard";
 import { WizardIcon } from "./WizardIcon";
+import DocumentTypeSelector from "@/components/processes/DocumentTypeSelector";
 
 export interface Step1State {
   name: string;
-  folder: string;
+  /** ID de la carpeta destino (string vacío si no se eligió) */
+  folderId: string;
+  /** Nombre legible de la carpeta (para mostrar en el step 3) */
+  folderName: string;
   contexto: string;
   advancedOpen: boolean;
   detailLevel: string;
+  documentType: string;
+  /** TODO(wire): smartQueries no tiene efecto en el backend aún.
+   *  Enviar como setting al crear el documento cuando se implemente. */
   smartQueries: boolean;
   evidences: Evidence[];
 }
@@ -18,9 +25,6 @@ export interface Step1State {
 /**
  * Paso 1: formulario (Nombre, Guardar en, contexto IA, opciones avanzadas)
  * + panel de Evidencias.
- *
- * TODO(wire): el campo "Nombre" debería pre-popularse si venimos de un borrador existente.
- * TODO(wire): el selector de carpeta debe usar el árbol real del workspace (ver FolderSelector).
  */
 export function Step1NuevoDocumento({
   s,
@@ -65,8 +69,10 @@ export function Step1NuevoDocumento({
           <FieldLabel required>Guardar en</FieldLabel>
           <div className="mb-5">
             <FolderSelector
-              value={s.folder}
-              onChange={(f) => set({ folder: f })}
+              value={s.folderId}
+              onChange={(folderId, folderName) =>
+                set({ folderId, folderName })
+              }
             />
           </div>
 
@@ -127,8 +133,18 @@ export function Step1NuevoDocumento({
 
           {s.advancedOpen && (
             <div className="mt-3.5 animate-in">
+              {/* Tipo de documento */}
+              <div className="mb-4">
+                <DocumentTypeSelector
+                  value={s.documentType}
+                  onChange={(v) => set({ documentType: v })}
+                  label="Tipo de documento"
+                />
+              </div>
+
+              {/* Nivel de detalle */}
               <FieldLabel>Nivel de detalle</FieldLabel>
-              <div className="relative">
+              <div className="relative mb-[7px]">
                 <select
                   value={s.detailLevel}
                   onChange={(e) => set({ detailLevel: e.target.value })}
@@ -146,13 +162,12 @@ export function Step1NuevoDocumento({
                   className="pointer-events-none absolute right-[13px] top-[15px] text-ink-300"
                 />
               </div>
-              <div className="mt-[7px] text-[11.5px] text-ink-300">
+              <div className="mb-5 text-[11.5px] text-ink-300">
                 En automático, la IA elige el nivel según las evidencias.
               </div>
 
-              {/* TODO(wire): smartQueries no tiene efecto en el backend aún.
-                            Enviar como setting al crear el documento. */}
-              <div className="mt-[18px] flex items-start gap-3.5 border-t border-line-soft pt-[18px]">
+              {/* Toggle Tyto — TODO(wire): enviar como setting al crear el documento */}
+              <div className="flex items-start gap-3.5 border-t border-line-soft pt-[18px]">
                 <div className="min-w-0 flex-1">
                   <div className="mb-[3px] text-[12.5px] font-bold text-ink-900">
                     Disponible para consultas inteligentes
@@ -178,9 +193,11 @@ export function Step1NuevoDocumento({
               <span className="text-[15px] font-extrabold text-ink-900">
                 Evidencias
               </span>
-              <span className="rounded-pill bg-indigo-tint px-2.5 py-[3px] text-xs font-bold text-indigo">
-                {s.evidences.length}
-              </span>
+              {s.evidences.length > 0 && (
+                <span className="rounded-pill bg-indigo-tint px-2.5 py-[3px] text-xs font-bold text-indigo">
+                  {s.evidences.length}
+                </span>
+              )}
             </div>
             <button
               type="button"
@@ -197,9 +214,8 @@ export function Step1NuevoDocumento({
           </div>
           <div className="mb-4 text-[12px] leading-snug text-ink-400">
             Sumá evidencias que ya existen (audio, video, PDF, imágenes,
-            documentos) o grabá un audio en el momento. Apenas las cargás, el
-            sistema las procesa; la IA arma el borrador al tocar "Crear
-            borrador".
+            documentos) o grabá un audio en el momento. La IA las procesa al
+            armar el borrador.
           </div>
 
           {s.evidences.length === 0 ? (
@@ -227,7 +243,7 @@ export function Step1NuevoDocumento({
                   onRemove={onRemoveEvidence}
                 />
               ))}
-              {/* CTA secundario para agregar más */}
+              {/* CTA secundario */}
               <button
                 type="button"
                 onClick={onAddEvidence}

@@ -1,12 +1,12 @@
 "use client";
 
-import { Evidence, evidenceIconPath } from "./data";
+import { type Evidence, evidenceIconPath, formatFileSize } from "./data";
 import { WizardIcon } from "./WizardIcon";
-import { Spinner } from "./Spinner";
 
 /**
  * Card de evidencia completa — usada en el paso 1.
- * Muestra tipo + título + chips de resultado (o spinner mientras procesa).
+ * Muestra tipo, nombre del archivo y tamaño. No hay chips de procesamiento:
+ * el backend procesa las evidencias al generar el borrador.
  */
 export function EvidenceCard({
   evidence,
@@ -17,45 +17,39 @@ export function EvidenceCard({
 }) {
   return (
     <div className="flex items-center gap-3 rounded-[11px] border border-line p-[11px_13px] animate-in">
+      {/* Ícono del tipo */}
       <span className="grid h-[34px] w-[34px] flex-shrink-0 place-items-center rounded-[9px] bg-indigo-tint text-indigo">
         <WizardIcon d={evidenceIconPath(evidence.tipo)} size={17} />
       </span>
 
+      {/* Info */}
       <div className="min-w-0 flex-1">
         <div className="truncate text-[13.5px] font-semibold text-ink-700">
           {evidence.title}
         </div>
         <div className="mt-1 flex flex-wrap items-center gap-1.5">
-          {/* Tipo */}
+          {/* Badge tipo */}
           <span className="rounded-[5px] bg-indigo-tint px-1.5 py-px text-[9.5px] font-extrabold uppercase tracking-[.04em] text-indigo">
             {evidence.tipo}
           </span>
-
-          {/* Estado: procesando o chips resultado */}
-          {evidence.processing ? (
-            <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-warning">
-              <Spinner size={12} className="text-warning" />
-              Procesando…
-            </span>
-          ) : (
-            evidence.chips.map((c) => (
-              <span
-                key={c}
-                className="inline-flex items-center gap-1 rounded-md border border-success-bd bg-success-bg px-[7px] py-0.5 text-[10.5px] font-semibold text-success-fg"
-              >
-                <WizardIcon
-                  d="M20 6L9 17l-5-5"
-                  size={9}
-                  className="text-success"
-                  strokeWidth={3}
-                />
-                {c}
-              </span>
-            ))
-          )}
+          {/* Tamaño */}
+          <span className="text-[11px] text-ink-400">
+            {formatFileSize(evidence.file.size)}
+          </span>
+          {/* Estado: siempre listo (el procesamiento ocurre en el backend al generar) */}
+          <span className="inline-flex items-center gap-1 rounded-md border border-success-bd bg-success-bg px-[7px] py-0.5 text-[10.5px] font-semibold text-success-fg">
+            <WizardIcon
+              d="M20 6L9 17l-5-5"
+              size={9}
+              className="text-success"
+              strokeWidth={3}
+            />
+            Listo para usar
+          </span>
         </div>
       </div>
 
+      {/* Botón quitar */}
       {onRemove && (
         <button
           type="button"
@@ -90,6 +84,9 @@ export function EvidenceCardCompact({ evidence }: { evidence: Evidence }) {
           {evidence.title}
         </div>
       </div>
+      <span className="flex-shrink-0 text-[10px] text-ink-400">
+        {formatFileSize(evidence.file.size)}
+      </span>
       <span className="text-[9.5px] font-extrabold uppercase tracking-[.04em] text-ink-400">
         {evidence.tipo}
       </span>

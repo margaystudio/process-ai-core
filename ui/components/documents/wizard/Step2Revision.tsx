@@ -21,11 +21,18 @@ Si hay diferencia, registrala en la planilla y avisá al supervisor antes de cer
 /**
  * Paso 2: resumen de generación + editor del borrador (toggle Editar / Listo).
  *
- * TODO(wire): recibir título y cuerpo del borrador desde la respuesta del backend
- *             (createProcessRun devuelve document_id → getDocument + getDocumentVersions).
- * TODO(wire): el modo "Editar" debería guardar los cambios vía API (PATCH versión DRAFT).
+ * TODO(wire): usar documentId para cargar getDocument(documentId) + getDocumentVersions(documentId)
+ *             y mostrar el nombre y cuerpo reales del borrador generado.
+ * TODO(wire): el modo "Editar" debería guardar los cambios vía saveEditableContent(documentId, html).
  */
-export function Step2Revision({ evidences }: { evidences: Evidence[] }) {
+export function Step2Revision({
+  evidences,
+  documentId,
+}: {
+  evidences: Evidence[];
+  /** document_id devuelto por createProcessRun — disponible para cablearlo al contenido real */
+  documentId: string | null;
+}) {
   const [editing, setEditing] = useState(false);
   const [body, setBody] = useState(DRAFT_BODY);
   const [showEvidence, setShowEvidence] = useState(false);

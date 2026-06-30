@@ -5,11 +5,10 @@ import { WizardIcon } from "./WizardIcon";
 import { Spinner } from "./Spinner";
 
 /**
- * Overlay a pantalla completa mostrado entre el paso 1 y el paso 2
- * mientras la IA genera el borrador.
- * TODO(wire): reemplazar la simulación setTimeout/setInterval con la llamada real a
- *             createProcessRun — el overlay debería mostrar el progreso real o
- *             mantenerse hasta que la API responda.
+ * Overlay a pantalla completa mostrado mientras createProcessRun() está en vuelo.
+ * current=0 mantiene el primer paso activo durante toda la espera (llamada real al backend).
+ * TODO(wire): si el backend agrega progreso en tiempo real (websocket/SSE),
+ *             avanzar `current` con el estado real del pipeline.
  */
 export function GeneratingOverlay({ current }: { current: number }) {
   return (

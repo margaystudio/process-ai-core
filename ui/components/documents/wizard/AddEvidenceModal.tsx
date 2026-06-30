@@ -1,30 +1,28 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import {
   EVIDENCE_TYPES,
+  EVIDENCE_TIPO_TO_FILE_TYPE,
   type EvidenceTipo,
   type Evidence,
   evidenceIconPath,
   formatSecs,
+  formatFileSize,
+  getPreferredAudioMime,
 } from "./data";
 import { WizardIcon } from "./WizardIcon";
-import { ProcessingSteps } from "./ProcessingSteps";
 
 type Mode = "import" | "record";
-type RecPhase = "idle" | "rec" | "saving" | "done";
+type RecPhase = "idle" | "rec" | "done" | "error";
 
 const TYPES: EvidenceTipo[] = ["Audio", "Video", "PDF", "Imagen", "Documento"];
 
 /**
  * Modal "Agregar evidencia".
- * Modo "Archivo existente": tipo → seleccionar archivo → pipeline → agrega evidencia.
- * Modo "Grabar audio": idle → grabando (timer) → procesando → listo → agrega evidencia.
  *
- * TODO(wire): reemplazar las simulaciones setTimeout/setInterval por:
- *   - Subida real del archivo al storage (modo import: cada tipo a su bucket/ruta)
- *   - Transcripción/extracción real iniciada al subir (polling o websocket)
- *   - Grabación real con MediaRecorder (ya existe en la página vieja — ver RecorderPanel)
+ * Modo "Archivo existente": selector de tipo → <input type="file"> real → agrega evidencia.
+ * Modo "Grabar audio": idle → grabando (MediaRecorder real + timer) → listo → agrega evidencia.
  */
 export function AddEvidenceModal({
   onClose,
@@ -38,25 +36,28 @@ export function AddEvidenceModal({
   // ---- Estado modo import ----
   const [tipo, setTipo] = useState<EvidenceTipo>("Audio");
   const [desc, setDesc] = useState("");
-  const [fileName, setFileName] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [fmStep, setFmStep] = useState(0);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // ---- Estado modo record ----
   const [recPhase, setRecPhase] = useState<RecPhase>("idle");
   const [recSecs, setRecSecs] = useState(0);
-  const [recStep, setRecStep] = useState(0);
+  const [recBlob, setRecBlob] = useState<Blob | null>(null);
   const [recDesc, setRecDesc] = useState("");
+  const [recError, setRecError] = useState<string | null>(null);
 
-  const recTimer = useRef<ReturnType<typeof setInterval> | null>(null);
-  const stepTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const def = EVIDENCE_TYPES[tipo];
 
+  // Limpiar recursos al desmontar
   useEffect(() => {
     return () => {
-      if (recTimer.current) clearInterval(recTimer.current);
-      if (stepTimer.current) clearInterval(stepTimer.current);
+      if (timerRef.current) clearInterval(timerRef.current);
+      streamRef.current?.getTracks().forEach((t) => t.stop());
     };
   }, []);
 
@@ -69,72 +70,112 @@ export function AddEvidenceModal({
     return () => document.removeEventListener("keydown", handler);
   }, [onClose]);
 
-  // ---- Import: pipeline de procesamiento (demo) ----
-  // TODO(wire): sustituir por llamada real de subida + procesamiento
+  // Resetear archivo al cambiar tipo
+  const handleTipoChange = (t: EvidenceTipo) => {
+    setTipo(t);
+    setSelectedFile(null);
+    setDesc("");
+  };
+
+  // ---- Import: agregar archivo seleccionado ----
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] ?? null;
+    setSelectedFile(file);
+    // Resetear input para permitir elegir el mismo archivo de nuevo
+    e.target.value = "";
+  };
+
   const submitFile = () => {
-    if (!fileName) return;
-    setSaving(true);
-    setFmStep(0);
-    let s = 0;
-    stepTimer.current = setInterval(() => {
-      s += 1;
-      if (s >= 4) {
-        if (stepTimer.current) clearInterval(stepTimer.current);
-        setFmStep(4);
-        setTimeout(() => {
-          onAdd({
-            id: "e-" + Date.now(),
-            tipo,
-            title: desc.trim() || fileName,
-            processing: false,
-            chips: def.chips,
-          });
-          onClose();
-        }, 420);
-      } else {
-        setFmStep(s);
-      }
-    }, 500);
-  };
-
-  // ---- Record flow (demo) ----
-  // TODO(wire): reemplazar timer fake por MediaRecorder real (ver RecorderPanel en
-  //             la página anterior) y transcripción del audio grabado
-  const startRec = () => {
-    setRecPhase("rec");
-    setRecSecs(0);
-    recTimer.current = setInterval(
-      () => setRecSecs((n) => n + 1),
-      1000,
-    );
-  };
-
-  const stopRec = () => {
-    if (recTimer.current) clearInterval(recTimer.current);
-    setRecPhase("saving");
-    setRecStep(0);
-    let s = 0;
-    stepTimer.current = setInterval(() => {
-      s += 1;
-      if (s >= 4) {
-        if (stepTimer.current) clearInterval(stepTimer.current);
-        setRecStep(4);
-        setTimeout(() => setRecPhase("done"), 420);
-      } else {
-        setRecStep(s);
-      }
-    }, 500);
-  };
-
-  const addRecording = () => {
+    if (!selectedFile) return;
     onAdd({
-      id: "e-" + Date.now(),
-      tipo: "Audio",
-      title: recDesc.trim() || "Grabación de audio",
-      processing: false,
-      chips: ["Audio transcripto", "Idioma: ES", formatSecs(recSecs)],
+      id: `e-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      tipo,
+      fileType: EVIDENCE_TIPO_TO_FILE_TYPE[tipo],
+      title: desc.trim() || selectedFile.name,
+      file: selectedFile,
     });
     onClose();
+  };
+
+  // ---- Record: MediaRecorder real ----
+  const stopStream = useCallback(() => {
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+  }, []);
+
+  const startRec = useCallback(async () => {
+    setRecError(null);
+    setRecBlob(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      chunksRef.current = [];
+      const { mime } = getPreferredAudioMime();
+      const recorder = new MediaRecorder(stream, { mimeType: mime });
+      recorderRef.current = recorder;
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunksRef.current.push(e.data);
+      };
+      recorder.onstop = () => {
+        const blob = new Blob(chunksRef.current, { type: mime });
+        setRecBlob(blob);
+        stopStream();
+        setRecPhase("done");
+      };
+
+      recorder.start();
+      setRecSecs(0);
+      setRecPhase("rec");
+      timerRef.current = setInterval(
+        () => setRecSecs((n) => n + 1),
+        1000,
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Error desconocido";
+      if (msg.includes("Permission denied") || msg.includes("NotAllowed")) {
+        setRecError(
+          "Permiso de micrófono denegado. Habilitá el acceso en la configuración del navegador.",
+        );
+      } else if (msg.includes("NotFound") || msg.includes("Requested device not found")) {
+        setRecError(
+          "No se encontró un micrófono. Conectá uno e intentá de nuevo.",
+        );
+      } else {
+        setRecError(msg);
+      }
+      setRecPhase("error");
+    }
+  }, [stopStream]);
+
+  const stopRec = useCallback(() => {
+    if (timerRef.current) clearInterval(timerRef.current);
+    if (recorderRef.current?.state === "recording") {
+      recorderRef.current.stop();
+    }
+  }, []);
+
+  const addRecording = () => {
+    if (!recBlob) return;
+    const { ext } = getPreferredAudioMime();
+    const fileName = `grabacion-${Date.now()}${ext}`;
+    const file = new File([recBlob], fileName, { type: recBlob.type });
+    onAdd({
+      id: `e-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      tipo: "Audio",
+      fileType: "audio",
+      title: recDesc.trim() || "Grabación de audio",
+      file,
+    });
+    onClose();
+  };
+
+  const resetRec = () => {
+    setRecPhase("idle");
+    setRecSecs(0);
+    setRecBlob(null);
+    setRecDesc("");
+    setRecError(null);
   };
 
   return (
@@ -174,8 +215,7 @@ export function AddEvidenceModal({
           </button>
         </div>
         <div className="mb-4 text-[12.5px] text-ink-400">
-          Sumá material existente o grabá un audio. El sistema lo procesa
-          automáticamente.
+          Sumá material existente o grabá un audio. El sistema lo procesa al generar el borrador.
         </div>
 
         {/* Segmented control de modo */}
@@ -214,144 +254,154 @@ export function AddEvidenceModal({
         {/* ============================================================
             MODO IMPORT
         ============================================================ */}
-        {mode === "import" &&
-          (saving ? (
-            <ProcessingSteps steps={def.steps} current={fmStep} />
-          ) : (
-            <>
-              <div className="mb-[9px] text-[12.5px] font-bold text-ink-900">
-                Tipo de evidencia
-              </div>
-              <div className="mb-3.5 flex flex-wrap items-center gap-[7px]">
-                {TYPES.map((t) => {
-                  const active = t === tipo;
-                  return (
-                    <button
-                      key={t}
-                      type="button"
-                      onClick={() => {
-                        setTipo(t);
-                        setFileName("");
-                      }}
-                      className={
-                        "inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-[12.5px] font-bold transition-colors " +
-                        (active
-                          ? "border-indigo-light bg-indigo-tint text-indigo"
-                          : "border-line bg-surface text-ink-500 hover:border-indigo-light")
-                      }
-                    >
-                      <WizardIcon d={evidenceIconPath(t)} size={14} />
-                      {t}
-                    </button>
-                  );
-                })}
-              </div>
-              <div className="mb-4 text-[11.5px] leading-snug text-ink-400">
-                {def.help} · Formatos: {def.formats}
-              </div>
-
-              <label className="mb-[7px] block text-[12.5px] font-bold text-ink-900">
-                Descripción{" "}
-                <span className="font-medium text-ink-400">(opcional)</span>
-              </label>
-              <input
-                value={desc}
-                onChange={(e) => setDesc(e.target.value)}
-                placeholder={def.placeholder}
-                className="mb-[18px] h-11 w-full rounded-[10px] border border-line-input px-[13px] text-[13.5px] text-ink-900 outline-none placeholder:text-ink-400 focus:border-indigo focus:ring-[3px] focus:ring-indigo-tint"
-              />
-
-              <div className="mb-2 text-[12.5px] font-bold text-ink-900">
-                Evidencia
-              </div>
-
-              {/* TODO(wire): reemplazar el botón "Seleccionar archivo" con
-                            un <input type="file"> real que suba al backend */}
-              {!fileName ? (
-                <div className="rounded-xl border-[1.5px] border-dashed border-line-input bg-surface-hover px-5 py-[30px] text-center">
-                  <div className="mb-3 text-sm font-bold text-ink-500">
-                    Arrastrá tu evidencia aquí
-                  </div>
+        {mode === "import" && (
+          <>
+            <div className="mb-[9px] text-[12.5px] font-bold text-ink-900">
+              Tipo de evidencia
+            </div>
+            <div className="mb-3.5 flex flex-wrap items-center gap-[7px]">
+              {TYPES.map((t) => {
+                const active = t === tipo;
+                return (
                   <button
+                    key={t}
                     type="button"
-                    onClick={() => setFileName(def.sample)}
-                    className="h-10 rounded-[9px] border border-line-input bg-surface px-[18px] text-[13.5px] font-semibold text-ink-800 transition-colors hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-action"
+                    onClick={() => handleTipoChange(t)}
+                    className={
+                      "inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-[12.5px] font-bold transition-colors " +
+                      (active
+                        ? "border-indigo-light bg-indigo-tint text-indigo"
+                        : "border-line bg-surface text-ink-500 hover:border-indigo-light")
+                    }
                   >
-                    Seleccionar archivo
+                    <WizardIcon d={evidenceIconPath(t)} size={14} />
+                    {t}
                   </button>
-                </div>
-              ) : (
-                <div className="flex items-center gap-[11px] rounded-xl border-[1.5px] border-success-bd bg-success-bg p-[13px_15px] animate-in">
-                  <span className="grid h-[34px] w-[34px] flex-shrink-0 place-items-center rounded-[9px] bg-success">
-                    <WizardIcon
-                      d="M20 6L9 17l-5-5"
-                      size={17}
-                      className="text-white"
-                      strokeWidth={2.4}
-                    />
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-[13.5px] font-bold text-ink-900">
-                      {fileName}
-                    </div>
-                    <div className="text-[11.5px] text-success-fg">
-                      Lista para subir
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setFileName("")}
-                    aria-label="Quitar archivo"
-                    className="grid h-7 w-7 flex-shrink-0 place-items-center rounded-[7px] border border-success-bd bg-surface transition-colors hover:bg-success-bg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-action"
-                  >
-                    <WizardIcon
-                      d="M18 6L6 18M6 6l12 12"
-                      size={13}
-                      className="text-ink-500"
-                      strokeWidth={2.2}
-                    />
-                  </button>
-                </div>
-              )}
-              <div className="mt-2 text-[11.5px] text-ink-400">
-                Máximo: 25.00 MB
-              </div>
+                );
+              })}
+            </div>
+            <div className="mb-4 text-[11.5px] leading-snug text-ink-400">
+              {def.help} · Formatos aceptados: {def.accept}
+            </div>
 
-              <div className="mt-[22px] flex gap-[11px]">
+            <label className="mb-[7px] block text-[12.5px] font-bold text-ink-900">
+              Descripción{" "}
+              <span className="font-medium text-ink-400">(opcional)</span>
+            </label>
+            <input
+              value={desc}
+              onChange={(e) => setDesc(e.target.value)}
+              placeholder={def.placeholder}
+              className="mb-[18px] h-11 w-full rounded-[10px] border border-line-input px-[13px] text-[13.5px] text-ink-900 outline-none placeholder:text-ink-400 focus:border-indigo focus:ring-[3px] focus:ring-indigo-tint"
+            />
+
+            <div className="mb-2 text-[12.5px] font-bold text-ink-900">
+              Archivo
+            </div>
+
+            {/* Input de archivo oculto */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept={def.accept}
+              className="sr-only"
+              aria-hidden="true"
+              tabIndex={-1}
+              onChange={handleFileChange}
+            />
+
+            {!selectedFile ? (
+              <div className="rounded-xl border-[1.5px] border-dashed border-line-input bg-surface-hover px-5 py-[30px] text-center">
+                <div className="mb-3 text-sm font-bold text-ink-500">
+                  Arrastrá tu evidencia aquí
+                </div>
                 <button
                   type="button"
-                  onClick={submitFile}
-                  disabled={!fileName}
-                  className={
-                    "h-11 flex-1 rounded-[10px] text-sm font-bold text-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-action " +
-                    (fileName
-                      ? "bg-ink-800 hover:bg-ink-900"
-                      : "cursor-not-allowed bg-ink-300")
-                  }
+                  onClick={() => fileInputRef.current?.click()}
+                  className="h-10 rounded-[9px] border border-line-input bg-surface px-[18px] text-[13.5px] font-semibold text-ink-800 transition-colors hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-action"
                 >
-                  Subir evidencia
+                  Seleccionar archivo
                 </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-[11px] rounded-xl border-[1.5px] border-success-bd bg-success-bg p-[13px_15px] animate-in">
+                <span className="grid h-[34px] w-[34px] flex-shrink-0 place-items-center rounded-[9px] bg-success">
+                  <WizardIcon
+                    d="M20 6L9 17l-5-5"
+                    size={17}
+                    className="text-white"
+                    strokeWidth={2.4}
+                  />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[13.5px] font-bold text-ink-900">
+                    {selectedFile.name}
+                  </div>
+                  <div className="text-[11.5px] text-success-fg">
+                    {formatFileSize(selectedFile.size)} · Lista para agregar
+                  </div>
+                </div>
                 <button
                   type="button"
-                  onClick={onClose}
-                  className="h-11 flex-1 rounded-[10px] border border-line-input bg-surface text-sm font-semibold text-ink-700 transition-colors hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-action"
+                  onClick={() => setSelectedFile(null)}
+                  aria-label="Quitar archivo"
+                  className="grid h-7 w-7 flex-shrink-0 place-items-center rounded-[7px] border border-success-bd bg-surface transition-colors hover:bg-success-bg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-action"
                 >
-                  Cancelar
+                  <WizardIcon
+                    d="M18 6L6 18M6 6l12 12"
+                    size={13}
+                    className="text-ink-500"
+                    strokeWidth={2.2}
+                  />
                 </button>
               </div>
-              <div className="mt-3.5 text-center text-[11.5px] leading-relaxed text-ink-300">
-                Esta evidencia se utilizará como contexto para generar o
-                actualizar el documento.
-              </div>
-            </>
-          ))}
+            )}
+            <div className="mt-2 text-[11.5px] text-ink-400">Máximo: 25 MB</div>
+
+            <div className="mt-[22px] flex gap-[11px]">
+              <button
+                type="button"
+                onClick={submitFile}
+                disabled={!selectedFile}
+                className={
+                  "h-11 flex-1 rounded-[10px] text-sm font-bold text-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-action " +
+                  (selectedFile
+                    ? "bg-ink-800 hover:bg-ink-900"
+                    : "cursor-not-allowed bg-ink-300")
+                }
+              >
+                Agregar evidencia
+              </button>
+              <button
+                type="button"
+                onClick={onClose}
+                className="h-11 flex-1 rounded-[10px] border border-line-input bg-surface text-sm font-semibold text-ink-700 transition-colors hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-action"
+              >
+                Cancelar
+              </button>
+            </div>
+            <div className="mt-3.5 text-center text-[11.5px] leading-relaxed text-ink-300">
+              Las evidencias se procesan cuando generás el borrador.
+            </div>
+          </>
+        )}
 
         {/* ============================================================
             MODO RECORD
         ============================================================ */}
         {mode === "record" && (
           <>
-            {recPhase === "idle" && (
+            {/* Error de acceso al micrófono */}
+            {recError && (
+              <div
+                role="alert"
+                className="mb-4 rounded-[10px] border border-danger-bd bg-danger-bg p-[11px_13px] text-[12.5px] text-danger"
+              >
+                {recError}
+              </div>
+            )}
+
+            {recPhase === "idle" || recPhase === "error" ? (
               <div className="flex flex-col items-center gap-3.5 py-[14px]">
                 <button
                   type="button"
@@ -370,7 +420,7 @@ export function AddEvidenceModal({
                 </div>
                 <RecordHint />
               </div>
-            )}
+            ) : null}
 
             {recPhase === "rec" && (
               <div className="flex flex-col items-center gap-4 py-2">
@@ -384,7 +434,11 @@ export function AddEvidenceModal({
                     />
                   </span>
                 </span>
-                <div className="font-mono text-[26px] font-extrabold text-ink-900">
+                <div
+                  className="font-mono text-[26px] font-extrabold text-ink-900"
+                  aria-live="polite"
+                  aria-label={`Tiempo de grabación: ${formatSecs(recSecs)}`}
+                >
                   {formatSecs(recSecs)}
                 </div>
                 <button
@@ -392,21 +446,14 @@ export function AddEvidenceModal({
                   onClick={stopRec}
                   className="inline-flex h-11 items-center gap-2 rounded-pill bg-ink-800 px-[22px] text-sm font-bold text-white transition-colors hover:bg-ink-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-action"
                 >
-                  <span className="h-3 w-3 rounded-[3px] bg-white" />
+                  <span className="h-3 w-3 rounded-[3px] bg-white" aria-hidden="true" />
                   Detener
                 </button>
                 <RecordHint />
               </div>
             )}
 
-            {recPhase === "saving" && (
-              <ProcessingSteps
-                steps={["Audio guardado", "Transcribiendo…", "Detectando idioma…", "Listo"]}
-                current={recStep}
-              />
-            )}
-
-            {recPhase === "done" && (
+            {recPhase === "done" && recBlob && (
               <>
                 <div className="mb-4 flex items-center gap-[11px] rounded-xl border-[1.5px] border-success-bd bg-success-bg p-[13px_15px] animate-in">
                   <span className="grid h-9 w-9 flex-shrink-0 place-items-center rounded-[9px] bg-success">
@@ -421,16 +468,12 @@ export function AddEvidenceModal({
                       Grabación lista
                     </div>
                     <div className="font-mono text-[11.5px] text-success-fg">
-                      audio · {formatSecs(recSecs)}
+                      audio · {formatSecs(recSecs)} · {formatFileSize(recBlob.size)}
                     </div>
                   </div>
                   <button
                     type="button"
-                    onClick={() => {
-                      setRecPhase("idle");
-                      setRecSecs(0);
-                      setRecDesc("");
-                    }}
+                    onClick={resetRec}
                     title="Regrabar"
                     aria-label="Regrabar"
                     className="grid h-[30px] w-[30px] flex-shrink-0 place-items-center rounded-[7px] border border-success-bd bg-surface transition-colors hover:bg-success-bg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-action"
@@ -460,7 +503,7 @@ export function AddEvidenceModal({
                     onClick={addRecording}
                     className="h-11 flex-1 rounded-[10px] bg-success text-sm font-bold text-white transition-colors hover:bg-success-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-action"
                   >
-                    Agregar evidencia
+                    Agregar grabación
                   </button>
                   <button
                     type="button"
@@ -488,8 +531,7 @@ function RecordHint() {
         className="mt-px flex-shrink-0 text-indigo"
       />
       <span className="text-[11.5px] leading-relaxed text-ink-500">
-        El audio se transcribirá automáticamente y se incorporará como
-        evidencia del documento.
+        El audio se transcribirá automáticamente al generar el borrador.
       </span>
     </div>
   );
