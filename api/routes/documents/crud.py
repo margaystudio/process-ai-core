@@ -82,6 +82,36 @@ def _extract_open_questions_metadata(session, doc: Document) -> Optional[dict[st
     }
 
 
+def _version_number(session, doc) -> Optional[int]:
+    """Número de la versión aprobada vigente (para 'vN · Oficial'); None si no hay."""
+    approved_id = getattr(doc, "approved_version_id", None)
+    if not approved_id:
+        return None
+    row = (
+        session.query(DocumentVersion.version_number)
+        .filter(DocumentVersion.id == approved_id)
+        .first()
+    )
+    return row[0] if row else None
+
+
+def _to_document_response(session, doc, *, include_metadata: bool = False) -> DocumentResponse:
+    """Serializa un Document (o subclase) a DocumentResponse. Fuente ÚNICA."""
+    return DocumentResponse(
+        id=doc.id,
+        workspace_id=doc.workspace_id,
+        folder_id=doc.folder_id,
+        domain=getattr(doc, "domain", "process"),
+        document_type=getattr(doc, "document_type", "procedimiento"),
+        version_number=_version_number(session, doc),
+        name=doc.name,
+        description=doc.description,
+        status=doc.status,
+        metadata=_extract_open_questions_metadata(session, doc) if include_metadata else None,
+        created_at=doc.created_at.isoformat(),
+    )
+
+
 @router.get("/pending-approval", response_model=list[DocumentResponse])
 async def list_documents_pending_approval(
     user_id: str = Depends(get_current_user_id),
@@ -137,17 +167,7 @@ async def list_documents_pending_approval(
         documents = [d for d in documents if can_approve_in_folder(session, user_id, workspace_id, d.folder_id)]
 
         return [
-            DocumentResponse(
-                id=doc.id,
-                workspace_id=doc.workspace_id,
-                folder_id=doc.folder_id,
-                domain=doc.domain,
-                document_type=getattr(doc, "document_type", "procedimiento"),
-                name=doc.name,
-                description=doc.description,
-                status=doc.status,
-                created_at=doc.created_at.isoformat(),
-            )
+            _to_document_response(session, doc)
             for doc in documents
         ]
 
@@ -187,17 +207,7 @@ async def list_documents_to_review(
         documents = [d for d in documents if can_view_folder(session, user_id, workspace_id, d.folder_id)]
 
         return [
-            DocumentResponse(
-                id=doc.id,
-                workspace_id=doc.workspace_id,
-                folder_id=doc.folder_id,
-                domain=doc.domain,
-                document_type=getattr(doc, "document_type", "procedimiento"),
-                name=doc.name,
-                description=doc.description,
-                status=doc.status,
-                created_at=doc.created_at.isoformat(),
-            )
+            _to_document_response(session, doc)
             for doc in documents
         ]
 
@@ -261,17 +271,7 @@ async def list_documents(
         documents = [d for d in documents if can_view_folder(session, user_id, workspace_id, d.folder_id)]
 
         return [
-            DocumentResponse(
-                id=doc.id,
-                workspace_id=doc.workspace_id,
-                folder_id=doc.folder_id,
-                domain=doc.domain,
-                document_type=getattr(doc, "document_type", "procedimiento"),
-                name=doc.name,
-                description=doc.description,
-                status=doc.status,
-                created_at=doc.created_at.isoformat(),
-            )
+            _to_document_response(session, doc)
             for doc in documents
         ]
 
@@ -335,17 +335,7 @@ async def import_documents(
                     user_id=user_id,
                 )
                 created.append(
-                    DocumentResponse(
-                        id=process.id,
-                        workspace_id=process.workspace_id,
-                        folder_id=process.folder_id,
-                        domain=process.domain,
-                        document_type=getattr(process, "document_type", "procedimiento"),
-                        name=process.name,
-                        description=process.description,
-                        status=process.status,
-                        created_at=process.created_at.isoformat(),
-                    )
+                    _to_document_response(session, process)
                 )
 
             update_workspace_storage_usage(session, workspace_id)
@@ -428,18 +418,7 @@ async def get_document(
                 # Por ahora, solo retornamos los campos básicos
                 pass
 
-        return DocumentResponse(
-            id=doc.id,
-            workspace_id=doc.workspace_id,
-            folder_id=doc.folder_id,
-            domain=doc.domain,
-            document_type=getattr(doc, "document_type", "procedimiento"),
-            name=doc.name,
-            description=doc.description,
-            status=doc.status,
-            metadata=_extract_open_questions_metadata(session, doc),
-            created_at=doc.created_at.isoformat(),
-        )
+        return _to_document_response(session, doc, include_metadata=True)
 
 
 @router.put("/{document_id}", response_model=DocumentResponse)
@@ -560,17 +539,7 @@ async def update_document(
             if process:
                 session.refresh(process)
 
-        return DocumentResponse(
-            id=doc.id,
-            workspace_id=doc.workspace_id,
-            folder_id=doc.folder_id,
-            domain=doc.domain,
-            document_type=getattr(doc, "document_type", "procedimiento"),
-            name=doc.name,
-            description=doc.description,
-            status=doc.status,
-            created_at=doc.created_at.isoformat(),
-        )
+        return _to_document_response(session, doc)
 
 
 @router.delete("/{document_id}")
