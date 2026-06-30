@@ -8,3 +8,5 @@ export { Sidebar, type NavItem, type NavGroup } from "./Sidebar";
 export { AppShell } from "./AppShell";
 export { OptionSet, type Option } from "./OptionSet";
 export { Uploader } from "./Uploader";
+export { StatusBadge, VersionPill, ESTADO_LABEL, type DocumentEstado } from "./StatusBadge";
+export { Chip, type ChipProps } from "./Chip";

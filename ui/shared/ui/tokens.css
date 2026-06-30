@@ -69,6 +69,40 @@
   --sidebar-muted:      var(--ink-400);
   --sidebar-item-hover: rgba(255,255,255,.07);
   --sidebar-border:     rgba(255,255,255,.08);
+
+  /* ---- Tokens de borde (del prototipo Process AI) ---- */
+  --line:        #E5E8EA;
+  --line-soft:   #EDEFF1;
+  --line-softer: #F4F5F6;
+  --line-input:  #D2D6D8;
+
+  /* ---- Superficies (del prototipo Process AI) ---- */
+  --surface:       #FFFFFF;
+  --surface-app:   #F7F8F9;
+  --surface-hover: #FAFBFB;
+  --surface-track: #EDEFF1;
+
+  /* ---- Tono indigo / IA / acento process ---- */
+  --indigo:        #48569C;
+  --indigo-light:  #ADB9DF;
+  --indigo-tint:   rgba(173,185,223,0.16);
+  --indigo-border: #D2CFE6;
+
+  /* ---- Tono teal (importación / sistemas) ---- */
+  --teal: #2E8B8B;
+
+  /* ---- Tono violet (personas / roles) ---- */
+  --violet: #8B5CC2;
+
+  /* ---- Sombras del prototipo ---- */
+  --sh-card:   0 1px 3px rgba(20,28,33,.05);
+  --sh-raised: 0 4px 16px rgba(20,28,33,.06);
+  --sh-modal:  0 24px 60px rgba(20,28,33,.28);
+  --sh-menu:   0 12px 32px rgba(20,28,33,.18);
+  --sh-drawer: -12px 0 40px rgba(20,28,33,.2);
+
+  /* ---- Radio pill ---- */
+  --r-pill: 999px;
 }
 
 /* Acento por módulo: poné data-module en un contenedor y --accent cambia solo */

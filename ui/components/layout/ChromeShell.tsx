@@ -3,12 +3,14 @@
 import { usePathname, useRouter } from 'next/navigation'
 import {
   FileText,
-  ListChecks,
-  ClipboardList,
-  Eye,
+  CheckSquare,
   Plus,
-  Settings,
-  UserCircle,
+  Upload,
+  BarChart2,
+  Folder,
+  List,
+  Users,
+  Circle,
 } from 'lucide-react'
 import { AppShell, Topbar, Sidebar, type NavGroup, type TopbarTenant } from '@/shared/ui/components'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
@@ -63,27 +65,88 @@ export default function ChromeShell({ children }: { children: React.ReactNode })
     .filter((ws) => ws.tenant_id)
     .map((ws) => ({ id: ws.tenant_id as string, name: ws.name }))
 
+  // Secciones del sidebar — estructura del prototipo
   const groups: NavGroup[] = [
     {
-      label: 'Documentos',
+      label: 'Biblioteca',
       items: [
-        { label: 'Documentos', icon: <FileText />, active: active('/workspace', true), onClick: go('/workspace') },
-        { label: 'Por aprobar', icon: <ListChecks />, active: active('/dashboard/approval-queue'), onClick: go('/dashboard/approval-queue') },
-        { label: 'En revisión', icon: <ClipboardList />, active: active('/dashboard/to-review'), onClick: go('/dashboard/to-review') },
-        { label: 'Aprobados', icon: <Eye />, active: active('/dashboard/view'), onClick: go('/dashboard/view') },
+        {
+          label: 'Biblioteca',
+          icon: <FileText />,
+          active: active('/workspace', true),
+          onClick: go('/workspace'),
+        },
+        {
+          label: 'Por aprobar',
+          icon: <CheckSquare />,
+          active: active('/dashboard/approval-queue'),
+          onClick: go('/dashboard/approval-queue'),
+        },
       ],
     },
     {
       label: 'Crear',
       items: [
-        { label: 'Nuevo proceso', icon: <Plus />, active: active('/processes/new'), onClick: go('/processes/new') },
+        {
+          label: 'Nuevo documento',
+          icon: <Plus />,
+          active: active('/processes/new'),
+          onClick: go('/processes/new'),
+        },
+        {
+          label: 'Importar documentación',
+          icon: <Upload />,
+          // No tiene ruta propia — se abre modal desde Biblioteca
+          active: false,
+          onClick: go('/workspace'),
+        },
       ],
     },
     {
-      label: 'Cuenta',
+      label: 'Análisis',
       items: [
-        { label: 'Configuración', icon: <Settings />, active: Boolean(pathname?.includes('/settings')), onClick: go(settingsPath) },
-        { label: 'Mi perfil', icon: <UserCircle />, active: active('/profile'), onClick: go('/profile') },
+        {
+          label: 'Panel de control',
+          icon: <BarChart2 />,
+          active: active('/dashboard/view'),
+          onClick: go('/dashboard/view'),
+        },
+      ],
+    },
+    {
+      label: 'Administración',
+      items: [
+        {
+          label: 'Carpetas',
+          icon: <Folder />,
+          active: Boolean(pathname?.includes('/settings') && pathname?.includes('folders')),
+          onClick: go(settingsPath),
+        },
+        {
+          label: 'Tipo de documentos',
+          icon: <List />,
+          // placeholder — pantalla aún no implementada
+          active: false,
+          onClick: undefined,
+        },
+        {
+          label: 'Usuarios y roles',
+          icon: <Users />,
+          active: Boolean(pathname?.includes('/settings')),
+          onClick: go(settingsPath),
+        },
+      ],
+    },
+    {
+      label: 'Asistente',
+      items: [
+        {
+          label: 'Tyto',
+          icon: <Circle />,
+          // placeholder — pantalla aún no implementada
+          active: false,
+          onClick: undefined,
+        },
       ],
     },
   ]
