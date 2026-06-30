@@ -169,6 +169,8 @@ export interface Document {
   name: string;
   description: string;
   status: string;
+  /** Número de la versión aprobada actual (null si no hay versión aprobada aún). */
+  version_number?: number | null;
   metadata?: DocumentMetadata;
   created_at: string;
 }

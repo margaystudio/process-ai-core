@@ -164,6 +164,8 @@ interface Props {
   onSelect: (id: string | null) => void
   allDocuments: DocType[]
   totalCount: number
+  /** Callback para que el padre conozca la lista plana de folders cargados */
+  onFoldersLoaded?: (folders: Folder[]) => void
 }
 
 export default function BibliotecaFolderTree({
@@ -172,6 +174,7 @@ export default function BibliotecaFolderTree({
   onSelect,
   allDocuments,
   totalCount,
+  onFoldersLoaded,
 }: Props) {
   const { activeTenantId } = useWorkspace()
   const [folders, setFolders] = useState<Folder[]>([])
@@ -184,8 +187,14 @@ export default function BibliotecaFolderTree({
     }
     setLoading(true)
     listFolders(workspaceId)
-      .then(setFolders)
-      .catch(() => setFolders([]))
+      .then((data) => {
+        setFolders(data)
+        onFoldersLoaded?.(data)
+      })
+      .catch(() => {
+        setFolders([])
+        onFoldersLoaded?.([])
+      })
       .finally(() => setLoading(false))
   }, [workspaceId, activeTenantId])
 
