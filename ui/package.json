@@ -5,9 +5,9 @@
   "scripts": {
     "dev:setup": "bash scripts/dev-setup.sh",
     "dev:setup:win": "powershell -ExecutionPolicy Bypass -File scripts/dev-setup.ps1",
-    "dev": "next dev -p 3000 -H process.local.margaystudio.io --experimental-https --experimental-https-key .certs/local-margay-key.pem --experimental-https-cert .certs/local-margay.pem",
-    "dev:plain": "next dev",
-    "dev:test": "cross-env NODE_ENV=test next dev --port 3001",
+    "dev": "cross-env NODE_OPTIONS=--max-http-header-size=65536 next dev -p 3000 -H process.local.margaystudio.io --experimental-https --experimental-https-key .certs/local-margay-key.pem --experimental-https-cert .certs/local-margay.pem",
+    "dev:plain": "cross-env NODE_OPTIONS=--max-http-header-size=65536 next dev",
+    "dev:test": "cross-env NODE_ENV=test NODE_OPTIONS=--max-http-header-size=65536 next dev --port 3001",
     "build": "next build",
     "build:test": "cross-env NODE_ENV=test next build",
     "build:prod": "next build",
