@@ -642,6 +642,10 @@ class DocumentVersion(Base):
     pdf_generated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     pdf_render_engine: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
+    # Archivo fuente de documentos importados (no generados por pipeline).
+    source_file_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_file_name: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
     # Usuario que creó esta versión (nullable inicialmente, preparado para backfill)
     created_by: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     

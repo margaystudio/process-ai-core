@@ -30,3 +30,4 @@ ops/ui/releases/*
 !ops/api/releases/.gitkeep
 !ops/ui/releases/.gitkeep
 ui/node_modules/
+/.venv312
