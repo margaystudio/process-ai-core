@@ -109,7 +109,7 @@ def create_imported_document(
         id=document_id,
         workspace_id=workspace_id,
         folder_id=folder_id,
-        document_type="process",
+        domain="process",
         name=display_name,
         description=f"Archivo importado: {filename}",
         audience="",
