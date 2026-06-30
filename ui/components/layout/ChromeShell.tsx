@@ -90,8 +90,8 @@ export default function ChromeShell({ children }: { children: React.ReactNode })
         {
           label: 'Nuevo documento',
           icon: <Plus />,
-          active: active('/processes/new'),
-          onClick: go('/processes/new'),
+          active: active('/documents/new'),
+          onClick: go('/documents/new'),
         },
         {
           label: 'Importar documentación',

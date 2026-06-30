@@ -287,7 +287,7 @@ function EmptyState({ canCreate, onImport }: { canCreate: boolean; onImport: () 
       {canCreate && (
         <div className="flex items-center justify-center gap-2.5">
           <a
-            href="/processes/new"
+            href="/documents/new"
             className="inline-flex h-[42px] items-center gap-2 rounded-[10px] bg-ink-800 px-[18px] text-[13.5px] font-bold text-white hover:bg-ink-900"
           >
             <SvgIcon d={ICON.plus} size={16} />
@@ -482,7 +482,7 @@ export default function WorkspacePage() {
                   Importar
                 </button>
                 <a
-                  href="/processes/new"
+                  href="/documents/new"
                   className="inline-flex h-[38px] items-center gap-2 rounded-[10px] bg-ink-800 px-4 text-[13px] font-bold text-white hover:bg-ink-900"
                 >
                   <Plus size={15} aria-hidden="true" />
