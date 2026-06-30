@@ -83,6 +83,25 @@ gpu=pulso · insights=ojo/lente. También como SVG en `brand/modules/<mod>.svg` 
   se tiñe con el acento del módulo.
 - `<Uploader accept hint onFile>` — dropzone de carga (resalta con el acento al arrastrar).
 - `<AppShell>`, `<Topbar>`, `<Sidebar>`, `<ModuleEmblem>` — el chrome descrito arriba.
+- `<StatusBadge estado>` — badge de estado de documento con punto de color. Acepta
+  el status de API (`approved`, `pending_validation`, `draft`, etc.) y lo traduce a la
+  etiqueta visible (Aprobado/Pendiente/Borrador/Archivado). Colores por token semántico.
+  Helper `ESTADO_LABEL` para mapear status API → etiqueta. Tipo `DocumentEstado`.
+- `<VersionPill estado label>` — pastilla inline de versión/estado para densidad alta.
+- `<Chip active onClick>` — filtro pill. Activo = tint indigo. Usado en Biblioteca.
+
+### Tokens nuevos (portados del prototipo Process AI)
+Agregados en `tokens.css` y expuestos en `tailwind-preset.ts`:
+- **Bordes:** `border-line`, `border-line-soft`, `border-line-softer`, `border-line-input`.
+- **Superficies:** `bg-surface` (white), `bg-surface-app` (#F7F8F9), `bg-surface-hover`, `bg-surface-track`.
+- **Indigo / IA:** `text-indigo`, `bg-indigo-tint`, `border-indigo-border`, `text-indigo-light`.
+- **Complementarios:** `text-teal`, `text-violet`, `text-amber`, `bg-amber-bg`.
+- **Sombras:** `shadow-card`, `shadow-raised`, `shadow-modal`, `shadow-menu`, `shadow-drawer`.
+- **Radio pill:** `rounded-pill` (999px).
+- **Animación:** `animate-in` (slideUp .3s ease).
+
+Nota: `bg-surface` y `text-surface-*` coexisten con `bg-white`/`bg-ink-50`; usá los tokens
+semánticos del prototipo en las pantallas de Process AI para máxima fidelidad visual.
 
 ### Ejemplo de uso
 ```tsx

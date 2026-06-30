@@ -164,10 +164,13 @@ export interface Document {
   id: string;
   workspace_id: string;
   folder_id?: string;
-  document_type: string;
+  domain: string;
+  document_type?: string;
   name: string;
   description: string;
   status: string;
+  /** Número de la versión aprobada actual (null si no hay versión aprobada aún). */
+  version_number?: number | null;
   metadata?: DocumentMetadata;
   created_at: string;
 }
@@ -177,6 +180,7 @@ export interface DocumentUpdateRequest {
   description?: string;
   status?: string;
   folder_id?: string;
+  document_type?: string;
   audience?: string;
   detail_level?: string;
   context_text?: string;
@@ -249,6 +253,32 @@ export async function createRecipeRun(
   }
 
   return response.json();
+}
+
+/**
+ * Importa archivos como documentos en una carpeta.
+ */
+export async function importDocuments(formData: FormData): Promise<Document[]> {
+  const { getAccessToken } = await import('@/lib/api-auth')
+  const token = await getAccessToken()
+
+  const headers: HeadersInit = {}
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`
+  }
+
+  const response = await fetch(`${API_URL}/api/v1/documents/import`, {
+    method: 'POST',
+    headers,
+    body: formData,
+  })
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }))
+    throw new Error(error.detail || `HTTP ${response.status}`)
+  }
+
+  return response.json()
 }
 
 /**
@@ -616,219 +646,6 @@ export async function updateWorkspaceSettings(
   return normalizeWorkspaceResponse(data)
 }
 
-export interface ContextFileResponse {
-  id: string
-  workspace_id: string
-  folder_id?: string | null
-  name: string
-  size: number
-  file_type: string
-  content?: string | null
-  created_at: string
-}
-
-export interface ContextFolderResponse {
-  id: string
-  workspace_id: string
-  name: string
-  path: string
-  parent_id?: string | null
-  sort_order: number
-  created_at: string
-}
-
-export interface ContextFolderCreateRequest {
-  name: string
-  parent_id?: string | null
-}
-
-/**
- * Lista archivos de contexto de un workspace.
- */
-export async function listContextFiles(workspaceId: string): Promise<ContextFileResponse[]> {
-  const { getAccessToken } = await import('@/lib/api-auth')
-  const token = await getAccessToken()
-  const headers: HeadersInit = {}
-  if (token) headers['Authorization'] = `Bearer ${token}`
-
-  const response = await fetch(`${API_URL}/api/v1/workspaces/${workspaceId}/context-files`, { headers })
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }))
-    throw new Error(error.detail || `HTTP ${response.status}`)
-  }
-  return response.json()
-}
-
-/**
- * Lista carpetas jerárquicas de contexto de un workspace.
- */
-export async function listContextFolders(workspaceId: string): Promise<ContextFolderResponse[]> {
-  const { getAccessToken } = await import('@/lib/api-auth')
-  const token = await getAccessToken()
-  const headers: HeadersInit = {}
-  if (token) headers['Authorization'] = `Bearer ${token}`
-
-  const response = await fetch(`${API_URL}/api/v1/workspaces/${workspaceId}/context-folders`, { headers })
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }))
-    throw new Error(error.detail || `HTTP ${response.status}`)
-  }
-  return response.json()
-}
-
-/**
- * Crea una carpeta de contexto.
- */
-export async function createContextFolder(
-  workspaceId: string,
-  request: ContextFolderCreateRequest
-): Promise<ContextFolderResponse> {
-  const { getAccessToken } = await import('@/lib/api-auth')
-  const token = await getAccessToken()
-  const headers: HeadersInit = { 'Content-Type': 'application/json' }
-  if (token) headers['Authorization'] = `Bearer ${token}`
-
-  const response = await fetch(`${API_URL}/api/v1/workspaces/${workspaceId}/context-folders`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(request),
-  })
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }))
-    throw new Error(error.detail || `HTTP ${response.status}`)
-  }
-  return response.json()
-}
-
-/**
- * Mueve o renombra una carpeta de contexto.
- */
-export async function moveContextFolder(
-  workspaceId: string,
-  folderId: string,
-  request: { parent_id?: string | null; name?: string }
-): Promise<ContextFolderResponse> {
-  const { getAccessToken } = await import('@/lib/api-auth')
-  const token = await getAccessToken()
-  const headers: HeadersInit = { 'Content-Type': 'application/json' }
-  if (token) headers['Authorization'] = `Bearer ${token}`
-
-  const response = await fetch(`${API_URL}/api/v1/workspaces/${workspaceId}/context-folders/${folderId}`, {
-    method: 'PATCH',
-    headers,
-    body: JSON.stringify(request),
-  })
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }))
-    throw new Error(error.detail || `HTTP ${response.status}`)
-  }
-  return response.json()
-}
-
-/**
- * Sube un archivo de contexto a un workspace.
- */
-export async function uploadContextFile(
-  workspaceId: string,
-  file: File,
-  folderId?: string | null
-): Promise<ContextFileResponse> {
-  const { getAccessToken } = await import('@/lib/api-auth')
-  const token = await getAccessToken()
-  const headers: HeadersInit = {}
-  if (token) headers['Authorization'] = `Bearer ${token}`
-
-  const formData = new FormData()
-  formData.append('file', file)
-  if (folderId) formData.append('folder_id', folderId)
-
-  const response = await fetch(`${API_URL}/api/v1/workspaces/${workspaceId}/context-files`, {
-    method: 'POST',
-    headers,
-    body: formData,
-  })
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }))
-    throw new Error(error.detail || `HTTP ${response.status}`)
-  }
-  return response.json()
-}
-
-/**
- * Mueve un archivo de contexto a otra carpeta o a raíz.
- */
-export async function moveContextFile(
-  workspaceId: string,
-  fileId: string,
-  folderId?: string | null
-): Promise<ContextFileResponse> {
-  const { getAccessToken } = await import('@/lib/api-auth')
-  const token = await getAccessToken()
-  const headers: HeadersInit = { 'Content-Type': 'application/json' }
-  if (token) headers['Authorization'] = `Bearer ${token}`
-
-  const response = await fetch(`${API_URL}/api/v1/workspaces/${workspaceId}/context-files/${fileId}/move`, {
-    method: 'PATCH',
-    headers,
-    body: JSON.stringify({ folder_id: folderId ?? null }),
-  })
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }))
-    throw new Error(error.detail || `HTTP ${response.status}`)
-  }
-  return response.json()
-}
-
-/**
- * Elimina un archivo de contexto.
- */
-export async function deleteContextFile(workspaceId: string, fileId: string): Promise<void> {
-  const { getAccessToken } = await import('@/lib/api-auth')
-  const token = await getAccessToken()
-  const headers: HeadersInit = {}
-  if (token) headers['Authorization'] = `Bearer ${token}`
-
-  const response = await fetch(`${API_URL}/api/v1/workspaces/${workspaceId}/context-files/${fileId}`, {
-    method: 'DELETE',
-    headers,
-  })
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }))
-    throw new Error(error.detail || `HTTP ${response.status}`)
-  }
-}
-
-/**
- * Descarga un archivo de contexto.
- */
-export async function downloadContextFile(
-  workspaceId: string,
-  fileId: string,
-  filename: string
-): Promise<void> {
-  const { getAccessToken } = await import('@/lib/api-auth')
-  const token = await getAccessToken()
-  const headers: HeadersInit = {}
-  if (token) headers['Authorization'] = `Bearer ${token}`
-
-  const response = await fetch(
-    `${API_URL}/api/v1/workspaces/${workspaceId}/context-files/${fileId}/download`,
-    { headers }
-  )
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }))
-    throw new Error(error.detail || `HTTP ${response.status}`)
-  }
-
-  const blob = await response.blob()
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  a.click()
-  URL.revokeObjectURL(url)
-}
-
 /**
  * Obtiene las opciones del catálogo para un dominio.
  */
@@ -1157,7 +974,7 @@ export async function listDocuments(workspaceId?: string, folderId?: string, doc
     const headers = await getAuthHeaders({})
 
     const url = new URL(`${API_URL}/api/v1/documents`)
-    url.searchParams.append('document_type', documentType)
+    url.searchParams.append('domain', documentType)
     if (folderId) {
       url.searchParams.append('folder_id', folderId)
     }

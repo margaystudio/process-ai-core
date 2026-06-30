@@ -42,3 +42,11 @@ def version_asset_key(
 ) -> str:
     ext = ext.lstrip(".")
     return f"{version_prefix(workspace_id, document_id, version_id)}/assets/{asset_id}.{ext}"
+
+
+def version_source_file_key(
+    workspace_id: str, document_id: str, version_id: str, filename: str
+) -> str:
+    """Clave del archivo original importado (conserva extensión del nombre)."""
+    safe = filename.replace("\\", "/").split("/")[-1] or "source.bin"
+    return f"{version_prefix(workspace_id, document_id, version_id)}/source/{safe}"

@@ -45,6 +45,7 @@ async def create_process_run(
     context_text: str = Form(None),
     description: str = Form(None),  # Opcional: si no se proporciona, la IA la inferirá
     folder_id: str = Form(...),  # Requerido
+    document_type: str = Form("procedimiento"),  # Tipo documental del catálogo
     audio_files: List[UploadFile] = File(default=[]),
     video_files: List[UploadFile] = File(default=[]),
     image_files: List[UploadFile] = File(default=[]),
@@ -298,6 +299,7 @@ async def create_process_run(
                     audience=mode.value,
                     detail_level=detail_level or "",
                     context_text=context_text or "",
+                    document_type=document_type or "procedimiento",
                 )
                 
                 # Asegurar que el document.id esté disponible
@@ -308,7 +310,7 @@ async def create_process_run(
                 run = create_run(
                     session=db_session,
                     document_id=document_id,
-                    document_type="process",
+                    domain="process",
                     profile=mode.value,
                     run_id=run_id,  # Usar el ID que ya generamos
                 )

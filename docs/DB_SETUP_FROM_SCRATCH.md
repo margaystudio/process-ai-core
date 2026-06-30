@@ -18,17 +18,19 @@ SQLite en archivo **ya no se usa** (local, test y prod apuntan a Supabase Postgr
 1. Copiá `.env.example` → `.env` (o `.env.local`).
 2. Completá `DATABASE_URL` con la URI del **Transaction pooler** (puerto 6543) del dashboard de Supabase.
 3. Dejá `DATABASE_SCHEMA=process_ai`.
-4. Aplicá el schema y tablas:
+4. Aplicá el schema y tablas con **Alembic** (forma canónica desde ahora):
 
    ```bash
-   # Opcional: SQL manual en Supabase SQL Editor
-   # migrations/001_create_schema.sql
-
-   python tools/init_db.py
+   alembic upgrade head          # crea el schema process_ai + todas las tablas
    python tools/seed_permissions.py
    python tools/seed_subscription_plans.py
    python tools/seed_catalogs.py
    ```
+
+   > **Migraciones:** ver `alembic/README.md`. Para cambios de esquema, editar los
+   > modelos y generar la migración con `alembic revision --autogenerate -m "..."`.
+   > `tools/init_db.py` (create_all directo) queda como **legacy** para bootstrap
+   > rápido; el flujo versionado es Alembic.
 
 ## PostgreSQL (test / producción)
 

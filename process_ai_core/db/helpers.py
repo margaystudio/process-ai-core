@@ -360,6 +360,7 @@ def create_process_document(
     audience: str = "",
     detail_level: str = "",
     context_text: str = "",
+    document_type: str = "procedimiento",
 ) -> Process:
     """
     Crea un Process (hereda de Document).
@@ -387,7 +388,8 @@ def create_process_document(
     process = Process(
         workspace_id=workspace_id,
         folder_id=folder_id,
-        document_type="process",
+        domain="process",
+        document_type=document_type or "procedimiento",
         name=name,
         description=description,
         audience=audience,
@@ -401,7 +403,7 @@ def create_process_document(
 def create_run(
     session: Session,
     document_id: str,
-    document_type: str,
+    domain: str,
     profile: str = "",
     run_id: str | None = None,
 ) -> "Run":
@@ -411,7 +413,7 @@ def create_run(
     Args:
         session: Sesión de base de datos
         document_id: ID del documento asociado
-        document_type: Tipo de documento ("process" | "recipe" | ...)
+        domain: Tipo de documento ("process" | "recipe" | ...)
         profile: Perfil usado
         run_id: ID opcional para el run (si no se proporciona, se genera uno)
     
@@ -422,7 +424,7 @@ def create_run(
     run = Run(
         id=run_id or str(uuid.uuid4()),
         document_id=document_id,
-        document_type=document_type,
+        domain=domain,
         profile=profile,
     )
     session.add(run)
@@ -446,21 +448,21 @@ def get_workspace_by_slug(session: Session, slug: str) -> Workspace | None:
     return session.query(Workspace).filter_by(slug=slug).first()
 
 
-def get_documents_by_type(session: Session, workspace_id: str, document_type: str) -> list[Document]:
+def get_documents_by_type(session: Session, workspace_id: str, domain: str) -> list[Document]:
     """
     Obtiene todos los documentos de un tipo específico en un workspace.
     
     Args:
         session: Sesión de base de datos
         workspace_id: ID del workspace
-        document_type: Tipo de documento ("process" | "recipe" | ...)
+        domain: Tipo de documento ("process" | "recipe" | ...)
     
     Returns:
-        Lista de documentos (pueden ser Process, Recipe, etc. según document_type)
+        Lista de documentos (pueden ser Process, Recipe, etc. según domain)
     """
     return (
         session.query(Document)
-        .filter_by(workspace_id=workspace_id, document_type=document_type)
+        .filter_by(workspace_id=workspace_id, domain=domain)
         .order_by(Document.created_at.desc())
         .all()
     )
@@ -884,7 +886,7 @@ def submit_version_for_review(
     snapshot_metadata = {
         "document_id": version.document_id,
         "document_name": document.name,
-        "document_type": document.document_type,
+        "domain": document.domain,
         "version_number": version.version_number,
         "version_id": version.id,
         "content_type": version.content_type,
@@ -1526,9 +1528,9 @@ def delete_document(
     session.flush()
     
     # 9. Documento específico (Process/Recipe)
-    if document.document_type == "process":
+    if document.domain == "process":
         session.query(Process).filter_by(id=document_id).delete()
-    elif document.document_type == "recipe":
+    elif document.domain == "recipe":
         session.query(Recipe).filter_by(id=document_id).delete()
     
     # 7. Documento base

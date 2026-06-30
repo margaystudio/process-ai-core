@@ -84,7 +84,7 @@ async def update_document_content(
                 detail="No tiene acceso para editar documentos en esta carpeta"
             )
 
-        if doc.document_type != "process":
+        if doc.domain != "process":
             raise HTTPException(
                 status_code=400,
                 detail="Este endpoint solo funciona para documentos de tipo 'process'"
@@ -196,7 +196,7 @@ async def get_editable_content(
         if not can_view_folder(session, user_id, doc.workspace_id, doc.folder_id):
             raise HTTPException(status_code=403, detail="No tiene acceso a la carpeta de este documento")
 
-        if doc.document_type != "process":
+        if doc.domain != "process":
             raise HTTPException(status_code=400, detail="Solo documentos de tipo process soportan edición manual")
 
         from process_ai_core.db.helpers import check_version_immutable
@@ -323,7 +323,7 @@ async def save_editable_content(
         if not can_create_in_folder(session, user_id, doc.workspace_id, doc.folder_id):
             raise HTTPException(status_code=403, detail="No tiene acceso para editar documentos en esta carpeta")
 
-        if doc.document_type != "process":
+        if doc.domain != "process":
             raise HTTPException(status_code=400, detail="Solo documentos de tipo process")
 
         from process_ai_core.db.helpers import check_version_immutable
@@ -509,7 +509,7 @@ async def patch_document_with_ai(
             if storage_error:
                 raise HTTPException(status_code=402, detail=storage_error)
 
-            if doc.document_type != "process":
+            if doc.domain != "process":
                 raise HTTPException(
                     status_code=400,
                     detail="Este endpoint solo funciona para documentos de tipo 'process'"
@@ -778,7 +778,7 @@ Responde SOLO con el JSON corregido, sin texto adicional.
             new_run = create_run(
                 session=session,
                 document_id=document_id,
-                document_type="process",
+                domain="process",
                 profile=process_audience,
                 run_id=new_run_id,  # Usar el ID pre-generado
             )

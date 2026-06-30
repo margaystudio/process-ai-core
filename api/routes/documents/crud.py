@@ -6,14 +6,14 @@ Incluye los listados especializados (pendientes de aprobación, a revisar).
 
 import json
 import logging
-from typing import Any, Optional
+from typing import Any, Optional, List
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, File, UploadFile, Form
 
 from process_ai_core.db.database import get_db_session
 from process_ai_core.db.models import Document, DocumentVersion, Process, Recipe, Run
 from process_ai_core.db.helpers import delete_document
-from process_ai_core.db.permissions import has_permission, can_view_folder
+from process_ai_core.db.permissions import has_permission, can_view_folder, can_create_in_folder
 
 from api.models.requests import DocumentResponse, DocumentUpdateRequest
 from api.dependencies import get_current_user_id
@@ -82,6 +82,36 @@ def _extract_open_questions_metadata(session, doc: Document) -> Optional[dict[st
     }
 
 
+def _version_number(session, doc) -> Optional[int]:
+    """Número de la versión aprobada vigente (para 'vN · Oficial'); None si no hay."""
+    approved_id = getattr(doc, "approved_version_id", None)
+    if not approved_id:
+        return None
+    row = (
+        session.query(DocumentVersion.version_number)
+        .filter(DocumentVersion.id == approved_id)
+        .first()
+    )
+    return row[0] if row else None
+
+
+def _to_document_response(session, doc, *, include_metadata: bool = False) -> DocumentResponse:
+    """Serializa un Document (o subclase) a DocumentResponse. Fuente ÚNICA."""
+    return DocumentResponse(
+        id=doc.id,
+        workspace_id=doc.workspace_id,
+        folder_id=doc.folder_id,
+        domain=getattr(doc, "domain", "process"),
+        document_type=getattr(doc, "document_type", "procedimiento"),
+        version_number=_version_number(session, doc),
+        name=doc.name,
+        description=doc.description,
+        status=doc.status,
+        metadata=_extract_open_questions_metadata(session, doc) if include_metadata else None,
+        created_at=doc.created_at.isoformat(),
+    )
+
+
 @router.get("/pending-approval", response_model=list[DocumentResponse])
 async def list_documents_pending_approval(
     user_id: str = Depends(get_current_user_id),
@@ -137,16 +167,7 @@ async def list_documents_pending_approval(
         documents = [d for d in documents if can_approve_in_folder(session, user_id, workspace_id, d.folder_id)]
 
         return [
-            DocumentResponse(
-                id=doc.id,
-                workspace_id=doc.workspace_id,
-                folder_id=doc.folder_id,
-                document_type=doc.document_type,
-                name=doc.name,
-                description=doc.description,
-                status=doc.status,
-                created_at=doc.created_at.isoformat(),
-            )
+            _to_document_response(session, doc)
             for doc in documents
         ]
 
@@ -186,16 +207,7 @@ async def list_documents_to_review(
         documents = [d for d in documents if can_view_folder(session, user_id, workspace_id, d.folder_id)]
 
         return [
-            DocumentResponse(
-                id=doc.id,
-                workspace_id=doc.workspace_id,
-                folder_id=doc.folder_id,
-                document_type=doc.document_type,
-                name=doc.name,
-                description=doc.description,
-                status=doc.status,
-                created_at=doc.created_at.isoformat(),
-            )
+            _to_document_response(session, doc)
             for doc in documents
         ]
 
@@ -203,7 +215,7 @@ async def list_documents_to_review(
 @router.get("", response_model=list[DocumentResponse])
 async def list_documents(
     folder_id: Optional[str] = Query(None, description="ID de la carpeta (opcional)"),
-    document_type: str = Query("process", description="Tipo de documento"),
+    domain: str = Query("process", description="Tipo de documento"),
     status: Optional[str] = Query(None, description="Filtrar por estado (draft|pending_validation|approved|rejected|archived)"),
     user_id: str = Depends(get_current_user_id),
     ctx: WorkspaceSessionContext = Depends(get_workspace_context),
@@ -218,7 +230,7 @@ async def list_documents(
         workspace_id: ID del workspace (query parameter, requerido)
         folder_id: ID de la carpeta (query parameter, opcional - si se especifica, solo documentos de esa carpeta)
                    Si es "null" (string), devuelve solo documentos sin carpeta
-        document_type: Tipo de documento (query parameter, default: "process")
+        domain: Tipo de documento (query parameter, default: "process")
         status: Filtrar por estado (query parameter, opcional)
         user_id: ID del usuario autenticado (desde token JWT)
 
@@ -242,7 +254,7 @@ async def list_documents(
 
         query = session.query(Document).filter_by(
             workspace_id=workspace_id,
-            document_type=document_type
+            domain=domain
         )
 
         if folder_id:
@@ -259,18 +271,87 @@ async def list_documents(
         documents = [d for d in documents if can_view_folder(session, user_id, workspace_id, d.folder_id)]
 
         return [
-            DocumentResponse(
-                id=doc.id,
-                workspace_id=doc.workspace_id,
-                folder_id=doc.folder_id,
-                document_type=doc.document_type,
-                name=doc.name,
-                description=doc.description,
-                status=doc.status,
-                created_at=doc.created_at.isoformat(),
-            )
+            _to_document_response(session, doc)
             for doc in documents
         ]
+
+
+@router.post("/import", response_model=list[DocumentResponse])
+async def import_documents(
+    folder_id: str = Form(...),
+    requires_approval: str = Form("true"),
+    files: List[UploadFile] = File(...),
+    user_id: str = Depends(get_current_user_id),
+    ctx: WorkspaceSessionContext = Depends(get_workspace_context),
+):
+    """
+    Importa uno o más archivos como documentos en una carpeta.
+
+    - requires_approval=True (default): documento en DRAFT, entra al flujo de revisión.
+    - requires_approval=False: documento APPROVED de inmediato.
+    """
+    if not files:
+        raise HTTPException(status_code=400, detail="Debe subir al menos un archivo")
+
+    workspace_id = resolve_tenant_workspace_id(ctx)
+    approval_required = str(requires_approval).lower() not in ("false", "0", "no", "")
+
+    with get_db_session() as session:
+        if not has_permission(session, user_id, workspace_id, "documents.create"):
+            raise HTTPException(
+                status_code=403,
+                detail="No tiene permisos para importar documentos en este workspace",
+            )
+
+        if not can_create_in_folder(session, user_id, workspace_id, folder_id):
+            raise HTTPException(
+                status_code=403,
+                detail="No tiene permisos para importar en la carpeta seleccionada",
+            )
+
+        from process_ai_core.db.helpers import enforce_storage_limit, update_workspace_storage_usage
+        from process_ai_core.document_import import create_imported_document
+
+        storage_error = enforce_storage_limit(session, workspace_id)
+        if storage_error:
+            raise HTTPException(status_code=403, detail=storage_error)
+
+        created: list[DocumentResponse] = []
+
+        try:
+            for upload in files:
+                filename = upload.filename or "archivo"
+                file_bytes = await upload.read()
+                if not file_bytes:
+                    raise HTTPException(status_code=400, detail=f"Archivo vacío: {filename}")
+
+                process, _version = create_imported_document(
+                    session=session,
+                    workspace_id=workspace_id,
+                    folder_id=folder_id,
+                    filename=filename,
+                    file_bytes=file_bytes,
+                    requires_approval=approval_required,
+                    user_id=user_id,
+                )
+                created.append(
+                    _to_document_response(session, process)
+                )
+
+            update_workspace_storage_usage(session, workspace_id)
+            session.commit()
+        except ValueError as exc:
+            session.rollback()
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except HTTPException:
+            session.rollback()
+            raise
+        except Exception as exc:
+            session.rollback()
+            logger.exception("Error importando documentos")
+            raise HTTPException(status_code=500, detail=f"Error al importar: {exc}") from exc
+
+        return created
 
 
 @router.get("/{document_id}", response_model=DocumentResponse)
@@ -329,7 +410,7 @@ async def get_document(
             )
 
         # Si es un Process, obtener los campos específicos
-        if doc.document_type == "process":
+        if doc.domain == "process":
             process = session.query(Process).filter_by(id=document_id).first()
             if process:
                 # Retornar con campos extendidos (aunque DocumentResponse no los incluye,
@@ -337,17 +418,7 @@ async def get_document(
                 # Por ahora, solo retornamos los campos básicos
                 pass
 
-        return DocumentResponse(
-            id=doc.id,
-            workspace_id=doc.workspace_id,
-            folder_id=doc.folder_id,
-            document_type=doc.document_type,
-            name=doc.name,
-            description=doc.description,
-            status=doc.status,
-            metadata=_extract_open_questions_metadata(session, doc),
-            created_at=doc.created_at.isoformat(),
-        )
+        return _to_document_response(session, doc, include_metadata=True)
 
 
 @router.put("/{document_id}", response_model=DocumentResponse)
@@ -420,9 +491,11 @@ async def update_document(
             doc.status = request.status
         if request.folder_id is not None:
             doc.folder_id = request.folder_id
+        if request.document_type is not None:
+            doc.document_type = request.document_type
 
         # Actualizar campos específicos según el tipo
-        if doc.document_type == "process":
+        if doc.domain == "process":
             process = session.query(Process).filter_by(id=document_id).first()
             if not process:
                 # Si no existe el Process, crearlo (no debería pasar, pero por seguridad)
@@ -430,7 +503,7 @@ async def update_document(
                     id=document_id,
                     workspace_id=doc.workspace_id,
                     folder_id=doc.folder_id,
-                    document_type="process",
+                    domain="process",
                     name=doc.name,
                     description=doc.description,
                     status=doc.status,
@@ -443,7 +516,7 @@ async def update_document(
                 process.detail_level = request.detail_level
             if request.context_text is not None:
                 process.context_text = request.context_text
-        elif doc.document_type == "recipe":
+        elif doc.domain == "recipe":
             recipe = session.query(Recipe).filter_by(id=document_id).first()
             if recipe:
                 if request.cuisine is not None:
@@ -461,21 +534,12 @@ async def update_document(
         session.refresh(doc)
 
         # Si es Process, refrescar también el Process
-        if doc.document_type == "process":
+        if doc.domain == "process":
             process = session.query(Process).filter_by(id=document_id).first()
             if process:
                 session.refresh(process)
 
-        return DocumentResponse(
-            id=doc.id,
-            workspace_id=doc.workspace_id,
-            folder_id=doc.folder_id,
-            document_type=doc.document_type,
-            name=doc.name,
-            description=doc.description,
-            status=doc.status,
-            created_at=doc.created_at.isoformat(),
-        )
+        return _to_document_response(session, doc)
 
 
 @router.delete("/{document_id}")
@@ -616,7 +680,7 @@ async def get_process_details(
                 detail="No tiene acceso a la carpeta de este documento"
             )
 
-        if doc.document_type != "process":
+        if doc.domain != "process":
             raise HTTPException(
                 status_code=400,
                 detail=f"El documento {document_id} no es un proceso"

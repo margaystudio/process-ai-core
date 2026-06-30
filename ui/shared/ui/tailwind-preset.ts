@@ -49,9 +49,49 @@ const preset: Partial<Config> = {
           hover:   "var(--sidebar-item-hover)",
           border:  "var(--sidebar-border)",
         },
+        /* ---- Tokens de borde (del prototipo Process AI) ---- */
+        line: {
+          DEFAULT: "var(--line)",
+          soft:    "var(--line-soft)",
+          softer:  "var(--line-softer)",
+          input:   "var(--line-input)",
+        },
+        /* ---- Superficies ---- */
+        surface: {
+          DEFAULT: "var(--surface)",
+          app:     "var(--surface-app)",
+          hover:   "var(--surface-hover)",
+          track:   "var(--surface-track)",
+        },
+        /* ---- Indigo / IA / acento process ---- */
+        indigo: {
+          DEFAULT: "var(--indigo)",
+          light:   "var(--indigo-light)",
+          tint:    "var(--indigo-tint)",
+          border:  "var(--indigo-border)",
+        },
+        /* ---- Complementarios ---- */
+        teal:   { DEFAULT: "var(--teal)" },
+        violet: { DEFAULT: "var(--violet)" },
+        /* ---- Amber: alias semántico de warning para el prototipo ---- */
+        amber: {
+          DEFAULT: "var(--warning)",
+          bg:      "var(--warning-bg)",
+          border:  "var(--warning-bd)",
+        },
       },
-      borderRadius: { sm: "var(--r-sm)", md: "var(--r-md)", lg: "var(--r-lg)", xl: "var(--r-xl)" },
-      boxShadow: { xs: "var(--sh-xs)", sm: "var(--sh-sm)", md: "var(--sh-md)", lg: "var(--sh-lg)" },
+      borderRadius: {
+        sm: "var(--r-sm)", md: "var(--r-md)", lg: "var(--r-lg)", xl: "var(--r-xl)",
+        pill: "var(--r-pill)",
+      },
+      boxShadow: {
+        xs: "var(--sh-xs)", sm: "var(--sh-sm)", md: "var(--sh-md)", lg: "var(--sh-lg)",
+        card:   "var(--sh-card)",
+        raised: "var(--sh-raised)",
+        modal:  "var(--sh-modal)",
+        menu:   "var(--sh-menu)",
+        drawer: "var(--sh-drawer)",
+      },
       fontFamily: {
         sans: ["var(--font-jakarta)", "system-ui", "sans-serif"],
         mono: ["ui-monospace", "SFMono-Regular", "Menlo", "monospace"],
@@ -65,6 +105,12 @@ const preset: Partial<Config> = {
         h2: ["19px", { lineHeight: "1.35", fontWeight: "700" }],
         h1: ["24px", { lineHeight: "1.25", fontWeight: "700", letterSpacing: "-.01em" }],
         display: ["30px", { lineHeight: "1.2", fontWeight: "700", letterSpacing: "-.01em" }],
+      },
+      keyframes: {
+        in: { from: { transform: "translateY(9px)" }, to: { transform: "none" } },
+      },
+      animation: {
+        in: "in .3s cubic-bezier(.2,.7,.3,1) both",
       },
     },
   },

@@ -232,7 +232,8 @@ class DocumentUpdateRequest(BaseModel):
     description: Optional[str] = Field(default=None, description="Descripción del documento")
     status: Optional[str] = Field(default=None, description="Estado: draft|active|archived")
     folder_id: Optional[str] = Field(default=None, description="ID de la carpeta")
-    
+    document_type: Optional[str] = Field(default=None, description="Tipo documental del catálogo")
+
     # Campos específicos de Process
     audience: Optional[str] = Field(default=None, description="Audiencia (operativo|gestion)")
     detail_level: Optional[str] = Field(default=None, description="Nivel de detalle")
@@ -297,7 +298,9 @@ class DocumentResponse(BaseModel):
     id: str = Field(..., description="ID único del documento")
     workspace_id: str = Field(..., description="ID del workspace")
     folder_id: Optional[str] = Field(default=None, description="ID de la carpeta")
-    document_type: str = Field(..., description="Tipo: process|recipe")
+    domain: str = Field(..., description="Tipo: process|recipe")
+    document_type: str = Field(default="procedimiento", description="Tipo documental del catálogo")
+    version_number: Optional[int] = Field(default=None, description="Número de la versión aprobada vigente")
     name: str = Field(..., description="Nombre del documento")
     description: str = Field(..., description="Descripción")
     status: str = Field(..., description="Estado: draft|active|archived")

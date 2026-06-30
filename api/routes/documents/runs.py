@@ -51,7 +51,7 @@ async def get_document_runs(
     Obtiene todos los runs asociados a un documento.
     """
     from process_ai_core.db.models import Run
-    from process_ai_core.storage import get_storage
+    from process_ai_core.storage import get_storage, run_artifact_key
 
     with get_db_session() as session:
         doc = session.query(Document).filter_by(id=document_id).first()
@@ -73,14 +73,14 @@ async def get_document_runs(
 
         doc_workspace_id = doc.workspace_id
         storage = get_storage()
-        # Artefactos por convención: {run_id}/process.{json,md,pdf}. Se firman las
-        # URLs de los que existan en storage (ya no hay tabla Artifact).
+        # Artefactos bajo la clave canónica workspaces/{ws}/runs/{run_id}/process.{json,md,pdf}.
+        # Se firman las URLs de los que existan en storage (ya no hay tabla Artifact).
         artifact_files = {"json": "process.json", "md": "process.md", "pdf": "process.pdf"}
         result = []
         for run in runs:
             artifact_dict = {}
             for atype, filename in artifact_files.items():
-                if storage.exists(f"{run.id}/{filename}"):
+                if storage.exists(run_artifact_key(doc_workspace_id, run.id, filename)):
                     artifact_dict[atype] = sign_artifact_url(run.id, filename, doc_workspace_id)
 
             result.append({
@@ -148,7 +148,7 @@ async def create_document_run(
         if storage_error:
             raise HTTPException(status_code=402, detail=storage_error)
 
-        if doc.document_type != "process":
+        if doc.domain != "process":
             raise HTTPException(
                 status_code=400,
                 detail="Este endpoint solo funciona para documentos de tipo 'process'"
@@ -179,7 +179,7 @@ async def create_document_run(
         run = create_run(
             session=session,
             document_id=document_id,
-            document_type="process",
+            domain="process",
             profile=process.audience or "operativo",
         )
         session.flush()
