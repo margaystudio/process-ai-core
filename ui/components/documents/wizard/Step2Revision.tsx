@@ -342,21 +342,21 @@ export function Step2Revision({
           font-weight: 800;
           margin-top: 1.25em;
           margin-bottom: 0.5em;
-          color: var(--ink-900, #111827);
+          color: var(--ink-900);
         }
         .wizard-draft-html h2 {
           font-size: 1.25rem;
           font-weight: 700;
           margin-top: 1.25em;
           margin-bottom: 0.5em;
-          color: var(--ink-900, #111827);
+          color: var(--ink-900);
         }
         .wizard-draft-html h3 {
           font-size: 0.8125rem;
           font-weight: 800;
           margin-top: 1em;
           margin-bottom: 0.375em;
-          color: var(--indigo, #4f46e5);
+          color: var(--indigo);
         }
         .wizard-draft-html h4 {
           font-size: 1rem;
@@ -375,7 +375,7 @@ export function Step2Revision({
           margin-bottom: 0.75em;
         }
         .wizard-draft-html a {
-          color: #2563eb;
+          color: var(--indigo);
           text-decoration: underline;
         }
         .wizard-draft-html img {
@@ -390,12 +390,12 @@ export function Step2Revision({
         }
         .wizard-draft-html th,
         .wizard-draft-html td {
-          border: 1px solid #e5e7eb;
+          border: 1px solid var(--line);
           padding: 8px 12px;
           text-align: left;
         }
         .wizard-draft-html th {
-          background: #f3f4f6;
+          background: var(--surface-track);
           font-weight: 600;
         }
       `}</style>
