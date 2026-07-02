@@ -6,6 +6,9 @@ __pycache__/
 .env.local
 .env.test
 .env.production
+
+# Export privado de env para migración entre PCs (contiene secretos)
+documentacion/ENV_LOCAL_MIGRACION.md
 output/
 .idea/
 .vscode/

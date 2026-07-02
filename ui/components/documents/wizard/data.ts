@@ -93,23 +93,6 @@ export interface Evidence {
   file: File
 }
 
-// ---- Aprobadores (demo hasta cablear Step 3) ----
-
-export interface Approver {
-  id: string
-  name: string
-  role: string
-  initials: string
-  sel: boolean
-}
-
-/** TODO(wire): reemplazar con aprobadores reales de la governance config de la carpeta destino */
-export const APPROVERS: Approver[] = [
-  { id: 'lucia', name: 'Lucía Gómez',      role: 'Gerente',              initials: 'LG', sel: true  },
-  { id: 'juan',  name: 'Juan Pérez',        role: 'Supervisor de turno',  initials: 'JP', sel: true  },
-  { id: 'pablo', name: 'Pablo Rodríguez',   role: 'Dueño',                initials: 'PR', sel: false },
-]
-
 export const CONTEXT_EXAMPLES: string[] = [
   'Es un reemplazo del procedimiento anterior',
   'Aplica solo al turno noche',
