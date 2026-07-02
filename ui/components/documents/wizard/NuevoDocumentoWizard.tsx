@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { FILE_TYPE_TO_FORM_FIELD, type Evidence } from "./data";
 import {
@@ -11,6 +11,7 @@ import {
 } from "@/lib/api";
 import { useWorkspace } from "@/contexts/WorkspaceContext";
 import { useUserId } from "@/hooks/useUserId";
+import { prefetchWorkspaceMembers } from "@/hooks/useWorkspaceMembers";
 import { WizardContainer } from "./WizardContainer";
 import { Step1NuevoDocumento, type Step1State } from "./Step1NuevoDocumento";
 import { Step2Revision } from "./Step2Revision";
@@ -33,6 +34,11 @@ export default function NuevoDocumentoWizard() {
   const userId = useUserId();
   const { selectedWorkspaceId } = useWorkspace();
 
+  // Prefetch de aprobadores al abrir el wizard → el Paso 3 renderiza instantáneo.
+  useEffect(() => {
+    prefetchWorkspaceMembers(selectedWorkspaceId);
+  }, [selectedWorkspaceId]);
+
   const [step, setStep] = useState(1);
   const [modalOpen, setModalOpen] = useState(false);
 
@@ -53,6 +59,8 @@ export default function NuevoDocumentoWizard() {
   const [s3, setS3] = useState<Step3State>({
     folderName: "",
     sent: false,
+    approvers: [],
+    comment: "",
   });
 
   // ---- Estado de generación ----
@@ -104,7 +112,7 @@ export default function NuevoDocumentoWizard() {
       }
 
       setDocumentId(result.document_id);
-      setS3({ folderName: s1.folderName, sent: false });
+      setS3({ folderName: s1.folderName, sent: false, approvers: [], comment: "" });
       setDraftVersionId(null);
       setSubmitError(null);
       setWithdrawError(null);
@@ -139,6 +147,8 @@ export default function NuevoDocumentoWizard() {
         draft.id,
         userId,
         selectedWorkspaceId,
+        s3.approvers,
+        s3.comment,
       );
 
       setDraftVersionId(result.version.id);
@@ -258,11 +268,13 @@ export default function NuevoDocumentoWizard() {
         {step === 3 && (
           <Step3EnviarAprobacion
             s={s3}
-            documentId={documentId}
+            documentName={s1.name}
             submitError={submitError}
             onWithdraw={withdrawSubmission}
             withdrawing={withdrawing}
             withdrawError={withdrawError}
+            onApproversChange={(ids) => setS3((prev) => ({ ...prev, approvers: ids }))}
+            onCommentChange={(comment) => setS3((prev) => ({ ...prev, comment }))}
           />
         )}
       </WizardContainer>

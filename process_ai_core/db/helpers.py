@@ -503,10 +503,12 @@ def create_validation(
     validator_user_id: str | None = None,
     observations: str = "",
     checklist_json: str = "{}",
+    assigned_approver_ids: str = "[]",
+    submit_comment: str = "",
 ) -> Validation:
     """
     Crea una nueva validación para un documento o run.
-    
+
     Args:
         session: Sesión de base de datos
         document_id: ID del documento
@@ -514,7 +516,9 @@ def create_validation(
         validator_user_id: ID del usuario validador (opcional)
         observations: Observaciones del validador
         checklist_json: Checklist en formato JSON
-    
+        assigned_approver_ids: JSON con user_id de aprobadores sugeridos
+        submit_comment: Comentario del autor para los aprobadores
+
     Returns:
         Validation creada
     """
@@ -526,6 +530,8 @@ def create_validation(
         status="pending",
         observations=observations,
         checklist_json=checklist_json,
+        assigned_approver_ids=assigned_approver_ids,
+        submit_comment=submit_comment,
     )
     session.add(validation)
     
@@ -835,6 +841,8 @@ def submit_version_for_review(
     session: Session,
     version_id: str,
     submitter_id: str | None = None,
+    approver_ids: list[str] | None = None,
+    comment: str | None = None,
 ) -> tuple[DocumentVersion, Validation]:
     """
     Envía una versión DRAFT a revisión (cambia a IN_REVIEW y crea Validation).
@@ -914,6 +922,8 @@ def submit_version_for_review(
         validator_user_id=None,  # Se asignará cuando se apruebe/rechace
         observations="",
         checklist_json=json.dumps(snapshot_metadata),
+        assigned_approver_ids=json.dumps(approver_ids or []),
+        submit_comment=comment or "",
     )
     
     # Flush para obtener el ID de la validación

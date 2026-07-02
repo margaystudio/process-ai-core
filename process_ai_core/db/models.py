@@ -535,7 +535,13 @@ class Validation(Base):
     
     # Checklist ISO-friendly (JSON estructurado)
     checklist_json: Mapped[str] = mapped_column(Text, default="{}")
-    
+
+    # Aprobadores sugeridos al enviar (semántica: sugerencia + notificación, NO
+    # restringe quién puede aprobar — cualquiera con documents.approve puede).
+    # JSON: lista de user_id. Comentario libre del autor para los aprobadores.
+    assigned_approver_ids: Mapped[str] = mapped_column(Text, default="[]")
+    submit_comment: Mapped[str] = mapped_column(Text, default="")
+
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     

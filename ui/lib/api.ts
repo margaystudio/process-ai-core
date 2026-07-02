@@ -1316,8 +1316,12 @@ export async function submitVersionForReview(
   documentId: string,
   versionId: string,
   userId?: string,
-  workspaceId?: string
-): Promise<{ message: string; version: { id: string; version_number: number; version_status: string; validation_id: string }; validation: { id: string; status: string; document_id: string; created_at: string } }> {
+  workspaceId?: string,
+  /** Aprobadores sugeridos (user_id). Semántica sugerencia+notificación: no restringe quién aprueba. */
+  approverIds: string[] = [],
+  /** Comentario opcional del autor para los aprobadores. */
+  comment: string = ''
+): Promise<{ message: string; version: { id: string; version_number: number; version_status: string; validation_id: string }; validation: { id: string; status: string; document_id: string; created_at: string; assigned_approver_ids: string[]; submit_comment: string } }> {
   const { getAuthHeaders } = await import('@/lib/api-auth');
   const headers = await getAuthHeaders({ 'Content-Type': 'application/json' });
   const response = await fetch(
@@ -1325,7 +1329,7 @@ export async function submitVersionForReview(
     {
       method: 'POST',
       headers,
-      body: JSON.stringify({}),
+      body: JSON.stringify({ approver_ids: approverIds, comment }),
     }
   );
   if (!response.ok) {
