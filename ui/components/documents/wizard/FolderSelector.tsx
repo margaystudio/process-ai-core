@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { listFolders, type Folder } from "@/lib/api";
+import { useState } from "react";
+import { useFolders } from "@/hooks/useFolders";
 import { WizardIcon } from "./WizardIcon";
 
 const FOLDER_ICON =
@@ -22,27 +22,11 @@ export function FolderSelector({
   onChange: (folderId: string, folderName: string) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [folders, setFolders] = useState<Folder[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // Carpetas cacheadas: se cargan una vez con la pantalla (no en cada apertura del selector).
+  const { folders, loading, error } = useFolders();
 
-  // Nombre de la carpeta seleccionada (para mostrar)
+  // Nombre de la carpeta seleccionada (para mostrar). Disponible sin abrir el modal.
   const selectedFolder = folders.find((f) => f.id === value) ?? null;
-
-  // Cargar carpetas al abrir el modal
-  useEffect(() => {
-    if (!open) return;
-    setLoading(true);
-    setError(null);
-    listFolders()
-      .then((data) => setFolders(data))
-      .catch((err) =>
-        setError(
-          err instanceof Error ? err.message : "Error al cargar carpetas",
-        ),
-      )
-      .finally(() => setLoading(false));
-  }, [open]);
 
   return (
     <>

@@ -198,21 +198,50 @@ async def get_workspace_members(
     workspace = session.query(Workspace).filter_by(id=workspace_id).first()
     if not workspace:
         raise HTTPException(status_code=404, detail="Workspace no encontrado")
-    memberships = session.query(WorkspaceMembership).filter_by(workspace_id=workspace_id).all()
+    memberships = (
+        session.query(WorkspaceMembership).filter_by(workspace_id=workspace_id).all()
+    )
+
+    # Batch-load para evitar N+1 (antes: 3 queries por miembro contra el Postgres
+    # remoto). Ahora son 4 queries fijas sin importar la cantidad de miembros.
+    user_ids = {m.user_id for m in memberships if m.user_id}
+    role_ids = {m.role_id for m in memberships if m.role_id}
+    membership_ids = [m.id for m in memberships]
+
+    users_by_id = (
+        {u.id: u for u in session.query(User).filter(User.id.in_(user_ids)).all()}
+        if user_ids
+        else {}
+    )
+    roles_by_id = (
+        {r.id: r for r in session.query(Role).filter(Role.id.in_(role_ids)).all()}
+        if role_ids
+        else {}
+    )
+    op_role_ids_by_membership: dict[str, list[str]] = {}
+    if membership_ids:
+        op_rows = (
+            session.query(UserOperationalRole)
+            .filter(UserOperationalRole.workspace_membership_id.in_(membership_ids))
+            .all()
+        )
+        for r in op_rows:
+            op_role_ids_by_membership.setdefault(
+                r.workspace_membership_id, []
+            ).append(r.operational_role_id)
+
     out = []
     for m in memberships:
-        user = session.query(User).filter_by(id=m.user_id).first()
-        role_obj = session.query(Role).filter_by(id=m.role_id).first() if m.role_id else None
+        user = users_by_id.get(m.user_id)
+        role_obj = roles_by_id.get(m.role_id) if m.role_id else None
         role_name = role_obj.name if role_obj else (m.role or "")
-        op_roles = session.query(UserOperationalRole).filter_by(workspace_membership_id=m.id).all()
-        op_role_ids = [r.operational_role_id for r in op_roles]
         out.append({
             "membership_id": m.id,
             "user_id": m.user_id,
             "email": user.email if user else "",
             "name": user.name if user else "",
             "role": role_name,
-            "operational_role_ids": op_role_ids,
+            "operational_role_ids": op_role_ids_by_membership.get(m.id, []),
         })
     return {"workspace_id": workspace_id, "members": out}
 
