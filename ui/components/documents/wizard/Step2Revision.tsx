@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   getDocument,
   getEditableContent,
@@ -10,9 +10,72 @@ import ManualEditorTiptap, {
   type ManualEditorTiptapRef,
 } from "@/components/documents/ManualEditorTiptap";
 import { usePdfViewer } from "@/hooks/usePdfViewer";
-import { type Evidence } from "./data";
+import { type Evidence, type EvidenceTipo } from "./data";
 import { EvidenceCardCompact } from "./EvidenceCard";
 import { WizardIcon } from "./WizardIcon";
+
+// ---- Helpers de agrupación de evidencias ----
+
+/** Etiquetas en español (singular) para cada tipo de evidencia. */
+const TIPO_LABEL: Record<EvidenceTipo, string> = {
+  Audio: "audio",
+  Video: "video",
+  PDF: "PDF",
+  Imagen: "imagen",
+  Documento: "documento",
+};
+
+/** Etiquetas en plural para tipos con plural no trivial. */
+const TIPO_LABEL_PLURAL: Record<EvidenceTipo, string> = {
+  Audio: "audios",
+  Video: "videos",
+  PDF: "PDFs",
+  Imagen: "imágenes",
+  Documento: "documentos",
+};
+
+/** Agrupa evidencias por tipo y devuelve filas ordenadas por conteo desc. */
+function groupEvidencesByTipo(
+  evidences: Evidence[],
+): { tipo: EvidenceTipo; label: string; count: number }[] {
+  const counts = new Map<EvidenceTipo, number>();
+  for (const e of evidences) {
+    counts.set(e.tipo, (counts.get(e.tipo) ?? 0) + 1);
+  }
+  return Array.from(counts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .map(([tipo, count]) => ({ tipo, label: TIPO_LABEL[tipo], count }));
+}
+
+/** Devuelve el plural correcto de una etiqueta de evidencia dado el tipo. */
+function pluralLabel(singularLabel: string, _count: number): string {
+  // Buscamos el tipo cuya etiqueta singular coincide para recuperar el plural.
+  const entry = Object.entries(TIPO_LABEL).find(
+    ([, v]) => v === singularLabel,
+  );
+  if (!entry) return singularLabel;
+  return TIPO_LABEL_PLURAL[entry[0] as EvidenceTipo];
+}
+
+// ---- Helper de análisis de borrador ----
+
+/**
+ * Parsea el HTML del borrador y devuelve métricas reales:
+ * - `secciones`: cantidad de encabezados h1–h4.
+ * - `pasos`: cantidad de ítems de lista `<li>`.
+ * Usa DOMParser (disponible en cliente). Devuelve null si html está vacío.
+ */
+function parseDraftStats(
+  html: string,
+): { secciones: number; pasos: number } | null {
+  if (!html.trim()) return null;
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  const secciones = doc.querySelectorAll("h1,h2,h3,h4").length;
+  const pasos = doc.querySelectorAll("li").length;
+  return { secciones, pasos };
+}
+
+// ---- Componente ----
 
 /**
  * Paso 2: resumen de generación + editor del borrador (toggle Editar / Listo).
@@ -36,6 +99,9 @@ export function Step2Revision({
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
+
+  /** Métricas reales del borrador, derivadas del HTML cargado. */
+  const draftStats = useMemo(() => parseDraftStats(html), [html]);
 
   const editorRef = useRef<ManualEditorTiptapRef | null>(null);
   const { openVersionPreviewPdf, ModalComponent } = usePdfViewer();
@@ -125,31 +191,37 @@ export function Step2Revision({
           <span className="text-[13.5px] font-extrabold text-ink-900">
             Resumen de generación
           </span>
-          <span className="ml-auto text-[11.5px] text-ink-400">
-            Generado hace 18 segundos
-          </span>
         </div>
 
-        <div className="grid gap-[18px] sm:grid-cols-2">
-          {/* Evidencias usadas */}
+        {/* Grilla 2 columnas: evidencias | la IA organizó */}
+        <div className="grid grid-cols-[1fr_auto] gap-x-6 gap-y-3 sm:gap-x-10">
+          {/* Columna izquierda — Evidencias */}
           <div>
             <div className="mb-2 flex items-center gap-2">
               <span className="text-[11px] font-bold uppercase tracking-[.04em] text-ink-400">
-                Se usaron · {evidences.length} evidencias
+                {evidences.length === 0
+                  ? "Sin evidencias"
+                  : `Se usaron · ${evidences.length} ${evidences.length === 1 ? "evidencia" : "evidencias"}`}
               </span>
-              <button
-                type="button"
-                onClick={() => setShowEvidence((v) => !v)}
-                className="text-[11px] font-bold text-indigo hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo"
-              >
-                {showEvidence ? "Ocultar" : "Ver evidencias"}
-              </button>
+              {evidences.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowEvidence((v) => !v)}
+                  className="text-[11px] font-bold text-indigo hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo"
+                >
+                  {showEvidence ? "Ocultar" : "Ver evidencias"}
+                </button>
+              )}
             </div>
-            {!showEvidence ? (
+            {evidences.length === 0 ? (
+              <p className="text-[13px] text-ink-400">
+                No se adjuntaron evidencias al documento.
+              </p>
+            ) : !showEvidence ? (
               <div className="flex flex-col gap-1.5">
-                {["1 audio transcripto", "1 PDF", "3 imágenes"].map((t) => (
+                {groupEvidencesByTipo(evidences).map(({ label, count }) => (
                   <div
-                    key={t}
+                    key={label}
                     className="flex items-center gap-2 text-[13px] text-ink-700"
                   >
                     <WizardIcon
@@ -158,7 +230,9 @@ export function Step2Revision({
                       className="flex-shrink-0 text-success"
                       strokeWidth={2.6}
                     />
-                    {t}
+                    {count === 1
+                      ? `1 ${label}`
+                      : `${count} ${pluralLabel(label, count)}`}
                   </div>
                 ))}
               </div>
@@ -171,29 +245,38 @@ export function Step2Revision({
             )}
           </div>
 
-          {/* Lo que organizó la IA */}
-          <div>
-            <div className="mb-2 text-[11px] font-bold uppercase tracking-[.04em] text-ink-400">
-              La IA organizó
+          {/* Columna derecha — La IA organizó (solo si hay datos reales del HTML) */}
+          {draftStats !== null && (
+            <div className="flex-shrink-0 self-start">
+              <div className="mb-2">
+                <span className="text-[11px] font-bold uppercase tracking-[.04em] text-ink-400">
+                  La IA organizó
+                </span>
+              </div>
+              <div className="flex items-stretch gap-2">
+                {draftStats.secciones > 0 && (
+                  <div className="flex min-w-[56px] flex-col items-center justify-center rounded-md border border-line bg-surface-app px-3 py-2">
+                    <span className="text-[20px] font-extrabold leading-none text-ink-900">
+                      {draftStats.secciones}
+                    </span>
+                    <span className="mt-0.5 text-[10.5px] font-medium text-ink-400">
+                      {draftStats.secciones === 1 ? "sección" : "secciones"}
+                    </span>
+                  </div>
+                )}
+                {draftStats.pasos > 0 && (
+                  <div className="flex min-w-[56px] flex-col items-center justify-center rounded-md border border-line bg-surface-app px-3 py-2">
+                    <span className="text-[20px] font-extrabold leading-none text-ink-900">
+                      {draftStats.pasos}
+                    </span>
+                    <span className="mt-0.5 text-[10.5px] font-medium text-ink-400">
+                      {draftStats.pasos === 1 ? "paso" : "pasos"}
+                    </span>
+                  </div>
+                )}
+              </div>
             </div>
-            <div className="flex gap-2">
-              {(
-                [
-                  ["3", "secciones"],
-                  ["12", "pasos"],
-                  [String(evidences.length), "evidencias"],
-                ] as const
-              ).map(([v, l]) => (
-                <div
-                  key={l}
-                  className="flex-1 rounded-[10px] border border-line-soft p-[8px_4px] text-center"
-                >
-                  <div className="text-lg font-extrabold text-indigo">{v}</div>
-                  <div className="text-[10.5px] text-ink-400">{l}</div>
-                </div>
-              ))}
-            </div>
-          </div>
+          )}
         </div>
       </div>
 
