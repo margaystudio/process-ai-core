@@ -9,6 +9,7 @@ import { getUser, updateMyProfile, type UserProfile } from '@/lib/api'
 import { useUserId } from '@/hooks/useUserId'
 import { useLoading } from '@/contexts/LoadingContext'
 import { formatDateTime } from '@/utils/dateFormat'
+import { redirectToHubLogin } from '@/lib/hub-login'
 
 const PHONE_COUNTRY_OPTIONS: { code: string; label: string; iso: string }[] = [
   { code: '+598', label: 'Uruguay (+598)', iso: 'UY' },
@@ -215,7 +216,7 @@ export default function ProfilePage() {
       <div className="flex min-h-[70vh] items-center justify-center p-6">
         <div className="text-center">
           <p className="text-ink-600">Iniciá sesión para ver tu perfil.</p>
-          <Button className="mt-4" onClick={() => router.push('/login')}>
+          <Button className="mt-4" onClick={() => redirectToHubLogin()}>
             Ir a inicio de sesión
           </Button>
         </div>

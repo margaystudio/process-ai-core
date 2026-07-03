@@ -6,6 +6,8 @@ import { useWorkspace } from '@/contexts/WorkspaceContext'
 import { useUserRole } from '@/hooks/useUserRole'
 import { useUserValidation } from '@/hooks/useUserValidation'
 import { createClient } from '@/lib/supabase/client'
+import { redirectToHubLogin } from '@/lib/hub-login'
+import { clearLocalAuthState } from '@/lib/clear-auth-state'
 import { Card, CardBody, Badge, Button } from '@/shared/ui/components'
 
 export default function Home() {
@@ -13,73 +15,12 @@ export default function Home() {
   const { selectedWorkspaceId, loading: workspaceLoading } = useWorkspace()
   const { role, loading: roleLoading } = useUserRole()
   const userValidation = useUserValidation()
-  const [authLoading, setAuthLoading] = useState(true)
-  const [isAuthenticated, setIsAuthenticated] = useState(false)
 
-  // Verificar autenticación primero
+  // El middleware ya validó la sesión SSO. Acá solo enrutamos según rol/workspace.
   useEffect(() => {
-    let isMounted = true
-    
-    async function checkAuth() {
-      try {
-        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-        const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-
-        if (!supabaseUrl || !supabaseKey) {
-          if (isMounted) {
-            setIsAuthenticated(true)
-            setAuthLoading(false)
-          }
-          return
-        }
-
-        const supabase = createClient()
-        
-        const timeoutId = setTimeout(() => {
-          if (isMounted) {
-            setAuthLoading(false)
-            router.push('/login')
-          }
-        }, 6000)
-        
-        try {
-          const { data: { session }, error } = await supabase.auth.getSession()
-          clearTimeout(timeoutId)
-          
-          if (error || !session?.user) {
-            if (isMounted) router.push('/login')
-            return
-          }
-          
-          if (isMounted) {
-            setIsAuthenticated(true)
-          }
-        } catch (sessionError) {
-          clearTimeout(timeoutId)
-          throw sessionError
-        }
-      } catch (err) {
-        console.error('Error verificando autenticación:', err)
-        if (isMounted) router.push('/login')
-      } finally {
-        if (isMounted) setAuthLoading(false)
-      }
-    }
-
-    checkAuth()
-    
-    return () => {
-      isMounted = false
-    }
-  }, [router])
-
-  // Redirigir según el estado del usuario y su rol
-  useEffect(() => {
-    if (authLoading || !isAuthenticated) return
     if (userValidation.isValid === null) return
     if (userValidation.isValid === false) return
 
-    // Sin workspace asignado → ir al selector de workspaces
     if (workspaceLoading) return
     if (!selectedWorkspaceId) {
       router.push('/workspace')
@@ -88,7 +29,6 @@ export default function Home() {
 
     if (roleLoading) return
 
-    // Redirigir según rol
     if (role === 'owner' || role === 'admin' || role === 'approver') {
       router.push('/dashboard/approval-queue')
     } else if (role === 'creator') {
@@ -98,9 +38,8 @@ export default function Home() {
     } else {
       router.push('/workspace')
     }
-  }, [authLoading, isAuthenticated, userValidation, workspaceLoading, selectedWorkspaceId, roleLoading, role, router])
+  }, [userValidation, workspaceLoading, selectedWorkspaceId, roleLoading, role, router])
 
-  // Mostrar error si el usuario no es válido
   if (userValidation.isValid === false) {
     return (
       <div className="flex min-h-[70vh] items-center justify-center p-6">
@@ -120,7 +59,8 @@ export default function Home() {
               onClick={async () => {
                 const supabase = createClient()
                 await supabase.auth.signOut()
-                router.push('/login')
+                clearLocalAuthState()
+                redirectToHubLogin(false)
               }}
             >
               Cerrar sesión
@@ -136,11 +76,11 @@ export default function Home() {
       <div className="text-center">
         <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-[3px] border-ink-200 border-t-accent" />
         <p className="text-sm text-ink-600">
-          {authLoading
-            ? 'Verificando autenticación...'
-            : userValidation.isValid === null
-            ? 'Validando usuario...'
-            : 'Determinando tu rol...'}
+          {userValidation.isValid === null
+            ? 'Cargando tu perfil...'
+            : roleLoading
+            ? 'Determinando tu rol...'
+            : 'Redirigiendo...'}
         </p>
       </div>
     </div>

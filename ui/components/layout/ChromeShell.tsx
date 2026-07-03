@@ -16,6 +16,8 @@ import { AppShell, Topbar, Sidebar, type NavGroup, type TopbarTenant } from '@/s
 import { useWorkspace } from '@/contexts/WorkspaceContext'
 import { useUser } from '@/hooks/useUser'
 import { createClient } from '@/lib/supabase/client'
+import { redirectToHubLogin } from '@/lib/hub-login'
+import { clearLocalAuthState } from '@/lib/clear-auth-state'
 
 // Páginas fuera del shell del módulo (sin sidebar). El login es del hub (SSO).
 const BARE_PREFIXES = ['/login', '/onboarding', '/invitations', '/auth']
@@ -45,8 +47,8 @@ export default function ChromeShell({ children }: { children: React.ReactNode })
     try {
       const supabase = createClient()
       await supabase.auth.signOut()
-      localStorage.removeItem('local_user_id')
-      router.push('/login')
+      clearLocalAuthState()
+      redirectToHubLogin(false)
     } catch (err) {
       console.error('Error cerrando sesión:', err)
     }
