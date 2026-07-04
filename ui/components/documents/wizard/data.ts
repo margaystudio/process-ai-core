@@ -78,9 +78,18 @@ export const EVIDENCE_TYPES: Record<EvidenceTipo, EvidenceTypeDef> = {
 
 /**
  * Una evidencia es un archivo real aportado por el usuario.
- * No hay estado de procesamiento en el frontend — el procesamiento ocurre en el backend
- * al momento de llamar a createProcessRun.
+ * Al agregarla, el wizard la procesa vía POST /api/v1/evidence/process
+ * y muestra badges reales (transcripción, OCR, idioma, páginas).
  */
+export type EvidenceProcessingStatus = 'processing' | 'done' | 'error' | 'no_text'
+
+export interface EvidenceMetadata {
+  language?: string
+  duration_seconds?: number
+  pages?: number
+  used_ocr?: boolean
+}
+
 export interface Evidence {
   /** ID único local */
   id: string
@@ -91,6 +100,82 @@ export interface Evidence {
   title: string
   /** Archivo real — se agrega al FormData al generar */
   file: File
+  /** Estado del procesamiento al subir */
+  processingStatus: EvidenceProcessingStatus
+  /** Texto extraído/transcripto (si processingStatus === 'done') */
+  extractedText?: string
+  metadata?: EvidenceMetadata
+  processingError?: string
+}
+
+/** Input desde AddEvidenceModal (sin estado de procesamiento aún). */
+export type EvidenceInput = Omit<
+  Evidence,
+  'processingStatus' | 'extractedText' | 'metadata' | 'processingError'
+>
+
+/** Badges reales según tipo y metadata — nunca inventados. */
+export function evidenceChips(evidence: Evidence): string[] {
+  if (evidence.processingStatus === 'processing') {
+    return []
+  }
+  if (evidence.processingStatus === 'error') {
+    return []
+  }
+
+  const meta = evidence.metadata ?? {}
+  const chips: string[] = []
+
+  if (evidence.tipo === 'Audio' || evidence.tipo === 'Video') {
+    if (evidence.processingStatus === 'done') {
+      chips.push('Audio transcripto')
+    }
+    if (meta.language) {
+      chips.push(`Idioma: ${meta.language}`)
+    }
+    if (meta.duration_seconds != null) {
+      chips.push(formatSecs(meta.duration_seconds))
+    }
+    if (evidence.processingStatus === 'no_text') {
+      chips.push('Sin audio detectado')
+    }
+    return chips
+  }
+
+  if (evidence.tipo === 'PDF' || evidence.tipo === 'Documento') {
+    if (evidence.processingStatus === 'done') {
+      chips.push(meta.used_ocr ? 'OCR completado' : 'Texto extraído')
+      if (evidence.tipo === 'PDF') {
+        chips.push('PDF procesado')
+      }
+    }
+    if (meta.pages != null && meta.pages > 0) {
+      chips.push(`${meta.pages} págs`)
+    }
+    if (meta.language) {
+      chips.push(`Idioma: ${meta.language}`)
+    }
+    if (evidence.processingStatus === 'no_text') {
+      chips.push('Sin texto detectado')
+    }
+    return chips
+  }
+
+  if (evidence.tipo === 'Imagen') {
+    if (evidence.processingStatus === 'done') {
+      chips.push('OCR completado')
+      chips.push('1 imagen')
+    } else if (evidence.processingStatus === 'no_text') {
+      chips.push('Sin texto detectado')
+      chips.push('1 imagen')
+    }
+    if (meta.language) {
+      chips.push(`Idioma: ${meta.language}`)
+    }
+    return chips
+  }
+
+  return chips
 }
 
 export const CONTEXT_EXAMPLES: string[] = [

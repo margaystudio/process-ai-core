@@ -2,11 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { FILE_TYPE_TO_FORM_FIELD, type Evidence } from "./data";
+import { FILE_TYPE_TO_FORM_FIELD, type EvidenceInput } from "./data";
 import {
   cancelDocumentSubmission,
   createProcessRun,
   getDocumentVersions,
+  processEvidenceFile,
   submitVersionForReview,
 } from "@/lib/api";
 import { useWorkspace } from "@/contexts/WorkspaceContext";
@@ -76,8 +77,45 @@ export default function NuevoDocumentoWizard() {
   const [withdrawing, setWithdrawing] = useState(false);
   const [withdrawError, setWithdrawError] = useState<string | null>(null);
 
-  const addEvidence = (e: Evidence) => {
-    setS1((s) => ({ ...s, evidences: [...s.evidences, e] }));
+  const addEvidence = (input: EvidenceInput) => {
+    const evidence = { ...input, processingStatus: "processing" as const };
+    setS1((s) => ({ ...s, evidences: [...s.evidences, evidence] }));
+
+    void processEvidenceFile(evidence.file, evidence.fileType)
+      .then((result) => {
+        setS1((s) => ({
+          ...s,
+          evidences: s.evidences.map((x) =>
+            x.id === evidence.id
+              ? {
+                  ...x,
+                  processingStatus:
+                    result.status === "error" ? "error" : result.status,
+                  extractedText: result.extracted_text || undefined,
+                  metadata: result.metadata,
+                  processingError: result.error ?? undefined,
+                }
+              : x,
+          ),
+        }));
+      })
+      .catch((err) => {
+        setS1((s) => ({
+          ...s,
+          evidences: s.evidences.map((x) =>
+            x.id === evidence.id
+              ? {
+                  ...x,
+                  processingStatus: "error" as const,
+                  processingError:
+                    err instanceof Error
+                      ? err.message
+                      : "Error al procesar la evidencia",
+                }
+              : x,
+          ),
+        }));
+      });
   };
 
   const removeEvidence = (id: string) =>
@@ -101,6 +139,11 @@ export default function NuevoDocumentoWizard() {
       for (const ev of s1.evidences) {
         const field = FILE_TYPE_TO_FORM_FIELD[ev.fileType];
         formData.append(field, ev.file);
+        const extractedText =
+          ev.processingStatus === "done" && ev.extractedText
+            ? ev.extractedText
+            : "";
+        formData.append(`${field}_extracted_text`, extractedText);
       }
 
       const result = await createProcessRun(formData);

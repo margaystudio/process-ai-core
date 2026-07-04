@@ -13,6 +13,7 @@ candidatas). Si no se configura un modelo barato, `cheap` usa el mismo que
 from __future__ import annotations
 
 from ..config import get_settings
+from .ocr_provider import TesseractOCRProvider
 from .openai_provider import OpenAIProvider
 
 
@@ -48,3 +49,8 @@ def get_embedding_provider():
     raise NotImplementedError(
         "EmbeddingProvider todavía no está implementado (ver Fase 4 — Tyto/RAG)."
     )
+
+
+def get_ocr_provider() -> TesseractOCRProvider:
+    """Devuelve un `OCRProvider` (Tesseract local)."""
+    return TesseractOCRProvider()

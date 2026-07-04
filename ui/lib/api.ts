@@ -229,6 +229,46 @@ export async function createProcessRun(
   return response.json();
 }
 
+export interface ProcessEvidenceResponse {
+  status: 'done' | 'error' | 'no_text';
+  extracted_text: string;
+  metadata: {
+    language?: string;
+    duration_seconds?: number;
+    pages?: number;
+    used_ocr?: boolean;
+  };
+  error: string | null;
+}
+
+/**
+ * Procesa un archivo de evidencia (transcripción, OCR, extracción de texto).
+ * Usado por el wizard al agregar evidencias para mostrar badges reales.
+ */
+export async function processEvidenceFile(
+  file: File,
+  kind: import('@/lib/fileUploadValidation').FileType,
+): Promise<ProcessEvidenceResponse> {
+  const { getAuthHeaders } = await import('@/lib/api-auth');
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('kind', kind);
+
+  const headers = await getAuthHeaders();
+  const response = await fetch(`${API_URL}/api/v1/evidence/process`, {
+    method: 'POST',
+    headers,
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
+    throw new Error(error.detail || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
 /**
  * Crea una nueva corrida de receta.
  */
