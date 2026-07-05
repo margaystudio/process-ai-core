@@ -64,8 +64,16 @@ async def process_evidence(
             ),
         )
 
+    # Rechazar por tamaño declarado ANTES de leer todo el archivo (evita agotar
+    # recursos leyendo un upload gigante para recién después rechazarlo).
+    if file.size is not None and file.size > MAX_FILE_SIZE_BYTES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"El archivo supera el límite de {MAX_FILE_SIZE_BYTES // (1024 * 1024)} MB",
+        )
+
     content = await file.read()
-    if len(content) > MAX_FILE_SIZE_BYTES:
+    if len(content) > MAX_FILE_SIZE_BYTES:  # defensa por si file.size venía None
         raise HTTPException(
             status_code=400,
             detail=f"El archivo supera el límite de {MAX_FILE_SIZE_BYTES // (1024 * 1024)} MB",

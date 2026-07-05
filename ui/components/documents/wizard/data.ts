@@ -114,8 +114,15 @@ export type EvidenceInput = Omit<
   'processingStatus' | 'extractedText' | 'metadata' | 'processingError'
 >
 
+/** Chip de evidencia con variante semántica. */
+export interface EvidenceChip {
+  label: string
+  /** `success` = contenido real detectado; `neutral` = procesado pero vacío. */
+  variant: 'success' | 'neutral'
+}
+
 /** Badges reales según tipo y metadata — nunca inventados. */
-export function evidenceChips(evidence: Evidence): string[] {
+export function evidenceChips(evidence: Evidence): EvidenceChip[] {
   if (evidence.processingStatus === 'processing') {
     return []
   }
@@ -124,53 +131,56 @@ export function evidenceChips(evidence: Evidence): string[] {
   }
 
   const meta = evidence.metadata ?? {}
-  const chips: string[] = []
+  const chips: EvidenceChip[] = []
+
+  const s = (label: string): EvidenceChip => ({ label, variant: 'success' })
+  const n = (label: string): EvidenceChip => ({ label, variant: 'neutral' })
 
   if (evidence.tipo === 'Audio' || evidence.tipo === 'Video') {
     if (evidence.processingStatus === 'done') {
-      chips.push('Audio transcripto')
+      chips.push(s('Audio transcripto'))
     }
     if (meta.language) {
-      chips.push(`Idioma: ${meta.language}`)
+      chips.push(s(`Idioma: ${meta.language}`))
     }
     if (meta.duration_seconds != null) {
-      chips.push(formatSecs(meta.duration_seconds))
+      chips.push(s(formatSecs(meta.duration_seconds)))
     }
     if (evidence.processingStatus === 'no_text') {
-      chips.push('Sin audio detectado')
+      chips.push(n('Sin audio detectado'))
     }
     return chips
   }
 
   if (evidence.tipo === 'PDF' || evidence.tipo === 'Documento') {
     if (evidence.processingStatus === 'done') {
-      chips.push(meta.used_ocr ? 'OCR completado' : 'Texto extraído')
+      chips.push(s(meta.used_ocr ? 'OCR completado' : 'Texto extraído'))
       if (evidence.tipo === 'PDF') {
-        chips.push('PDF procesado')
+        chips.push(s('PDF procesado'))
       }
     }
     if (meta.pages != null && meta.pages > 0) {
-      chips.push(`${meta.pages} págs`)
+      chips.push(s(`${meta.pages} págs`))
     }
     if (meta.language) {
-      chips.push(`Idioma: ${meta.language}`)
+      chips.push(s(`Idioma: ${meta.language}`))
     }
     if (evidence.processingStatus === 'no_text') {
-      chips.push('Sin texto detectado')
+      chips.push(n('Sin texto detectado'))
     }
     return chips
   }
 
   if (evidence.tipo === 'Imagen') {
     if (evidence.processingStatus === 'done') {
-      chips.push('OCR completado')
-      chips.push('1 imagen')
+      chips.push(s('OCR completado'))
+      chips.push(s('1 imagen'))
     } else if (evidence.processingStatus === 'no_text') {
-      chips.push('Sin texto detectado')
-      chips.push('1 imagen')
+      chips.push(n('Sin texto detectado'))
+      chips.push(n('1 imagen'))
     }
     if (meta.language) {
-      chips.push(`Idioma: ${meta.language}`)
+      chips.push(s(`Idioma: ${meta.language}`))
     }
     return chips
   }

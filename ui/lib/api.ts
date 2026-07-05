@@ -1524,7 +1524,7 @@ export async function getEditableContent(documentId: string): Promise<{
   const headers: HeadersInit = {};
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
-  const response = await fetch(`${API_URL}/api/v1/documents/${documentId}/editable`, { headers });
+  const response = await fetch(`${API_URL}/api/v1/documents/${documentId}/editable`, { method: 'GET', headers });
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
     throw new Error(error.detail || `HTTP ${response.status}`);

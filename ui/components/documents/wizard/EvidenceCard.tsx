@@ -57,19 +57,28 @@ export function EvidenceCard({
               Error al procesar
             </span>
           ) : (
-            chips.map((c) => (
-              <span
-                key={c}
-                className="inline-flex items-center gap-1 rounded-md border border-success-bd bg-success-bg px-[7px] py-0.5 text-[10.5px] font-semibold text-success-fg"
-              >
-                <WizardIcon
-                  d="M20 6L9 17l-5-5"
-                  size={9}
-                  className="text-success"
-                  strokeWidth={3}
-                />
-                {c}
-              </span>
+            chips.map((chip) => (
+              chip.variant === "success" ? (
+                <span
+                  key={chip.label}
+                  className="inline-flex items-center gap-1 rounded-md border border-success-bd bg-success-bg px-[7px] py-0.5 text-[10.5px] font-semibold text-success-fg"
+                >
+                  <WizardIcon
+                    d="M20 6L9 17l-5-5"
+                    size={9}
+                    className="text-success"
+                    strokeWidth={3}
+                  />
+                  {chip.label}
+                </span>
+              ) : (
+                <span
+                  key={chip.label}
+                  className="inline-flex items-center gap-1 rounded-md border border-line bg-surface-hover px-[7px] py-0.5 text-[10.5px] font-semibold text-ink-500"
+                >
+                  {chip.label}
+                </span>
+              )
             ))
           )}
         </div>
