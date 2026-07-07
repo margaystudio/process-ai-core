@@ -185,6 +185,7 @@ def create_folder(
     path: str = "",
     parent_id: str | None = None,
     sort_order: int = 0,
+    color: str | None = None,
     metadata: Dict[str, Any] | None = None,
 ) -> Folder:
     """
@@ -197,6 +198,7 @@ def create_folder(
         path: Path completo de la carpeta (ej: "RRHH/Recursos Humanos")
         parent_id: ID de la carpeta padre (opcional, para estructura jerárquica)
         sort_order: Orden de visualización
+        color: Color de acento para UI (hex, opcional)
         metadata: Metadata adicional (JSON)
     
     Returns:
@@ -208,6 +210,7 @@ def create_folder(
         path=path or name,
         parent_id=parent_id,
         sort_order=sort_order,
+        color=color,
         metadata_json=json.dumps(metadata or {}),
     )
     session.add(folder)
@@ -241,6 +244,7 @@ def update_folder(
     parent_id: str | None = None,
     sort_order: int | None = None,
     inherits_permissions: bool | None = None,
+    color: str | None = None,
     metadata: Dict[str, Any] | None = None,
 ) -> Folder:
     """
@@ -288,6 +292,8 @@ def update_folder(
         folder.sort_order = sort_order
     if inherits_permissions is not None:
         folder.inherits_permissions = inherits_permissions
+    if color is not None:
+        folder.color = color
     if metadata is not None:
         # Mergear metadata existente con la nueva
         existing_meta = json.loads(folder.metadata_json) if folder.metadata_json else {}

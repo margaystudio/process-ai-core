@@ -248,6 +248,9 @@ class Folder(Base):
     # Orden de visualización
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
 
+    # Color de acento para UI (hex, ej. "#48569C")
+    color: Mapped[str | None] = mapped_column(String(20), nullable=True)
+
     # Si True, la carpeta usa los permisos del padre; si False, tiene su propia lista de roles
     inherits_permissions: Mapped[bool] = mapped_column(Boolean, default=True)
 

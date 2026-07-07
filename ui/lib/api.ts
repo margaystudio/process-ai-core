@@ -126,6 +126,7 @@ export interface Folder {
   parent_id?: string;
   sort_order: number;
   inherits_permissions?: boolean;
+  color?: string;
   created_at: string;
 }
 
@@ -196,6 +197,7 @@ export interface FolderCreateRequest {
   path?: string;
   parent_id?: string;
   sort_order?: number;
+  color?: string;
   metadata?: Record<string, any>;
 }
 

@@ -92,8 +92,7 @@ function FolderRow({
   const [open, setOpen] = useState(depth < 1)
   const hasKids = node.children.length > 0
   const sel = selectedId === node.folder.id
-  // Heurístico de color por profundidad (no hay campo color en API)
-  const folderColor = 'var(--indigo)'
+  const folderColor = node.folder.color || 'var(--indigo)'
 
   return (
     <>

@@ -52,7 +52,6 @@ export default function NuevoDocumentoWizard() {
     advancedOpen: false,
     detailLevel: "",
     documentType: "procedimiento",
-    smartQueries: true,
     evidences: [],
   });
 

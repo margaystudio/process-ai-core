@@ -16,9 +16,6 @@ export interface Step1State {
   advancedOpen: boolean;
   detailLevel: string;
   documentType: string;
-  /** TODO(wire): smartQueries no tiene efecto en el backend aún.
-   *  Enviar como setting al crear el documento cuando se implemente. */
-  smartQueries: boolean;
   evidences: Evidence[];
 }
 
@@ -162,26 +159,12 @@ export function Step1NuevoDocumento({
                   className="pointer-events-none absolute right-[13px] top-[15px] text-ink-300"
                 />
               </div>
-              <div className="mb-5 text-[11.5px] text-ink-300">
+              <div className="text-[11.5px] text-ink-300">
                 En automático, la IA elige el nivel según las evidencias.
               </div>
 
-              {/* Toggle Tyto — TODO(wire): enviar como setting al crear el documento */}
-              <div className="flex items-start gap-3.5 border-t border-line-soft pt-[18px]">
-                <div className="min-w-0 flex-1">
-                  <div className="mb-[3px] text-[12.5px] font-bold text-ink-900">
-                    Disponible para consultas inteligentes
-                  </div>
-                  <div className="text-[11.5px] leading-snug text-ink-300">
-                    Si lo desactivás, Tyto no usará este documento para
-                    responder consultas inteligentes.
-                  </div>
-                </div>
-                <Toggle
-                  on={s.smartQueries}
-                  onClick={() => set({ smartQueries: !s.smartQueries })}
-                />
-              </div>
+              {/* TODO(wire): toggle Tyto oculto hasta que exista la feature.
+                  Reactivar y persistir en documents.tyto_enabled al crear. */}
             </div>
           )}
         </div>
@@ -289,25 +272,4 @@ function FieldLabel({
 
 function Divider() {
   return <div className="my-[20px] h-px bg-line-soft" />;
-}
-
-function Toggle({ on, onClick }: { on: boolean; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      role="switch"
-      aria-checked={on}
-      aria-label="Disponible para consultas inteligentes"
-      className={
-        "relative h-[26px] w-[46px] flex-shrink-0 rounded-pill transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-action " +
-        (on ? "bg-indigo" : "bg-ink-200")
-      }
-    >
-      <span
-        className="absolute top-[3px] h-5 w-5 rounded-full bg-white shadow transition-all"
-        style={{ left: on ? 23 : 3 }}
-      />
-    </button>
-  );
 }

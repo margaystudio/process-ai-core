@@ -129,6 +129,7 @@ async def create_folder_endpoint(
             path=request.path or request.name,
             parent_id=request.parent_id,
             sort_order=request.sort_order or 0,
+            color=request.color,
             metadata=request.metadata,
         )
 
@@ -142,6 +143,7 @@ async def create_folder_endpoint(
             parent_id=folder.parent_id,
             sort_order=folder.sort_order,
             inherits_permissions=getattr(folder, "inherits_permissions", True),
+            color=folder.color,
             created_at=folder.created_at.isoformat(),
         )
 
@@ -190,6 +192,7 @@ async def list_folders(
             parent_id=f.parent_id,
             sort_order=f.sort_order,
             inherits_permissions=getattr(f, "inherits_permissions", True),
+            color=f.color,
             created_at=f.created_at.isoformat(),
         )
         for f in visible_folders
@@ -338,6 +341,7 @@ async def get_folder(
         parent_id=folder.parent_id,
         sort_order=folder.sort_order,
         inherits_permissions=getattr(folder, "inherits_permissions", True),
+        color=folder.color,
         created_at=folder.created_at.isoformat(),
     )
 
@@ -407,6 +411,7 @@ async def update_folder_endpoint(
             parent_id=request.parent_id,
             sort_order=request.sort_order,
             inherits_permissions=request.inherits_permissions,
+            color=request.color,
             metadata=request.metadata,
         )
 
@@ -420,6 +425,7 @@ async def update_folder_endpoint(
             parent_id=folder.parent_id,
             sort_order=folder.sort_order,
             inherits_permissions=getattr(folder, "inherits_permissions", True),
+            color=folder.color,
             created_at=folder.created_at.isoformat(),
         )
 

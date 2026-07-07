@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, ChangeEvent } from 'react'
+import { useState, useEffect, useCallback, ChangeEvent } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import {
   getWorkspaceSubscription,
@@ -32,6 +32,7 @@ import { useCanEditWorkspace, useCanManageUsers } from '@/hooks/useHasPermission
 import { useUserRole } from '@/hooks/useUserRole'
 import { createClient } from '@/lib/supabase/client'
 import GeneralSettingsTab from '@/components/workspace/GeneralSettingsTab'
+import FolderCrud, { DEFAULT_FOLDER_COLOR } from '@/components/processes/FolderCrud'
 
 const DEFAULT_PRIMARY_BRAND_COLOR = '#2563EB'
 const DEFAULT_SECONDARY_BRAND_COLOR = '#1D4ED8'
@@ -119,6 +120,19 @@ export default function WorkspaceSettingsPage() {
   const [folderPermissionsModal, setFolderPermissionsModal] = useState<{ folder: Folder; perms: FolderPermissionsResponse } | null>(null)
   const [folderPermsInherit, setFolderPermsInherit] = useState(true)
   const [folderPermsRoleIds, setFolderPermsRoleIds] = useState<string[]>([])
+
+  const reloadFolders = useCallback(async () => {
+    if (!workspaceId) {
+      setFolders([])
+      return
+    }
+    try {
+      const data = await listFolders(workspaceId)
+      setFolders(data)
+    } catch {
+      setFolders([])
+    }
+  }, [workspaceId])
 
   const extractBrandingColors = (file: File): Promise<{ primary: string; secondary: string }> => {
     return new Promise((resolve, reject) => {
@@ -215,9 +229,9 @@ export default function WorkspaceSettingsPage() {
 
   useEffect(() => {
     if (workspaceId && activeTab === 'folders') {
-      listFolders(workspaceId).then(setFolders).catch(() => setFolders([]))
+      void reloadFolders()
     }
-  }, [workspaceId, activeTab])
+  }, [workspaceId, activeTab, reloadFolders])
 
   useEffect(() => {
     setBrandingIconUrl(currentWorkspace?.branding_icon_url || null)
@@ -579,8 +593,20 @@ export default function WorkspaceSettingsPage() {
             )}
 
             {/* Carpetas / Permisos por carpeta */}
-            {activeTab === 'folders' && (
+            {activeTab === 'folders' && workspaceId && (
               <div>
+                <h2 className="text-xl font-semibold mb-2">Gestionar carpetas</h2>
+                <p className="text-ink-600 text-sm mb-4">
+                  Creá, editá o eliminá carpetas y elegí un color para identificarlas en la Biblioteca.
+                </p>
+                <FolderCrud
+                  workspaceId={workspaceId}
+                  folders={folders}
+                  onFoldersChange={reloadFolders}
+                />
+
+                <hr className="my-8 border-ink-200" />
+
                 <h2 className="text-xl font-semibold mb-4">Acceso por carpeta</h2>
                 <p className="text-ink-600 text-sm mb-4">
                   Definí qué roles operativos pueden acceder a cada carpeta. Si una carpeta hereda del padre, usa los mismos permisos que la carpeta padre.
@@ -591,10 +617,17 @@ export default function WorkspaceSettingsPage() {
                   <ul className="space-y-2">
                     {folders.map((folder) => (
                       <li key={folder.id} className="flex items-center justify-between py-2 px-3 bg-ink-50 rounded-md">
-                        <span className="font-medium">{folder.name}</span>
+                        <span className="flex items-center gap-2 font-medium min-w-0">
+                          <span
+                            className="h-3 w-3 flex-shrink-0 rounded-full"
+                            style={{ backgroundColor: folder.color || DEFAULT_FOLDER_COLOR }}
+                            aria-hidden
+                          />
+                          <span className="truncate">{folder.name}</span>
+                        </span>
                         <button
                           onClick={() => openFolderPermissions(folder)}
-                          className="px-3 py-1.5 text-sm bg-accent-tint hover:bg-accent-tint text-accent-ink rounded-md"
+                          className="px-3 py-1.5 text-sm bg-accent-tint hover:bg-accent-tint text-accent-ink rounded-md flex-shrink-0 ml-2"
                         >
                           Permisos
                         </button>
