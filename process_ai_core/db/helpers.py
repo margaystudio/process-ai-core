@@ -185,6 +185,7 @@ def create_folder(
     path: str = "",
     parent_id: str | None = None,
     sort_order: int = 0,
+    color: str | None = None,
     metadata: Dict[str, Any] | None = None,
 ) -> Folder:
     """
@@ -197,6 +198,7 @@ def create_folder(
         path: Path completo de la carpeta (ej: "RRHH/Recursos Humanos")
         parent_id: ID de la carpeta padre (opcional, para estructura jerárquica)
         sort_order: Orden de visualización
+        color: Color de acento para UI (hex, opcional)
         metadata: Metadata adicional (JSON)
     
     Returns:
@@ -208,6 +210,7 @@ def create_folder(
         path=path or name,
         parent_id=parent_id,
         sort_order=sort_order,
+        color=color,
         metadata_json=json.dumps(metadata or {}),
     )
     session.add(folder)
@@ -241,6 +244,7 @@ def update_folder(
     parent_id: str | None = None,
     sort_order: int | None = None,
     inherits_permissions: bool | None = None,
+    color: str | None = None,
     metadata: Dict[str, Any] | None = None,
 ) -> Folder:
     """
@@ -288,6 +292,8 @@ def update_folder(
         folder.sort_order = sort_order
     if inherits_permissions is not None:
         folder.inherits_permissions = inherits_permissions
+    if color is not None:
+        folder.color = color
     if metadata is not None:
         # Mergear metadata existente con la nueva
         existing_meta = json.loads(folder.metadata_json) if folder.metadata_json else {}
@@ -503,10 +509,12 @@ def create_validation(
     validator_user_id: str | None = None,
     observations: str = "",
     checklist_json: str = "{}",
+    assigned_approver_ids: str = "[]",
+    submit_comment: str = "",
 ) -> Validation:
     """
     Crea una nueva validación para un documento o run.
-    
+
     Args:
         session: Sesión de base de datos
         document_id: ID del documento
@@ -514,7 +522,9 @@ def create_validation(
         validator_user_id: ID del usuario validador (opcional)
         observations: Observaciones del validador
         checklist_json: Checklist en formato JSON
-    
+        assigned_approver_ids: JSON con user_id de aprobadores sugeridos
+        submit_comment: Comentario del autor para los aprobadores
+
     Returns:
         Validation creada
     """
@@ -526,6 +536,8 @@ def create_validation(
         status="pending",
         observations=observations,
         checklist_json=checklist_json,
+        assigned_approver_ids=assigned_approver_ids,
+        submit_comment=submit_comment,
     )
     session.add(validation)
     
@@ -835,6 +847,8 @@ def submit_version_for_review(
     session: Session,
     version_id: str,
     submitter_id: str | None = None,
+    approver_ids: list[str] | None = None,
+    comment: str | None = None,
 ) -> tuple[DocumentVersion, Validation]:
     """
     Envía una versión DRAFT a revisión (cambia a IN_REVIEW y crea Validation).
@@ -914,6 +928,8 @@ def submit_version_for_review(
         validator_user_id=None,  # Se asignará cuando se apruebe/rechace
         observations="",
         checklist_json=json.dumps(snapshot_metadata),
+        assigned_approver_ids=json.dumps(approver_ids or []),
+        submit_comment=comment or "",
     )
     
     # Flush para obtener el ID de la validación

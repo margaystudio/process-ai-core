@@ -248,6 +248,9 @@ class Folder(Base):
     # Orden de visualización
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
 
+    # Color de acento para UI (hex, ej. "#48569C")
+    color: Mapped[str | None] = mapped_column(String(20), nullable=True)
+
     # Si True, la carpeta usa los permisos del padre; si False, tiene su propia lista de roles
     inherits_permissions: Mapped[bool] = mapped_column(Boolean, default=True)
 
@@ -535,7 +538,13 @@ class Validation(Base):
     
     # Checklist ISO-friendly (JSON estructurado)
     checklist_json: Mapped[str] = mapped_column(Text, default="{}")
-    
+
+    # Aprobadores sugeridos al enviar (semántica: sugerencia + notificación, NO
+    # restringe quién puede aprobar — cualquiera con documents.approve puede).
+    # JSON: lista de user_id. Comentario libre del autor para los aprobadores.
+    assigned_approver_ids: Mapped[str] = mapped_column(Text, default="[]")
+    submit_comment: Mapped[str] = mapped_column(Text, default="")
+
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     

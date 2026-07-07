@@ -307,7 +307,8 @@ def enrich_assets(
         # AUDIO
         # ----------------------------
         if a.kind == "audio":
-            extracted = transcribe_audio(path)
+            override = (a.metadata.get("extracted_text_override") or "").strip()
+            extracted = override if override else transcribe_audio(path)
             print(f"🎧 Transcripción de {a.id}:\n{extracted}\n{'-'*60}")
             enriched.append(
                 EnrichedAsset(
@@ -327,7 +328,8 @@ def enrich_assets(
             text_path = Path(path)
             if not text_path.exists():
                 raise FileNotFoundError(f"No se encontró el archivo de texto: {text_path}")
-            extracted = _extract_text_from_document(text_path)
+            override = (a.metadata.get("extracted_text_override") or "").strip()
+            extracted = override if override else _extract_text_from_document(text_path)
             enriched.append(
                 EnrichedAsset(
                     id=a.id,
@@ -353,7 +355,11 @@ def enrich_assets(
             titulo = (a.metadata.get("titulo") or src.stem).strip() or src.stem
             rel_path = f"assets/evidence/{dest.name}"
 
-            extracted = f"[IMAGEN:{a.id}] titulo='{titulo}' archivo='{rel_path}'"
+            override = (a.metadata.get("extracted_text_override") or "").strip()
+            if override:
+                extracted = override
+            else:
+                extracted = f"[IMAGEN:{a.id}] titulo='{titulo}' archivo='{rel_path}'"
 
             enriched.append(
                 EnrichedAsset(

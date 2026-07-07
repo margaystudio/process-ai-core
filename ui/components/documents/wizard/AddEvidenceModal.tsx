@@ -5,7 +5,7 @@ import {
   EVIDENCE_TYPES,
   EVIDENCE_TIPO_TO_FILE_TYPE,
   type EvidenceTipo,
-  type Evidence,
+  type EvidenceInput,
   evidenceIconPath,
   formatSecs,
   formatFileSize,
@@ -29,7 +29,7 @@ export function AddEvidenceModal({
   onAdd,
 }: {
   onClose: () => void;
-  onAdd: (e: Evidence) => void;
+  onAdd: (e: EvidenceInput) => void;
 }) {
   const [mode, setMode] = useState<Mode>("import");
 
@@ -215,7 +215,7 @@ export function AddEvidenceModal({
           </button>
         </div>
         <div className="mb-4 text-[12.5px] text-ink-400">
-          Sumá material existente o grabá un audio. El sistema lo procesa al generar el borrador.
+          Sumá material existente o grabá un audio. El sistema lo procesa al agregarlo.
         </div>
 
         {/* Segmented control de modo */}
@@ -381,7 +381,7 @@ export function AddEvidenceModal({
               </button>
             </div>
             <div className="mt-3.5 text-center text-[11.5px] leading-relaxed text-ink-300">
-              Las evidencias se procesan cuando generás el borrador.
+              Al agregar, se transcribe/extrae el contenido para mostrar el estado real.
             </div>
           </>
         )}
@@ -531,7 +531,7 @@ function RecordHint() {
         className="mt-px flex-shrink-0 text-indigo"
       />
       <span className="text-[11.5px] leading-relaxed text-ink-500">
-        El audio se transcribirá automáticamente al generar el borrador.
+        El audio se transcribirá al agregarlo como evidencia.
       </span>
     </div>
   );

@@ -126,6 +126,7 @@ export interface Folder {
   parent_id?: string;
   sort_order: number;
   inherits_permissions?: boolean;
+  color?: string;
   created_at: string;
 }
 
@@ -196,6 +197,7 @@ export interface FolderCreateRequest {
   path?: string;
   parent_id?: string;
   sort_order?: number;
+  color?: string;
   metadata?: Record<string, any>;
 }
 
@@ -216,6 +218,46 @@ export async function createProcessRun(
   // No establecer Content-Type para FormData, el navegador lo hace automáticamente
   
   const response = await fetch(`${API_URL}/api/v1/process-runs`, {
+    method: 'POST',
+    headers,
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
+    throw new Error(error.detail || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+export interface ProcessEvidenceResponse {
+  status: 'done' | 'error' | 'no_text';
+  extracted_text: string;
+  metadata: {
+    language?: string;
+    duration_seconds?: number;
+    pages?: number;
+    used_ocr?: boolean;
+  };
+  error: string | null;
+}
+
+/**
+ * Procesa un archivo de evidencia (transcripción, OCR, extracción de texto).
+ * Usado por el wizard al agregar evidencias para mostrar badges reales.
+ */
+export async function processEvidenceFile(
+  file: File,
+  kind: import('@/lib/fileUploadValidation').FileType,
+): Promise<ProcessEvidenceResponse> {
+  const { getAuthHeaders } = await import('@/lib/api-auth');
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('kind', kind);
+
+  const headers = await getAuthHeaders();
+  const response = await fetch(`${API_URL}/api/v1/evidence/process`, {
     method: 'POST',
     headers,
     body: formData,
@@ -359,16 +401,12 @@ export async function createWorkspace(
     }
     headers['Authorization'] = `Bearer ${devUserId}`
   } else if (supabaseUrl && supabaseKey) {
-    // Modo con Supabase: obtener token de Supabase
-    try {
-      const { createClient } = await import('@/lib/supabase/client')
-      const supabase = createClient()
-      const { data: { session } } = await supabase.auth.getSession()
-      if (session?.access_token) {
-        headers['Authorization'] = `Bearer ${session.access_token}`
-      }
-    } catch (err) {
-      console.warn('Error obteniendo token de Supabase:', err)
+    // Modo con Supabase: token vía el puente server-side (getAccessToken lee la
+    // cookie HttpOnly en el server; el getSession() del browser no la ve).
+    const { getAccessToken } = await import('@/lib/api-auth')
+    const token = await getAccessToken()
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`
     }
   }
 
@@ -682,22 +720,14 @@ export async function createCatalogOption(
   const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
   if (supabaseUrl && supabaseKey) {
-    try {
-      const { createClient } = await import('@/lib/supabase/client')
-      const supabase = createClient()
-      const { data: { session } } = await supabase.auth.getSession()
-      if (session?.access_token) {
-        headers['Authorization'] = `Bearer ${session.access_token}`
-      } else {
-        throw new Error('No hay sesión activa. Por favor, inicia sesión.')
-      }
-    } catch (err) {
-      if (err instanceof Error && err.message.includes('sesión')) {
-        throw err
-      }
-      console.warn('Error obteniendo token de Supabase:', err)
-      throw new Error('Error de autenticación. Por favor, inicia sesión nuevamente.')
+    // Token vía el puente server-side (getAccessToken lee la cookie HttpOnly en el
+    // server; el getSession() del browser no la ve).
+    const { getAccessToken } = await import('@/lib/api-auth')
+    const token = await getAccessToken()
+    if (!token) {
+      throw new Error('No hay sesión activa. Por favor, inicia sesión.')
     }
+    headers['Authorization'] = `Bearer ${token}`
   } else {
     // Modo desarrollo sin Supabase: no se puede crear opciones de catálogo sin autenticación
     throw new Error('Supabase no está configurado. No se pueden crear opciones de catálogo.')
@@ -1316,8 +1346,12 @@ export async function submitVersionForReview(
   documentId: string,
   versionId: string,
   userId?: string,
-  workspaceId?: string
-): Promise<{ message: string; version: { id: string; version_number: number; version_status: string; validation_id: string }; validation: { id: string; status: string; document_id: string; created_at: string } }> {
+  workspaceId?: string,
+  /** Aprobadores sugeridos (user_id). Semántica sugerencia+notificación: no restringe quién aprueba. */
+  approverIds: string[] = [],
+  /** Comentario opcional del autor para los aprobadores. */
+  comment: string = ''
+): Promise<{ message: string; version: { id: string; version_number: number; version_status: string; validation_id: string }; validation: { id: string; status: string; document_id: string; created_at: string; assigned_approver_ids: string[]; submit_comment: string } }> {
   const { getAuthHeaders } = await import('@/lib/api-auth');
   const headers = await getAuthHeaders({ 'Content-Type': 'application/json' });
   const response = await fetch(
@@ -1325,7 +1359,7 @@ export async function submitVersionForReview(
     {
       method: 'POST',
       headers,
-      body: JSON.stringify({}),
+      body: JSON.stringify({ approver_ids: approverIds, comment }),
     }
   );
   if (!response.ok) {
@@ -1480,7 +1514,7 @@ export async function getEditableContent(documentId: string): Promise<{
   const headers: HeadersInit = {};
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
-  const response = await fetch(`${API_URL}/api/v1/documents/${documentId}/editable`, { headers });
+  const response = await fetch(`${API_URL}/api/v1/documents/${documentId}/editable`, { method: 'GET', headers });
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
     throw new Error(error.detail || `HTTP ${response.status}`);

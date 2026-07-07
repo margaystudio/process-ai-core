@@ -78,9 +78,18 @@ export const EVIDENCE_TYPES: Record<EvidenceTipo, EvidenceTypeDef> = {
 
 /**
  * Una evidencia es un archivo real aportado por el usuario.
- * No hay estado de procesamiento en el frontend — el procesamiento ocurre en el backend
- * al momento de llamar a createProcessRun.
+ * Al agregarla, el wizard la procesa vía POST /api/v1/evidence/process
+ * y muestra badges reales (transcripción, OCR, idioma, páginas).
  */
+export type EvidenceProcessingStatus = 'processing' | 'done' | 'error' | 'no_text'
+
+export interface EvidenceMetadata {
+  language?: string
+  duration_seconds?: number
+  pages?: number
+  used_ocr?: boolean
+}
+
 export interface Evidence {
   /** ID único local */
   id: string
@@ -91,24 +100,93 @@ export interface Evidence {
   title: string
   /** Archivo real — se agrega al FormData al generar */
   file: File
+  /** Estado del procesamiento al subir */
+  processingStatus: EvidenceProcessingStatus
+  /** Texto extraído/transcripto (si processingStatus === 'done') */
+  extractedText?: string
+  metadata?: EvidenceMetadata
+  processingError?: string
 }
 
-// ---- Aprobadores (demo hasta cablear Step 3) ----
+/** Input desde AddEvidenceModal (sin estado de procesamiento aún). */
+export type EvidenceInput = Omit<
+  Evidence,
+  'processingStatus' | 'extractedText' | 'metadata' | 'processingError'
+>
 
-export interface Approver {
-  id: string
-  name: string
-  role: string
-  initials: string
-  sel: boolean
+/** Chip de evidencia con variante semántica. */
+export interface EvidenceChip {
+  label: string
+  /** `success` = contenido real detectado; `neutral` = procesado pero vacío. */
+  variant: 'success' | 'neutral'
 }
 
-/** TODO(wire): reemplazar con aprobadores reales de la governance config de la carpeta destino */
-export const APPROVERS: Approver[] = [
-  { id: 'lucia', name: 'Lucía Gómez',      role: 'Gerente',              initials: 'LG', sel: true  },
-  { id: 'juan',  name: 'Juan Pérez',        role: 'Supervisor de turno',  initials: 'JP', sel: true  },
-  { id: 'pablo', name: 'Pablo Rodríguez',   role: 'Dueño',                initials: 'PR', sel: false },
-]
+/** Badges reales según tipo y metadata — nunca inventados. */
+export function evidenceChips(evidence: Evidence): EvidenceChip[] {
+  if (evidence.processingStatus === 'processing') {
+    return []
+  }
+  if (evidence.processingStatus === 'error') {
+    return []
+  }
+
+  const meta = evidence.metadata ?? {}
+  const chips: EvidenceChip[] = []
+
+  const s = (label: string): EvidenceChip => ({ label, variant: 'success' })
+  const n = (label: string): EvidenceChip => ({ label, variant: 'neutral' })
+
+  if (evidence.tipo === 'Audio' || evidence.tipo === 'Video') {
+    if (evidence.processingStatus === 'done') {
+      chips.push(s('Audio transcripto'))
+    }
+    if (meta.language) {
+      chips.push(s(`Idioma: ${meta.language}`))
+    }
+    if (meta.duration_seconds != null) {
+      chips.push(s(formatSecs(meta.duration_seconds)))
+    }
+    if (evidence.processingStatus === 'no_text') {
+      chips.push(n('Sin audio detectado'))
+    }
+    return chips
+  }
+
+  if (evidence.tipo === 'PDF' || evidence.tipo === 'Documento') {
+    if (evidence.processingStatus === 'done') {
+      chips.push(s(meta.used_ocr ? 'OCR completado' : 'Texto extraído'))
+      if (evidence.tipo === 'PDF') {
+        chips.push(s('PDF procesado'))
+      }
+    }
+    if (meta.pages != null && meta.pages > 0) {
+      chips.push(s(`${meta.pages} págs`))
+    }
+    if (meta.language) {
+      chips.push(s(`Idioma: ${meta.language}`))
+    }
+    if (evidence.processingStatus === 'no_text') {
+      chips.push(n('Sin texto detectado'))
+    }
+    return chips
+  }
+
+  if (evidence.tipo === 'Imagen') {
+    if (evidence.processingStatus === 'done') {
+      chips.push(s('OCR completado'))
+      chips.push(s('1 imagen'))
+    } else if (evidence.processingStatus === 'no_text') {
+      chips.push(n('Sin texto detectado'))
+      chips.push(n('1 imagen'))
+    }
+    if (meta.language) {
+      chips.push(s(`Idioma: ${meta.language}`))
+    }
+    return chips
+  }
+
+  return chips
+}
 
 export const CONTEXT_EXAMPLES: string[] = [
   'Es un reemplazo del procedimiento anterior',

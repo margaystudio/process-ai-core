@@ -129,6 +129,7 @@ async def create_folder_endpoint(
             path=request.path or request.name,
             parent_id=request.parent_id,
             sort_order=request.sort_order or 0,
+            color=request.color,
             metadata=request.metadata,
         )
 
@@ -142,6 +143,7 @@ async def create_folder_endpoint(
             parent_id=folder.parent_id,
             sort_order=folder.sort_order,
             inherits_permissions=getattr(folder, "inherits_permissions", True),
+            color=folder.color,
             created_at=folder.created_at.isoformat(),
         )
 
@@ -190,6 +192,7 @@ async def list_folders(
             parent_id=f.parent_id,
             sort_order=f.sort_order,
             inherits_permissions=getattr(f, "inherits_permissions", True),
+            color=f.color,
             created_at=f.created_at.isoformat(),
         )
         for f in visible_folders
@@ -264,17 +267,34 @@ async def update_folder_permissions(
     if request.inherits_permissions is not None:
         folder.inherits_permissions = request.inherits_permissions
     if request.operational_role_ids is not None:
+        # Validar todos los roles de una (batch, no N+1) ANTES de reescribir permisos,
+        # así un id inválido no deja los permisos borrados a medias.
+        requested_role_ids = list(request.operational_role_ids)
+        if requested_role_ids:
+            valid_ids = {
+                row[0]
+                for row in session.query(OperationalRole.id)
+                .filter(
+                    OperationalRole.id.in_(requested_role_ids),
+                    OperationalRole.workspace_id == folder.workspace_id,
+                )
+                .all()
+            }
+            missing = [rid for rid in requested_role_ids if rid not in valid_ids]
+            if missing:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Rol operativo {missing[0]} no existe o no pertenece al workspace",
+                )
         session.query(FolderPermission).filter_by(folder_id=folder_id).delete()
-        for rid in request.operational_role_ids:
-            r = session.query(OperationalRole).filter_by(id=rid, workspace_id=folder.workspace_id).first()
-            if not r:
-                raise HTTPException(status_code=400, detail=f"Rol operativo {rid} no existe o no pertenece al workspace")
-            fp = FolderPermission(
-                id=str(uuid.uuid4()),
-                folder_id=folder_id,
-                operational_role_id=rid,
+        for rid in requested_role_ids:
+            session.add(
+                FolderPermission(
+                    id=str(uuid.uuid4()),
+                    folder_id=folder_id,
+                    operational_role_id=rid,
+                )
             )
-            session.add(fp)
     session.commit()
     return {"message": "Permisos actualizados", "folder_id": folder_id}
 
@@ -321,6 +341,7 @@ async def get_folder(
         parent_id=folder.parent_id,
         sort_order=folder.sort_order,
         inherits_permissions=getattr(folder, "inherits_permissions", True),
+        color=folder.color,
         created_at=folder.created_at.isoformat(),
     )
 
@@ -390,6 +411,7 @@ async def update_folder_endpoint(
             parent_id=request.parent_id,
             sort_order=request.sort_order,
             inherits_permissions=request.inherits_permissions,
+            color=request.color,
             metadata=request.metadata,
         )
 
@@ -403,6 +425,7 @@ async def update_folder_endpoint(
             parent_id=folder.parent_id,
             sort_order=folder.sort_order,
             inherits_permissions=getattr(folder, "inherits_permissions", True),
+            color=folder.color,
             created_at=folder.created_at.isoformat(),
         )
 

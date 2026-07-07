@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { X } from 'lucide-react'
 import { getVersionPreviewPdfUrl } from '@/lib/api'
+import { getAuthHeaders } from '@/lib/api-auth'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
@@ -71,10 +72,16 @@ export default function ArtifactViewerModal({
         if (type === 'pdf') {
           setPdfFrameLoading(true)
           const urlWithCacheBust = `${absoluteUrl}${absoluteUrl.includes('?') ? '&' : '?'}t=${Date.now()}`
+          // El endpoint preview-pdf de nuestra API exige el header Authorization (JWT):
+          // un <iframe>/fetch con solo cookies devuelve "Missing Authorization header".
+          // Las URLs firmadas de storage (artifactUrl) NO deben llevar el header
+          // (rompería el CORS del signed URL), por eso solo se agrega para versionPreviewPdf.
+          const pdfHeaders = versionPreviewPdf ? await getAuthHeaders() : undefined
           try {
             const response = await fetch(urlWithCacheBust, {
               cache: 'no-store',
               credentials: 'include',
+              headers: pdfHeaders,
               signal: abortController.signal,
             })
 

@@ -5,6 +5,7 @@ Versiones y flujo de aprobación de un documento:
 - Envío a revisión, cancelación de envío y clonado a borrador.
 """
 
+import json
 import logging
 import shutil
 import subprocess
@@ -14,6 +15,17 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
+from pydantic import BaseModel
+
+
+class SubmitVersionRequest(BaseModel):
+    """Body opcional del submit: aprobadores sugeridos + comentario del autor.
+
+    Semántica sugerencia + notificación: NO restringe quién puede aprobar.
+    """
+
+    approver_ids: list[str] = []
+    comment: str = ""
 
 from process_ai_core.db.database import get_db_session
 from process_ai_core.db.models import Document, DocumentVersion
@@ -133,9 +145,12 @@ async def get_version_preview_pdf(
         version_run_id = version.run_id
         version_status = version.version_status
         markdown_fallback = getattr(version, "content_markdown", None)
+        # Capturar el workspace_id DENTRO de la sesión: fuera de ella el
+        # instance queda detached y acceder al atributo lanza DetachedInstanceError.
+        document_workspace_id = document.workspace_id if document else None
         pdf_branding = get_workspace_pdf_branding(
             session,
-            document.workspace_id if document else None,
+            document_workspace_id,
         )
 
     def _is_weasyprint_system_dependency_error(exc: Exception) -> bool:
@@ -186,7 +201,7 @@ async def get_version_preview_pdf(
     # draft_preview.pdf viejo guardado en disco.
 
     # Post-procesar HTML: limpiar artefactos LaTeX y reescribir URLs de imágenes
-    version_workspace_id = document.workspace_id if document else None
+    version_workspace_id = document_workspace_id
     if fmt == "html":
         content = _strip_latex_artifacts(content)
         content = _rewrite_img_src_to_absolute(
@@ -401,6 +416,7 @@ async def get_document_audit_log(
 async def submit_version_for_review_endpoint(
     document_id: str,
     version_id: str,
+    payload: SubmitVersionRequest | None = None,
     user_id: str = Depends(get_current_user_id),
     ctx: WorkspaceSessionContext = Depends(get_workspace_context),
 ):
@@ -452,10 +468,13 @@ async def submit_version_for_review_endpoint(
 
         # Enviar a revisión
         try:
+            body = payload or SubmitVersionRequest()
             updated_version, validation = submit_version_for_review(
                 session=session,
                 version_id=version_id,
                 submitter_id=user_id,
+                approver_ids=body.approver_ids,
+                comment=body.comment,
             )
             session.commit()
         except ValueError as e:
@@ -474,6 +493,8 @@ async def submit_version_for_review_endpoint(
                 "status": validation.status,
                 "document_id": validation.document_id,
                 "created_at": validation.created_at.isoformat(),
+                "assigned_approver_ids": json.loads(validation.assigned_approver_ids or "[]"),
+                "submit_comment": validation.submit_comment or "",
             },
         }
 

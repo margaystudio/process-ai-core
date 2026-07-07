@@ -14,7 +14,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
-from .routes import artifacts, catalog, documents, folders, process_runs, users, validations, workspaces, subscriptions, operational_roles
+from .routes import artifacts, catalog, documents, evidence, folders, process_runs, users, validations, workspaces, subscriptions, operational_roles
 from process_ai_core.db.database import warmup_db_pool
 # recipe_runs: dominio "recetas" (experimento B2C, sin auth/workspace) deshabilitado para el MVP. Ver línea de include_router más abajo.
 
@@ -60,6 +60,7 @@ app.include_router(workspaces.router)
 app.include_router(folders.router)
 app.include_router(documents.router)
 app.include_router(process_runs.router)
+app.include_router(evidence.router)
 # Deshabilitado para el MVP: el dominio "recetas" no tiene autenticación (no JWT, no
 # sync_workspace_access, no contexto de tenant) y no es parte del producto de procesos.
 # Es un experimento para otro nicho (app mobile B2C, sin workspace). Reactivar SOLO tras

@@ -117,6 +117,12 @@ class Settings:
     supabase_service_role_key: str = ""
     supabase_storage_bucket: str = "process-ai-artifacts"
 
+    # OCR local (Tesseract) — Fase 1.2
+    # tesseract_cmd: ruta al binario en Windows si no está en PATH (TESSERACT_CMD)
+    tesseract_cmd: str = ""
+    # Idiomas Tesseract (formato +, ej. spa+eng)
+    ocr_languages: str = "spa+eng"
+
 
 @lru_cache
 def get_settings() -> Settings:
@@ -175,4 +181,8 @@ def get_settings() -> Settings:
             "OPENAI_MODEL_EMBEDDING",
             "text-embedding-3-small"
         ),
+
+        # OCR local (Tesseract)
+        tesseract_cmd=os.getenv("TESSERACT_CMD", ""),
+        ocr_languages=os.getenv("OCR_LANGUAGES", "spa+eng"),
     )

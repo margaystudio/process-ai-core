@@ -4,6 +4,46 @@ import { useState } from 'react'
 import { Plus, Pencil, Trash2 } from 'lucide-react'
 import { createFolder, updateFolder, deleteFolder, Folder, listFolders } from '@/lib/api'
 
+const FOLDER_COLOR_PALETTE = [
+  '#48569C',
+  '#2F9E62',
+  '#C99A2E',
+  '#2E8B8B',
+  '#CB4242',
+  '#6366F1',
+  '#8B5CF6',
+  '#64748B',
+] as const
+
+export const DEFAULT_FOLDER_COLOR = FOLDER_COLOR_PALETTE[0]
+
+function FolderColorPicker({
+  value,
+  onChange,
+}: {
+  value: string
+  onChange: (color: string) => void
+}) {
+  return (
+    <div className="flex flex-wrap gap-2">
+      {FOLDER_COLOR_PALETTE.map((color) => (
+        <button
+          key={color}
+          type="button"
+          onClick={() => onChange(color)}
+          aria-label={`Color ${color}`}
+          aria-pressed={value === color}
+          className={
+            'h-7 w-7 rounded-full border-2 transition ' +
+            (value === color ? 'border-ink-900 scale-110' : 'border-transparent hover:scale-105')
+          }
+          style={{ backgroundColor: color }}
+        />
+      ))}
+    </div>
+  )
+}
+
 interface FolderCrudProps {
   workspaceId: string
   folders: Folder[]
@@ -20,8 +60,10 @@ export default function FolderCrud({ workspaceId, folders, onFoldersChange, pare
   
   const [newFolderName, setNewFolderName] = useState('')
   const [newFolderPath, setNewFolderPath] = useState('')
+  const [newFolderColor, setNewFolderColor] = useState<string>(DEFAULT_FOLDER_COLOR)
   const [editFolderName, setEditFolderName] = useState('')
   const [editFolderPath, setEditFolderPath] = useState('')
+  const [editFolderColor, setEditFolderColor] = useState<string>(DEFAULT_FOLDER_COLOR)
   const [error, setError] = useState<string | null>(null)
 
   // Filtrar carpetas por parent_id
@@ -62,6 +104,7 @@ export default function FolderCrud({ workspaceId, folders, onFoldersChange, pare
         path: finalPath,
         parent_id: actualParentId || undefined,
         sort_order: filteredFolders.length,
+        color: newFolderColor,
       })
       
       console.log('Carpeta creada exitosamente:', created)
@@ -69,6 +112,7 @@ export default function FolderCrud({ workspaceId, folders, onFoldersChange, pare
       // Limpiar formulario
       setNewFolderName('')
       setNewFolderPath('')
+      setNewFolderColor(DEFAULT_FOLDER_COLOR)
       setIsCreating(false)
       setParentIdForNew(null)
       
@@ -88,6 +132,7 @@ export default function FolderCrud({ workspaceId, folders, onFoldersChange, pare
     setEditingId(folder.id)
     setEditFolderName(folder.name)
     setEditFolderPath(folder.path)
+    setEditFolderColor(folder.color || DEFAULT_FOLDER_COLOR)
     setError(null)
   }
 
@@ -102,6 +147,7 @@ export default function FolderCrud({ workspaceId, folders, onFoldersChange, pare
       await updateFolder(folderId, {
         name: editFolderName.trim(),
         path: editFolderPath.trim() || editFolderName.trim(),
+        color: editFolderColor,
       })
       setEditingId(null)
       onFoldersChange()
@@ -165,6 +211,10 @@ export default function FolderCrud({ workspaceId, folders, onFoldersChange, pare
             placeholder="Path (opcional, se usa el nombre si está vacío)"
             className="w-full px-3 py-2 text-sm border border-ink-300 rounded-md focus:ring-2 focus:ring-action-ring focus:border-accent"
           />
+          <div>
+            <div className="mb-1.5 text-xs font-medium text-ink-600">Color</div>
+            <FolderColorPicker value={newFolderColor} onChange={setNewFolderColor} />
+          </div>
           <div className="flex gap-2">
             <button
               onClick={handleCreate}
@@ -178,6 +228,7 @@ export default function FolderCrud({ workspaceId, folders, onFoldersChange, pare
                 setIsCreating(false)
                 setNewFolderName('')
                 setNewFolderPath('')
+                setNewFolderColor(DEFAULT_FOLDER_COLOR)
                 setParentIdForNew(null)
                 setError(null)
               }}
@@ -212,6 +263,10 @@ export default function FolderCrud({ workspaceId, folders, onFoldersChange, pare
                   onChange={(e) => setEditFolderPath(e.target.value)}
                   className="w-full px-3 py-2 text-sm border border-ink-300 rounded-md focus:ring-2 focus:ring-action-ring focus:border-accent"
                 />
+                <div>
+                  <div className="mb-1.5 text-xs font-medium text-ink-600">Color</div>
+                  <FolderColorPicker value={editFolderColor} onChange={setEditFolderColor} />
+                </div>
                 <div className="flex gap-2">
                   <button
                     onClick={() => handleUpdate(folder.id)}
@@ -235,8 +290,15 @@ export default function FolderCrud({ workspaceId, folders, onFoldersChange, pare
               <div>
                 <div className="flex items-center justify-between">
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-ink-900 truncate">
-                      {folder.name}
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="h-3 w-3 flex-shrink-0 rounded-full"
+                        style={{ backgroundColor: folder.color || DEFAULT_FOLDER_COLOR }}
+                        aria-hidden
+                      />
+                      <div className="text-sm font-medium text-ink-900 truncate">
+                        {folder.name}
+                      </div>
                     </div>
                     {folder.path !== folder.name && (
                       <div className="text-xs text-ink-500 truncate">

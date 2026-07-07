@@ -153,6 +153,11 @@ class FolderCreateRequest(BaseModel):
     path: Optional[str] = Field(default=None, description="Path completo de la carpeta")
     parent_id: Optional[str] = Field(default=None, description="ID de la carpeta padre (opcional)")
     sort_order: Optional[int] = Field(default=0, description="Orden de visualización")
+    color: Optional[str] = Field(
+        default=None,
+        pattern=r"^#(?:[0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$",
+        description="Color de acento para UI (hex, ej. #48569C)",
+    )
     metadata: Optional[dict] = Field(default=None, description="Metadata adicional (JSON)")
 
 
@@ -164,6 +169,11 @@ class FolderUpdateRequest(BaseModel):
     parent_id: Optional[str] = Field(default=None, description="ID de la carpeta padre (None para quitar parent)")
     sort_order: Optional[int] = Field(default=None, description="Orden de visualización")
     inherits_permissions: Optional[bool] = Field(default=None, description="Si hereda permisos del padre")
+    color: Optional[str] = Field(
+        default=None,
+        pattern=r"^#(?:[0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$",
+        description="Color de acento para UI (hex, ej. #48569C)",
+    )
     metadata: Optional[dict] = Field(default=None, description="Metadata adicional (JSON, se mergea con existente)")
 
 
@@ -177,6 +187,7 @@ class FolderResponse(BaseModel):
     parent_id: Optional[str] = Field(default=None, description="ID de la carpeta padre")
     sort_order: int = Field(..., description="Orden de visualización")
     inherits_permissions: Optional[bool] = Field(default=True, description="Si usa permisos del padre")
+    color: Optional[str] = Field(default=None, description="Color de acento para UI (hex)")
     created_at: str = Field(..., description="Fecha de creación")
 
 

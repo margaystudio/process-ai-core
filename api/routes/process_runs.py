@@ -50,6 +50,10 @@ async def create_process_run(
     video_files: List[UploadFile] = File(default=[]),
     image_files: List[UploadFile] = File(default=[]),
     text_files: List[UploadFile] = File(default=[]),
+    audio_files_extracted_text: List[str] = Form(default=[]),
+    video_files_extracted_text: List[str] = Form(default=[]),
+    image_files_extracted_text: List[str] = Form(default=[]),
+    text_files_extracted_text: List[str] = Form(default=[]),
     user_id: str = Depends(get_current_user_id),
     ctx: WorkspaceSessionContext = Depends(get_workspace_context),
 ):
@@ -135,12 +139,19 @@ async def create_process_run(
         # Contadores para IDs deterministas
         counters = {"audio": 0, "video": 0, "image": 0, "text": 0}
 
-        async def process_files(files: List[UploadFile], kind: str, prefix: str):
+        async def process_files(
+            files: List[UploadFile],
+            kind: str,
+            prefix: str,
+            extracted_texts: List[str] | None = None,
+        ):
             """Procesa una lista de archivos y los agrega a raw_assets."""
             if not files:
                 return
 
-            for upload_file in files:
+            overrides = extracted_texts or []
+
+            for idx, upload_file in enumerate(files):
                 ext = Path(upload_file.filename).suffix.lower() if upload_file.filename else ""
                 allowed = ALLOWED_UPLOAD_EXTENSIONS[kind]
                 if ext not in allowed:
@@ -169,20 +180,24 @@ async def create_process_run(
                     else f"{kind} {counters[kind]}"
                 )
 
+                metadata: dict[str, str] = {"titulo": titulo}
+                if idx < len(overrides) and overrides[idx].strip():
+                    metadata["extracted_text_override"] = overrides[idx].strip()
+
                 raw_assets.append(
                     RawAsset(
                         id=asset_id,
                         kind=kind,  # type: ignore
                         path_or_url=str(temp_path),
-                        metadata={"titulo": titulo},
+                        metadata=metadata,
                     )
                 )
 
         # Procesar cada tipo de archivo
-        await process_files(audio_files, "audio", "aud")
-        await process_files(video_files, "video", "vid")
-        await process_files(image_files, "image", "img")
-        await process_files(text_files, "text", "txt")
+        await process_files(audio_files, "audio", "aud", audio_files_extracted_text)
+        await process_files(video_files, "video", "vid", video_files_extracted_text)
+        await process_files(image_files, "image", "img", image_files_extracted_text)
+        await process_files(text_files, "text", "txt", text_files_extracted_text)
 
         # Construir contexto opcional
         context_block = None

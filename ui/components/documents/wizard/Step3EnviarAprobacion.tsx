@@ -1,39 +1,98 @@
 "use client";
 
-import { type Approver } from "./data";
+import { useEffect, useMemo, useRef } from "react";
+import { useWorkspaceMembers } from "@/hooks/useWorkspaceMembers";
 import { WizardIcon } from "./WizardIcon";
 
 export interface Step3State {
   /** Nombre legible de la carpeta destino (para mostrar) */
   folderName: string;
-  approvers: Approver[];
-  comment: string;
   sent: boolean;
+  /** Ids de aprobadores seleccionados (sugeridos). Default = todos los elegibles. */
+  approvers: string[];
+  /** Comentario opcional del autor para los aprobadores. */
+  comment: string;
+}
+
+const APPROVER_ROLES = new Set(["owner", "admin", "approver"]);
+
+const ROLE_LABELS: Record<string, string> = {
+  owner: "Dueño",
+  admin: "Administrador",
+  approver: "Aprobador",
+};
+
+function getInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) {
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  }
+  return name.slice(0, 2).toUpperCase();
 }
 
 /**
- * Paso 3: selector de aprobadores + comentario → confirmación de envío.
+ * Paso 3: envío a aprobación + confirmación.
+ * Cableado a submitVersionForReview / cancelDocumentSubmission vía el orquestador.
  *
- * TODO(wire): aprobadores deben venir de la config de governance de la carpeta destino.
- * TODO(wire): "Enviar a aprobación" debe llamar a submitVersionForReview(documentId, versionId).
- * TODO(wire): "Retirar solicitud" debe cancelar la revisión pendiente vía API.
- * TODO(wire): "Volver a documentos" debe redirigir a /documents/${documentId}.
+ * La selección de aprobadores es sugerida/informativa: no restringe quién puede
+ * aprobar (cualquiera con permiso documents.approve puede hacerlo). Por eso no
+ * se fuerza "al menos uno" y el default es todos los elegibles pre-seleccionados.
  */
 export function Step3EnviarAprobacion({
   s,
-  set,
+  documentName,
+  submitError,
+  onWithdraw,
+  withdrawing,
+  withdrawError,
+  onApproversChange,
+  onCommentChange,
 }: {
   s: Step3State;
-  set: (patch: Partial<Step3State>) => void;
+  /** Nombre del documento — lo sabe el wizard; evita un getDocument extra en este paso. */
+  documentName: string;
+  submitError: string | null;
+  onWithdraw: () => void;
+  withdrawing: boolean;
+  withdrawError: string | null;
+  /** Callback para levantar el estado de ids seleccionados al orquestador. */
+  onApproversChange: (ids: string[]) => void;
+  /** Callback para levantar el comentario al orquestador. */
+  onCommentChange: (comment: string) => void;
 }) {
-  const toggle = (id: string) =>
-    set({
-      approvers: s.approvers.map((a) =>
-        a.id === id ? { ...a, sel: !a.sel } : a,
-      ),
-    });
+  // Aprobadores cacheados/prefetcheados (useWorkspaceMembers): sin fetch en cada entrada al paso.
+  const { members, loading: loadingApprovers } = useWorkspaceMembers();
 
-  const selected = s.approvers.filter((a) => a.sel);
+  const eligibleMembers = useMemo(
+    () => members.filter((m) => APPROVER_ROLES.has(m.role.toLowerCase())),
+    [members],
+  );
+
+  // Pre-seleccionar todos los elegibles una vez que cargaron (default: sugerencia a todos).
+  const didInitApprovers = useRef(false);
+  useEffect(() => {
+    if (didInitApprovers.current || loadingApprovers) return;
+    didInitApprovers.current = true;
+    onApproversChange(eligibleMembers.map((m) => m.user_id));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadingApprovers, eligibleMembers]);
+
+  const title = documentName || "Borrador";
+
+  // Conjunto para lookup O(1)
+  const selectedSet = new Set(s.approvers);
+
+  const toggleApprover = (userId: string) => {
+    const next = selectedSet.has(userId)
+      ? s.approvers.filter((id) => id !== userId)
+      : [...s.approvers, userId];
+    onApproversChange(next);
+  };
+
+  // Aprobadores seleccionados (para el bloque de confirmación)
+  const selectedMembers = eligibleMembers.filter((m) =>
+    selectedSet.has(m.user_id),
+  );
 
   return (
     <div className="mx-auto max-w-[720px] px-[30px] py-7">
@@ -50,6 +109,15 @@ export function Step3EnviarAprobacion({
       {!s.sent ? (
         /* ---- Formulario de envío ---- */
         <>
+          {submitError && (
+            <div
+              role="alert"
+              className="mb-4 rounded-[12px] border border-danger-bd bg-danger-bg px-4 py-3 text-[13px] text-danger"
+            >
+              {submitError}
+            </div>
+          )}
+
           {/* Encabezado del documento */}
           <div className="mb-4 flex items-center gap-3 rounded-[14px] border border-line bg-surface p-[16px_20px] shadow-card">
             <span className="grid h-[38px] w-[38px] flex-shrink-0 place-items-center rounded-[10px] bg-indigo-tint text-indigo">
@@ -59,12 +127,11 @@ export function Step3EnviarAprobacion({
               />
             </span>
             <div className="flex-1">
-              {/* TODO(wire): mostrar el nombre real del documento generado */}
               <div className="text-base font-extrabold text-ink-900">
-                Cierre de caja
+                {title}
               </div>
               <div className="text-xs text-ink-400">
-                Borrador · en {s.folderName}
+                Borrador · en {s.folderName || "—"}
               </div>
             </div>
             <span className="inline-flex items-center gap-1.5 rounded-pill border border-line bg-line-softer px-2.5 py-1 text-[11.5px] font-bold text-ink-500">
@@ -80,67 +147,88 @@ export function Step3EnviarAprobacion({
             </div>
             <div className="mb-3.5 text-xs text-ink-400">
               Según la carpeta{" "}
-              <strong className="text-ink-500">{s.folderName}</strong> y los
-              permisos. Elegí uno o varios.
+              <strong className="text-ink-500">{s.folderName || "—"}</strong> y
+              los permisos. Elegí uno o varios.
             </div>
-            <div className="flex flex-col gap-2">
-              {s.approvers.map((a) => (
-                <button
-                  key={a.id}
-                  type="button"
-                  onClick={() => toggle(a.id)}
-                  className={
-                    "flex items-center gap-3 rounded-[11px] border p-[10px_12px] text-left transition-colors " +
-                    (a.sel
-                      ? "border-indigo-light bg-indigo-tint"
-                      : "border-line bg-surface hover:bg-surface-hover")
-                  }
-                  aria-pressed={a.sel}
-                >
-                  <span
-                    className={
-                      "grid h-[22px] w-[22px] flex-shrink-0 place-items-center rounded-[7px] " +
-                      (a.sel
-                        ? "bg-indigo"
-                        : "border-[1.5px] border-line-input bg-surface")
-                    }
-                  >
-                    {a.sel && (
-                      <WizardIcon
-                        d="M20 6L9 17l-5-5"
-                        size={13}
-                        className="text-white"
-                        strokeWidth={3}
-                      />
-                    )}
-                  </span>
-                  <span className="grid h-8 w-8 flex-shrink-0 place-items-center rounded-full bg-indigo text-[11px] font-bold text-white">
-                    {a.initials}
-                  </span>
-                  <span className="flex-1">
-                    <span className="block text-[13.5px] font-bold text-ink-900">
-                      {a.name}
-                    </span>
-                    <span className="block text-[11.5px] text-ink-400">
-                      {a.role}
-                    </span>
-                  </span>
-                </button>
-              ))}
-            </div>
+
+            {loadingApprovers ? (
+              <div className="animate-pulse space-y-2">
+                <div className="h-[52px] rounded-[11px] bg-line-softer" />
+                <div className="h-[52px] rounded-[11px] bg-line-softer" />
+              </div>
+            ) : eligibleMembers.length === 0 ? (
+              <p className="text-[13px] text-ink-400">
+                No hay aprobadores configurados en este workspace.
+              </p>
+            ) : (
+              <div className="flex flex-col gap-2" role="group" aria-label="Aprobadores sugeridos">
+                {eligibleMembers.map((m) => {
+                  const isSelected = selectedSet.has(m.user_id);
+                  const displayName = m.name?.trim() || m.email;
+                  return (
+                    <button
+                      key={m.user_id}
+                      type="button"
+                      onClick={() => toggleApprover(m.user_id)}
+                      aria-pressed={isSelected}
+                      className={
+                        "flex items-center gap-3 rounded-[11px] border p-[10px_12px] text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-action " +
+                        (isSelected
+                          ? "border-indigo-light bg-indigo-tint"
+                          : "border-line bg-surface hover:bg-surface-hover")
+                      }
+                    >
+                      {/* Checkbox */}
+                      <span
+                        className={
+                          "grid h-[22px] w-[22px] flex-shrink-0 place-items-center rounded-[7px] " +
+                          (isSelected
+                            ? "bg-indigo"
+                            : "border-[1.5px] border-line-input bg-surface")
+                        }
+                        aria-hidden="true"
+                      >
+                        {isSelected && (
+                          <WizardIcon
+                            d="M20 6L9 17l-5-5"
+                            size={13}
+                            className="text-white"
+                            strokeWidth={3}
+                          />
+                        )}
+                      </span>
+                      {/* Avatar */}
+                      <span className="grid h-8 w-8 flex-shrink-0 place-items-center rounded-full bg-indigo text-[11px] font-bold text-white">
+                        {getInitials(displayName)}
+                      </span>
+                      {/* Info */}
+                      <span className="flex-1">
+                        <span className="block text-[13.5px] font-bold text-ink-900">
+                          {displayName}
+                        </span>
+                        <span className="block text-[11.5px] text-ink-400">
+                          {ROLE_LABELS[m.role] ?? m.role}
+                        </span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {/* Comentario opcional */}
           <div className="mb-4 rounded-[14px] border border-line bg-surface p-[20px_22px] shadow-card">
-            <label className="mb-2 block text-[13px] font-bold text-ink-900">
+            <div className="mb-2 text-[13px] font-bold text-ink-900">
               Comentario para los aprobadores{" "}
               <span className="font-medium text-ink-400">(opcional)</span>
-            </label>
+            </div>
             <textarea
               value={s.comment}
-              onChange={(e) => set({ comment: e.target.value })}
+              onChange={(e) => onCommentChange(e.target.value)}
               placeholder="Ej: Revisar especialmente el procedimiento de arqueo."
-              className="min-h-[70px] w-full resize-y rounded-[10px] border border-line-input p-[11px_13px] text-[13.5px] leading-normal text-ink-700 outline-none placeholder:text-ink-400 focus:border-indigo focus:ring-[3px] focus:ring-indigo-tint"
+              rows={3}
+              className="min-h-[70px] w-full resize-y rounded-[10px] border border-line-input bg-surface p-[11px_13px] text-[13.5px] leading-normal text-ink-700 placeholder:text-ink-400 outline-none transition-colors hover:border-ink-300 focus:border-indigo focus:ring-2 focus:ring-indigo/20"
             />
           </div>
 
@@ -163,7 +251,7 @@ export function Step3EnviarAprobacion({
         /* ---- Confirmación de envío ---- */
         <div className="overflow-hidden rounded-[14px] border border-line bg-surface shadow-card animate-in">
           <div className="flex items-center gap-3 border-b border-line-soft p-[24px_26px]">
-            <span className="grid h-11 w-11 flex-shrink-0 place-items-center rounded-full bg-success">
+            <span className="grid h-11 w-11 flex-shrink-0 place-items-center rounded-full bg-green">
               <WizardIcon
                 d="M20 6L9 17l-5-5"
                 size={22}
@@ -176,30 +264,51 @@ export function Step3EnviarAprobacion({
                 El documento quedó enviado a aprobación
               </div>
               <div className="text-[12.5px] text-ink-400">
-                Cierre de caja · en revisión
+                {title} · en revisión
               </div>
             </div>
           </div>
 
           <div className="p-[22px_26px]">
+            {/* Aprobadores seleccionados (chips) */}
             <div className="mb-2.5 text-[11px] font-bold uppercase tracking-[.06em] text-ink-400">
               Aprobadores seleccionados
             </div>
-            <div className="mb-[22px] flex flex-wrap gap-2">
-              {selected.map((a) => (
-                <span
-                  key={a.id}
-                  className="inline-flex items-center gap-2 rounded-pill border border-line py-[5px] pl-[5px] pr-3"
-                >
-                  <span className="grid h-6 w-6 place-items-center rounded-full bg-indigo text-[10px] font-bold text-white">
-                    {a.initials}
-                  </span>
-                  <span className="text-[13px] font-semibold text-ink-700">
-                    {a.name}
-                  </span>
-                </span>
-              ))}
+            <div className="mb-[22px]">
+              {selectedMembers.length === 0 ? (
+                <p className="text-[13px] text-ink-400">
+                  Ninguno seleccionado — cualquier aprobador del workspace puede aprobar.
+                </p>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {selectedMembers.map((m) => (
+                    <span
+                      key={m.user_id}
+                      className="inline-flex items-center gap-2 rounded-pill border border-line py-[5px] pl-[5px] pr-3"
+                    >
+                      <span className="grid h-6 w-6 place-items-center rounded-full bg-indigo text-[10px] font-bold text-white">
+                        {getInitials(m.name?.trim() || m.email)}
+                      </span>
+                      <span className="text-[13px] font-semibold text-ink-700">
+                        {m.name?.trim() || m.email}
+                      </span>
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
+
+            {/* Comentario del autor (si hay) */}
+            {s.comment.trim() && (
+              <div className="mb-[22px]">
+                <div className="mb-1.5 text-[11px] font-bold uppercase tracking-[.06em] text-ink-400">
+                  Comentario del autor
+                </div>
+                <p className="rounded-[10px] border border-line bg-surface-hover px-[13px] py-[11px] text-[13px] leading-relaxed text-ink-700">
+                  {s.comment}
+                </p>
+              </div>
+            )}
 
             <div className="mb-[11px] text-[13px] font-bold text-ink-900">
               Cuando alguno lo apruebe:
@@ -209,8 +318,7 @@ export function Step3EnviarAprobacion({
                 [
                   {
                     d: "M9 12l2 2 4-4M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z",
-                    bg: "rgba(124,195,156,.22)",
-                    c: "#2E6E4D",
+                    cls: "bg-green-100 text-green-700",
                     t: (
                       <>
                         Se convierte en la{" "}
@@ -221,8 +329,7 @@ export function Step3EnviarAprobacion({
                   },
                   {
                     d: "M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0-18 0M12 12m-3 0a3 3 0 1 0 6 0a3 3 0 1 0-6 0",
-                    bg: "#37393A",
-                    c: "#fff",
+                    cls: "bg-ink-800 text-white",
                     t: (
                       <>
                         Queda <strong>disponible para Tyto</strong> como fuente
@@ -232,8 +339,7 @@ export function Step3EnviarAprobacion({
                   },
                   {
                     d: "M5 3l1.2 3.2L9 7.5 5.8 8.8 5 12 4.2 8.8 1 7.5l3.2-1.3z",
-                    bg: "rgba(173,185,223,.26)",
-                    c: "#48569C",
+                    cls: "bg-indigo-tint text-indigo",
                     t: (
                       <>
                         La IA genera las{" "}
@@ -246,8 +352,7 @@ export function Step3EnviarAprobacion({
               ).map((r, i) => (
                 <div key={i} className="flex items-start gap-3">
                   <span
-                    className="grid h-[26px] w-[26px] flex-shrink-0 place-items-center rounded-[7px]"
-                    style={{ background: r.bg, color: r.c }}
+                    className={`grid h-[26px] w-[26px] flex-shrink-0 place-items-center rounded-[7px] ${r.cls}`}
                   >
                     <WizardIcon d={r.d} size={15} />
                   </span>
@@ -259,6 +364,15 @@ export function Step3EnviarAprobacion({
             </div>
           </div>
 
+          {withdrawError && (
+            <div
+              role="alert"
+              className="border-t border-danger-bd bg-danger-bg px-[26px] py-2.5 text-[12.5px] text-danger"
+            >
+              {withdrawError}
+            </div>
+          )}
+
           <div className="flex flex-wrap items-center gap-3 border-t border-line-soft bg-surface-hover p-[16px_26px]">
             <span className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-pill border border-warning-bd bg-warning-bg px-[11px] py-[5px] text-xs font-bold text-warning">
               <span className="h-1.5 w-1.5 rounded-full bg-warning" />
@@ -267,18 +381,18 @@ export function Step3EnviarAprobacion({
             <span className="text-[11.5px] leading-snug text-ink-400">
               Mientras esté pendiente no podrá editarse.
             </span>
-            {/* TODO(wire): retirar solicitud → cancelar revisión pendiente vía API */}
             <button
               type="button"
-              onClick={() => set({ sent: false })}
-              className="ml-auto inline-flex h-10 flex-shrink-0 items-center gap-1.5 rounded-[10px] border border-line-input bg-surface px-[15px] text-[13px] font-bold text-ink-700 transition-colors hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-action"
+              onClick={onWithdraw}
+              disabled={withdrawing}
+              className="ml-auto inline-flex h-10 flex-shrink-0 items-center gap-1.5 rounded-[10px] border border-line-input bg-surface px-[15px] text-[13px] font-bold text-ink-700 transition-colors hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-action disabled:cursor-not-allowed disabled:opacity-50"
             >
               <WizardIcon
                 d="M3 2v6h6M3.51 15a9 9 0 1 0 2.13-9.36L3 8"
                 size={14}
                 className="text-ink-500"
               />
-              Retirar solicitud
+              {withdrawing ? "Retirando…" : "Retirar solicitud"}
             </button>
           </div>
         </div>

@@ -2,8 +2,6 @@
  * Utilidades para agregar autenticación a las requests de la API.
  */
 
-import { createClient } from '@/lib/supabase/client'
-
 export const ACTIVE_TENANT_STORAGE_KEY = 'active_tenant_id'
 
 /**
@@ -20,9 +18,14 @@ export function setActiveTenantId(tenantId: string): void {
 }
 
 export async function getAccessToken(): Promise<string | null> {
-  const supabase = createClient()
-  const { data: { session } } = await supabase.auth.getSession()
-  return session?.access_token || null
+  try {
+    const response = await fetch('/api/auth/session', { credentials: 'include' })
+    if (!response.ok) return null
+    const data = (await response.json()) as { access_token?: string | null }
+    return data.access_token ?? null
+  } catch {
+    return null
+  }
 }
 
 export async function getAuthHeaders(

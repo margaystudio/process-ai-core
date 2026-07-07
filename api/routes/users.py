@@ -399,33 +399,41 @@ async def get_user_workspaces(user_id: str, session: Session = Depends(get_db)):
     # Obtener todas las membresías del usuario
     memberships = session.query(WorkspaceMembership).filter_by(user_id=user_id).all()
     logger.info(f"Membresías encontradas: {len(memberships)}")
-    
-    if len(memberships) == 0:
-        logger.warning(f"⚠️  Usuario {user_id} no tiene membresías. Verificando en BD directamente...")
-        # Hacer una query directa para verificar
-        direct_memberships = session.execute(
-            f"SELECT * FROM workspace_memberships WHERE user_id = '{user_id}'"
-        ).fetchall()
-        logger.info(f"Query directa devolvió {len(direct_memberships)} membresías")
-    
+
+    if not memberships:
+        logger.warning(f"Usuario {user_id} no tiene membresías")
+        return []
+
+    # Batch-load de workspaces y roles para evitar N+1 (antes: 2 queries por
+    # membresía contra el Postgres remoto). Ahora 3 queries fijas.
+    workspace_ids = {m.workspace_id for m in memberships if m.workspace_id}
+    role_ids = {m.role_id for m in memberships if m.role_id}
+    workspaces_by_id = (
+        {w.id: w for w in session.query(Workspace).filter(Workspace.id.in_(workspace_ids)).all()}
+        if workspace_ids
+        else {}
+    )
+    role_name_by_id = (
+        {r.id: r.name for r in session.query(Role).filter(Role.id.in_(role_ids)).all()}
+        if role_ids
+        else {}
+    )
+
     workspaces = []
     for membership in memberships:
-        workspace = session.query(Workspace).filter_by(id=membership.workspace_id).first()
+        workspace = workspaces_by_id.get(membership.workspace_id)
         if not workspace:
             logger.warning(f"Workspace {membership.workspace_id} no encontrado para membresía {membership.id}")
             continue
-        
-        # Obtener el nombre del rol
-        role_name = None
-        if membership.role_id:
-            role = session.query(Role).filter_by(id=membership.role_id).first()
-            if role:
-                role_name = role.name
-        else:
-            # Compatibilidad: usar role string si role_id no existe
-            role_name = membership.role
-        
-        workspace_data = {
+
+        # Rol: por role_id, con fallback al string legacy `role`.
+        role_name = (
+            role_name_by_id.get(membership.role_id)
+            if membership.role_id
+            else membership.role
+        )
+
+        workspaces.append({
             "id": workspace.id,
             "name": workspace.name,
             "slug": workspace.slug,
@@ -435,10 +443,8 @@ async def get_user_workspaces(user_id: str, session: Session = Depends(get_db)):
             "branding_primary_color": _get_workspace_branding_color(workspace, "primary_color"),
             "branding_secondary_color": _get_workspace_branding_color(workspace, "secondary_color"),
             "created_at": workspace.created_at.isoformat(),
-        }
-        workspaces.append(workspace_data)
-        logger.info(f"Workspace agregado: {workspace.name} ({workspace.workspace_type}) - Rol: {role_name}")
-    
+        })
+
     logger.info(f"Total workspaces devueltos: {len(workspaces)}")
     return workspaces
 

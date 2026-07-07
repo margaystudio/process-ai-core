@@ -190,11 +190,24 @@ async def assign_operational_roles_to_membership(
     if not membership:
         raise HTTPException(status_code=404, detail="Membresía no encontrada")
     _require_workspace_admin(session, user_id, membership.workspace_id)
-    # Verificar que los roles pertenecen al mismo workspace
-    for rid in request.operational_role_ids:
-        r = session.query(OperationalRole).filter_by(id=rid, workspace_id=membership.workspace_id).first()
-        if not r:
-            raise HTTPException(status_code=400, detail=f"Rol operativo {rid} no existe o no pertenece al workspace")
+    # Verificar que los roles pertenecen al mismo workspace (batch, no N+1).
+    requested_role_ids = list(request.operational_role_ids)
+    if requested_role_ids:
+        valid_ids = {
+            row[0]
+            for row in session.query(OperationalRole.id)
+            .filter(
+                OperationalRole.id.in_(requested_role_ids),
+                OperationalRole.workspace_id == membership.workspace_id,
+            )
+            .all()
+        }
+        missing = [rid for rid in requested_role_ids if rid not in valid_ids]
+        if missing:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Rol operativo {missing[0]} no existe o no pertenece al workspace",
+            )
     # Eliminar asignaciones actuales
     session.query(UserOperationalRole).filter_by(workspace_membership_id=membership_id).delete()
     # Asignar nuevos

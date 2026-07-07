@@ -65,12 +65,13 @@ El prototipo deja **elegir aprobadores específicos**. El backend hoy **no** sop
 
 ## Bloque D — Settings / loose ends
 
-### D1 · Toggle "Disponible para consultas inteligentes" (Tyto)  · `S` (cuando exista Tyto)
-- **Archivos:** `wizard/Step1NuevoDocumento.tsx` (`// TODO(wire): smartQueries`).
-- **Qué:** hoy es visual. Cuando exista Tyto, persistir como campo del documento (ej. `documents.tyto_enabled`) y enviarlo al crear. Por ahora **dejar visual o ocultar**.
+### D1 · Toggle "Disponible para consultas inteligentes" (Tyto)  · ✅ resuelto (oculto)
+- **Archivos:** `wizard/Step1NuevoDocumento.tsx` (`// TODO(wire): Tyto oculto`).
+- **Qué:** el toggle quedó **oculto** hasta que exista Tyto. Cuando exista, reactivar UI y persistir como campo del documento (ej. `documents.tyto_enabled`) al crear.
 
 ### D2 · Gaps de datos de la Biblioteca (backlog)  · `M`
-- Color por carpeta (campo `color` en `Folder`), endpoint de **"Recientes"** server-side, filtros adicionales (Responsable/Autor/Aprobador/Fecha/Consultas IA) — requieren datos/endpoints nuevos. Hoy ocultos/omitidos. Backlog.
+- **Color por carpeta:** ✅ resuelto (campo `color` en `Folder`, API y UI).
+- Endpoint de **"Recientes"** server-side, filtros adicionales (Responsable/Autor/Aprobador/Fecha/Consultas IA) — requieren datos/endpoints nuevos. Hoy ocultos/omitidos. Backlog.
 
 ---
 

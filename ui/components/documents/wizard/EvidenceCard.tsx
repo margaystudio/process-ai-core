@@ -1,12 +1,17 @@
 "use client";
 
-import { type Evidence, evidenceIconPath, formatFileSize } from "./data";
+import {
+  type Evidence,
+  evidenceChips,
+  evidenceIconPath,
+  formatFileSize,
+} from "./data";
+import { Spinner } from "./Spinner";
 import { WizardIcon } from "./WizardIcon";
 
 /**
  * Card de evidencia completa — usada en el paso 1.
- * Muestra tipo, nombre del archivo y tamaño. No hay chips de procesamiento:
- * el backend procesa las evidencias al generar el borrador.
+ * Muestra estado de procesamiento real y badges (transcripción, OCR, idioma, págs).
  */
 export function EvidenceCard({
   evidence,
@@ -15,6 +20,8 @@ export function EvidenceCard({
   evidence: Evidence;
   onRemove?: (id: string) => void;
 }) {
+  const chips = evidenceChips(evidence);
+
   return (
     <div className="flex items-center gap-3 rounded-[11px] border border-line p-[11px_13px] animate-in">
       {/* Ícono del tipo */}
@@ -36,16 +43,44 @@ export function EvidenceCard({
           <span className="text-[11px] text-ink-400">
             {formatFileSize(evidence.file.size)}
           </span>
-          {/* Estado: siempre listo (el procesamiento ocurre en el backend al generar) */}
-          <span className="inline-flex items-center gap-1 rounded-md border border-success-bd bg-success-bg px-[7px] py-0.5 text-[10.5px] font-semibold text-success-fg">
-            <WizardIcon
-              d="M20 6L9 17l-5-5"
-              size={9}
-              className="text-success"
-              strokeWidth={3}
-            />
-            Listo para usar
-          </span>
+
+          {evidence.processingStatus === "processing" ? (
+            <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-warning">
+              <Spinner size={12} className="text-warning" />
+              Procesando…
+            </span>
+          ) : evidence.processingStatus === "error" ? (
+            <span
+              className="inline-flex max-w-full items-center gap-1 rounded-md border border-danger-bd bg-danger-bg px-[7px] py-0.5 text-[10.5px] font-semibold text-danger"
+              title={evidence.processingError}
+            >
+              Error al procesar
+            </span>
+          ) : (
+            chips.map((chip) => (
+              chip.variant === "success" ? (
+                <span
+                  key={chip.label}
+                  className="inline-flex items-center gap-1 rounded-md border border-success-bd bg-success-bg px-[7px] py-0.5 text-[10.5px] font-semibold text-success-fg"
+                >
+                  <WizardIcon
+                    d="M20 6L9 17l-5-5"
+                    size={9}
+                    className="text-success"
+                    strokeWidth={3}
+                  />
+                  {chip.label}
+                </span>
+              ) : (
+                <span
+                  key={chip.label}
+                  className="inline-flex items-center gap-1 rounded-md border border-line bg-surface-hover px-[7px] py-0.5 text-[10.5px] font-semibold text-ink-500"
+                >
+                  {chip.label}
+                </span>
+              )
+            ))
+          )}
         </div>
       </div>
 

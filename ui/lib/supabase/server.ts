@@ -7,8 +7,7 @@
 
 import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { cookies } from 'next/headers'
-
-const PROD_COOKIE_DOMAIN = '.margaystudio.io'
+import { withSupabaseCookieOptions } from '@/lib/supabase/cookie-options'
 
 export async function createClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -20,8 +19,6 @@ export async function createClient() {
     )
   }
 
-  const cookieDomain = process.env.NEXT_PUBLIC_COOKIE_DOMAIN
-    ?? (process.env.NODE_ENV === 'production' ? PROD_COOKIE_DOMAIN : undefined)
   const cookieStore = await cookies()
 
   return createServerClient(supabaseUrl, supabaseKey, {
@@ -32,10 +29,7 @@ export async function createClient() {
       setAll(cookiesToSet: Array<{ name: string; value: string; options?: CookieOptions }>) {
         try {
           cookiesToSet.forEach(({ name, value, options }) =>
-            cookieStore.set(name, value, {
-              ...options,
-              ...(cookieDomain ? { domain: cookieDomain } : {}),
-            })
+            cookieStore.set(name, value, withSupabaseCookieOptions(options))
           )
         } catch {
           // Called from a Server Component — safe to ignore (middleware refreshes cookies).
