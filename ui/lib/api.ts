@@ -401,16 +401,12 @@ export async function createWorkspace(
     }
     headers['Authorization'] = `Bearer ${devUserId}`
   } else if (supabaseUrl && supabaseKey) {
-    // Modo con Supabase: obtener token de Supabase
-    try {
-      const { createClient } = await import('@/lib/supabase/client')
-      const supabase = createClient()
-      const { data: { session } } = await supabase.auth.getSession()
-      if (session?.access_token) {
-        headers['Authorization'] = `Bearer ${session.access_token}`
-      }
-    } catch (err) {
-      console.warn('Error obteniendo token de Supabase:', err)
+    // Modo con Supabase: token vía el puente server-side (getAccessToken lee la
+    // cookie HttpOnly en el server; el getSession() del browser no la ve).
+    const { getAccessToken } = await import('@/lib/api-auth')
+    const token = await getAccessToken()
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`
     }
   }
 
@@ -724,22 +720,14 @@ export async function createCatalogOption(
   const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
   if (supabaseUrl && supabaseKey) {
-    try {
-      const { createClient } = await import('@/lib/supabase/client')
-      const supabase = createClient()
-      const { data: { session } } = await supabase.auth.getSession()
-      if (session?.access_token) {
-        headers['Authorization'] = `Bearer ${session.access_token}`
-      } else {
-        throw new Error('No hay sesión activa. Por favor, inicia sesión.')
-      }
-    } catch (err) {
-      if (err instanceof Error && err.message.includes('sesión')) {
-        throw err
-      }
-      console.warn('Error obteniendo token de Supabase:', err)
-      throw new Error('Error de autenticación. Por favor, inicia sesión nuevamente.')
+    // Token vía el puente server-side (getAccessToken lee la cookie HttpOnly en el
+    // server; el getSession() del browser no la ve).
+    const { getAccessToken } = await import('@/lib/api-auth')
+    const token = await getAccessToken()
+    if (!token) {
+      throw new Error('No hay sesión activa. Por favor, inicia sesión.')
     }
+    headers['Authorization'] = `Bearer ${token}`
   } else {
     // Modo desarrollo sin Supabase: no se puede crear opciones de catálogo sin autenticación
     throw new Error('Supabase no está configurado. No se pueden crear opciones de catálogo.')
