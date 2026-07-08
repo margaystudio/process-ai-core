@@ -191,7 +191,7 @@ def _create_process_in_workspace(workspace_id: str) -> str:
     assert folder_id is not None, (
         f"Workspace {workspace_id} debe tener una carpeta raíz creada por sync"
     )
-    doc_id = f"iso-doc-{uuid.uuid4()}"
+    doc_id = f"iso-doc-{uuid.uuid4().hex[:8]}"  # <=36 chars (columna id es String(36))
     with get_db_session() as s:
         doc = Process(
             id=doc_id,

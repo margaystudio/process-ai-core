@@ -40,7 +40,7 @@ def test_prune_detects_and_deletes_orphans(session, tmp_storage):
     doc = Process(id=f"prn-doc-{uid}", workspace_id=ws.id, folder_id=folder.id,
                   document_type="process", name="Prn Doc", status="draft")
     session.add(doc); session.flush()
-    real_run = Run(id=f"prn-run-{uid}", document_id=doc.id, document_type="process")
+    real_run = Run(id=f"prn-run-{uid}", document_id=doc.id, domain="process")
     session.add(real_run); session.flush()
 
     # Objetos en storage: run real (existe), run huérfano, y un flat viejo.
