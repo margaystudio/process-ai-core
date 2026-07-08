@@ -123,6 +123,22 @@ class Settings:
     # Idiomas Tesseract (formato +, ej. spa+eng)
     ocr_languages: str = "spa+eng"
 
+    # ── Capa semántica ──────────────────────────────────────────────────────
+    # Modo degradado. Si es False (estricto; default en prod), el preflight de
+    # infraestructura FALLA al arrancar cuando falta pgvector/pg_trgm, la columna
+    # embedding no es de tipo vector, o no hay OPENAI_API_KEY. Si es True (default
+    # en dev/test) arranca igual, logueando warnings explícitos (funcionalidad
+    # reducida: sin vector search, Tyto degrada a scoring léxico).
+    semantic_allow_degraded: bool = True
+
+
+def _env_bool(name: str, *, default: bool) -> bool:
+    """Lee un booleano de entorno. Acepta 1/true/yes/on (y sus negativos)."""
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in ("1", "true", "yes", "on")
+
 
 @lru_cache
 def get_settings() -> Settings:
@@ -185,4 +201,11 @@ def get_settings() -> Settings:
         # OCR local (Tesseract)
         tesseract_cmd=os.getenv("TESSERACT_CMD", ""),
         ocr_languages=os.getenv("OCR_LANGUAGES", "spa+eng"),
+
+        # Capa semántica: estricto en prod (default false), degradado en dev/test.
+        semantic_allow_degraded=_env_bool(
+            "SEMANTIC_ALLOW_DEGRADED",
+            default=os.getenv("ENVIRONMENT", "dev").strip().lower()
+            not in ("prod", "production"),
+        ),
     )

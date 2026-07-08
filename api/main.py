@@ -87,6 +87,35 @@ def _startup_warmup() -> None:
         logger.info("DB pool warmed up")
     except Exception as exc:
         logger.warning("DB pool warmup failed: %s", exc)
+    _semantic_preflight()
+
+
+def _semantic_preflight() -> None:
+    """Preflight de la capa semántica. En modo estricto (SEMANTIC_ALLOW_DEGRADED=false,
+    default en prod) un faltante de infra hace FALLAR el arranque con un mensaje
+    accionable. En degradado, solo warnings."""
+    from process_ai_core.config import get_settings
+    from process_ai_core.db.database import get_db_session
+    from process_ai_core.semantic.preflight import (
+        SemanticInfraError,
+        enforce_semantic_infra,
+    )
+
+    try:
+        with get_db_session() as session:
+            enforce_semantic_infra(session)
+    except SemanticInfraError:
+        raise  # estricto: que falle el arranque
+    except Exception as exc:
+        # No se pudo verificar (DB inalcanzable, etc.).
+        if not get_settings().semantic_allow_degraded:
+            raise SemanticInfraError(
+                f"No se pudo ejecutar el preflight de la capa semántica: {exc}"
+            ) from exc
+        logger.warning(
+            "Preflight capa semántica no verificado (%s); modo degradado, se continúa.",
+            exc,
+        )
 
 
 @app.get("/")
@@ -118,7 +147,7 @@ async def health():
             "detail": "SQLite no permitido en test/prod; configurar DATABASE_URL con PostgreSQL",
         }
 
-    return {
+    result = {
         "status": "ok",
         "service": "process-ai-core-api",
         "version": "0.1.0",
@@ -126,4 +155,21 @@ async def health():
         "database": db_backend,
         "database_schema": os.getenv("DATABASE_SCHEMA", "process_ai") if db_backend == "postgresql" else None,
     }
+
+    # Estado de la infra de la capa semántica (no rompe el health si la consulta falla).
+    try:
+        from process_ai_core.db.database import get_db_session
+        from process_ai_core.semantic.preflight import check_semantic_infra
+
+        with get_db_session() as _session:
+            semantic = check_semantic_infra(_session)
+        result["semantic"] = semantic.as_dict()
+        if not semantic.ok:
+            # Infra incompleta → lo reportamos en "rojo" aunque el modo degradado lo permita.
+            result["status"] = "degraded"
+    except Exception as exc:  # pragma: no cover - defensivo
+        result["semantic"] = {"ok": False, "error": str(exc)}
+        result["status"] = "degraded"
+
+    return result
 
