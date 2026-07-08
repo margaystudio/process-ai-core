@@ -131,6 +131,14 @@ class Settings:
     # reducida: sin vector search, Tyto degrada a scoring léxico).
     semantic_allow_degraded: bool = True
 
+    # Umbral de autoconfirmación de relaciones candidatas (opcional; default OFF).
+    # None / no seteado (default): TODA candidata va a revisión humana (ADR-006).
+    # Si se setea (0.0–1.0), las candidatas con confidence >= umbral se marcan
+    # 'confirmed' automáticamente al generarse, con created_by_ai=True y
+    # confirmed_by=NULL (rastro de "confirmada por el sistema, sin intervención
+    # humana"). Es un opt-in operativo explícito; no altera el default de gobernanza.
+    relation_autoconfirm_threshold: float | None = None
+
 
 def _env_bool(name: str, *, default: bool) -> bool:
     """Lee un booleano de entorno. Acepta 1/true/yes/on (y sus negativos)."""
@@ -138,6 +146,17 @@ def _env_bool(name: str, *, default: bool) -> bool:
     if raw is None:
         return default
     return raw.strip().lower() in ("1", "true", "yes", "on")
+
+
+def _env_float_optional(name: str) -> float | None:
+    """Lee un float opcional de entorno. Vacío/ausente/ inválido => None (off)."""
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return None
+    try:
+        return float(raw.strip())
+    except ValueError:
+        return None
 
 
 @lru_cache
@@ -207,5 +226,8 @@ def get_settings() -> Settings:
             "SEMANTIC_ALLOW_DEGRADED",
             default=os.getenv("ENVIRONMENT", "dev").strip().lower()
             not in ("prod", "production"),
+        ),
+        relation_autoconfirm_threshold=_env_float_optional(
+            "RELATION_AUTOCONFIRM_THRESHOLD"
         ),
     )

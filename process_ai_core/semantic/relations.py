@@ -63,13 +63,30 @@ class MatchResult:
     score: float
 
 
+_USE_SETTINGS = object()  # sentinela: resolver el umbral desde get_settings()
+
+
 class RelationService:
     """Genera, gobierna y consulta la red de relaciones documentales."""
 
-    def __init__(self, embedding_provider=None) -> None:
+    def __init__(self, embedding_provider=None, *, autoconfirm_threshold=_USE_SETTINGS) -> None:
         # Provider opcional; si es None se resuelve lazy y puede no estar configurado.
         self._embedding_provider = embedding_provider
         self._embedding_unavailable = False
+        # Umbral de autoconfirmación (Tarea 3). Por defecto se lee de settings
+        # (RELATION_AUTOCONFIRM_THRESHOLD, off por defecto); inyectable en tests.
+        self._autoconfirm_threshold_arg = autoconfirm_threshold
+
+    def _autoconfirm_threshold(self) -> float | None:
+        """Umbral efectivo de autoconfirmación, o None (off) => todo a revisión humana."""
+        if self._autoconfirm_threshold_arg is not _USE_SETTINGS:
+            return self._autoconfirm_threshold_arg
+        try:
+            from ..config import get_settings
+
+            return get_settings().relation_autoconfirm_threshold
+        except Exception:  # pragma: no cover - defensivo
+            return None
 
     # ------------------------------------------------------------------
     # Matching en cascada
@@ -175,6 +192,8 @@ class RelationService:
         """
         workspace_id = document.workspace_id
         created: list[DocumentRelation] = []
+        autoconfirm = self._autoconfirm_threshold()
+        autoconfirmed = 0
 
         # Candidatas de versiones anteriores quedan obsoletas: la sugerencia
         # vigente es siempre la de la última versión aprobada. Las confirmadas
@@ -239,10 +258,25 @@ class RelationService:
                 status="candidate",
                 created_by_ai=True,
             )
+            # Autoconfirmación opcional (ADR-006 sigue siendo el default: off).
+            # confirmed_by queda NULL => rastro de "confirmada por el sistema".
+            if (
+                autoconfirm is not None
+                and rel.confidence is not None
+                and rel.confidence >= autoconfirm
+            ):
+                relation.status = "confirmed"
+                relation.confirmed_at = datetime.now(UTC).replace(tzinfo=None)
+                autoconfirmed += 1
             session.add(relation)
             created.append(relation)
 
         session.flush()
+        if autoconfirm is not None:
+            logger.info(
+                "relaciones: autoconfirm umbral=%.2f doc=%s: %d/%d autoconfirmadas",
+                autoconfirm, document.id, autoconfirmed, len(created),
+            )
         return created
 
     # ------------------------------------------------------------------
