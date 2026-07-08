@@ -207,3 +207,44 @@ class EvidenceItem(Base):
 
     added_by: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+# Estados de una corrida del pipeline semántico (observabilidad).
+PIPELINE_STATUSES = {"running", "ok", "error"}
+
+
+class SemanticPipelineRun(Base):
+    """Rastro de una corrida del pipeline semántico (observabilidad — hardening).
+
+    Una fila por corrida (por documento + versión). El pipeline corre best-effort
+    al aprobar una versión (o vía POST /relations/suggest); un fallo NUNCA voltea
+    la aprobación, pero queda registrado acá con el `stage` donde falló y el
+    `error`, para diagnóstico. Tabla de auditoría desacoplada (sin FKs duras: el
+    rastro sobrevive aunque se borre el documento).
+    """
+
+    __tablename__ = "semantic_pipeline_runs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    document_id: Mapped[str] = mapped_column(String(36), index=True)
+    version_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    workspace_id: Mapped[str] = mapped_column(String(36), index=True)
+
+    # running | ok | error
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    # extraction | candidates | chunking | done | <stage que falló>
+    stage: Mapped[str] = mapped_column(String(30), default="start")
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    candidates_created: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    chunks_indexed: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    # approval (hook post-aprobación) | manual (POST /relations/suggest)
+    trigger: Mapped[str] = mapped_column(String(20), default="approval")
+
+    started_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    __table_args__ = (
+        Index("ix_semantic_pipeline_runs_doc_started", "document_id", "started_at"),
+    )

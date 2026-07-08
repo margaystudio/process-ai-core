@@ -796,4 +796,5 @@ from .models_semantic import (  # noqa: E402,F401
     DocumentRelation,
     EvidenceItem,
     KnowledgeObject,
+    SemanticPipelineRun,
 )

@@ -241,8 +241,12 @@ async def suggest_document_relations(
 ):
     """Dispara extracción + propuesta de relaciones (filas status=candidate).
 
-    Corre sobre la versión APPROVED vigente del documento (ADR-002: la fuente
-    del pipeline es siempre contenido aprobado).
+    Es el **re-disparo MANUAL** del pipeline semántico (el disparo automático es el
+    hook post-aprobación `trigger_semantic_pipeline_for_version`). Útil si el pipeline
+    automático falló (ver tabla `semantic_pipeline_runs` para diagnosticar) o para
+    regenerar candidatas. Corre sobre la versión APPROVED vigente del documento
+    (ADR-002: la fuente del pipeline es siempre contenido aprobado) y queda registrado
+    con `trigger="manual"`.
     """
     workspace_id = resolve_tenant_workspace_id(ctx)
     doc = _get_document_or_404(session, document_id, workspace_id)
@@ -262,7 +266,7 @@ async def suggest_document_relations(
         )
 
     try:
-        summary = run_semantic_pipeline(session, document=doc, version=version)
+        summary = run_semantic_pipeline(session, document=doc, version=version, trigger="manual")
         session.commit()
     except Exception as exc:
         session.rollback()
