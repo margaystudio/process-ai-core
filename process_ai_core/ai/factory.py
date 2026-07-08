@@ -41,14 +41,14 @@ def get_vision_provider() -> OpenAIProvider:
     return OpenAIProvider()
 
 
-def get_embedding_provider():
-    """Devuelve un `EmbeddingProvider`.
+def get_embedding_provider() -> OpenAIProvider:
+    """Devuelve un `EmbeddingProvider` (OpenAI, modelo `openai_model_embedding`).
 
-    Aún no implementado: los embeddings llegan con Tyto/RAG (Fase 4).
+    Falla recién al usarse si no hay OPENAI_API_KEY; los servicios de la capa
+    semántica degradan con gracia (indexan sin vector / saltean el paso
+    embedding de la cascada de matching).
     """
-    raise NotImplementedError(
-        "EmbeddingProvider todavía no está implementado (ver Fase 4 — Tyto/RAG)."
-    )
+    return OpenAIProvider()
 
 
 def get_ocr_provider() -> TesseractOCRProvider:

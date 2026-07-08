@@ -22,7 +22,7 @@ from ..config import get_settings
 
 
 class OpenAIProvider:
-    """Implementa `LLMProvider`, `TranscriptionProvider` y `VisionProvider`."""
+    """Implementa `LLMProvider`, `TranscriptionProvider`, `VisionProvider` y `EmbeddingProvider`."""
 
     def __init__(
         self,
@@ -66,6 +66,21 @@ class OpenAIProvider:
             temperature=temperature,
         )
         return completion.choices[0].message.content or "{}"
+
+    # ------------------------------------------------------------------
+    # EmbeddingProvider
+    # ------------------------------------------------------------------
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        if not texts:
+            return []
+        settings = get_settings()
+        response = self.client.embeddings.create(
+            model=settings.openai_model_embedding,
+            input=texts,
+        )
+        # La API devuelve los embeddings con índice; ordenar por las dudas.
+        items = sorted(response.data, key=lambda d: d.index)
+        return [item.embedding for item in items]
 
     # ------------------------------------------------------------------
     # TranscriptionProvider

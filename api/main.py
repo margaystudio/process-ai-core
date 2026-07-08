@@ -14,7 +14,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
-from .routes import artifacts, catalog, documents, evidence, folders, process_runs, users, validations, workspaces, subscriptions, operational_roles
+from .routes import artifacts, catalog, documents, evidence, folders, process_runs, semantic, users, validations, workspaces, subscriptions, operational_roles
 from process_ai_core.db.database import warmup_db_pool
 # recipe_runs: dominio "recetas" (experimento B2C, sin auth/workspace) deshabilitado para el MVP. Ver línea de include_router más abajo.
 
@@ -76,6 +76,8 @@ app.include_router(subscriptions.router)
 # superadmin.router eliminado: el alta de tenants/workspaces es responsabilidad
 # de margay-workspace. Ver api/routes/superadmin.py (archivo eliminado).
 app.include_router(operational_roles.router)
+# Capa semántica: relaciones documentales, knowledge objects e impacto.
+app.include_router(semantic.router)
 
 
 @app.on_event("startup")
