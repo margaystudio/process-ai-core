@@ -2,9 +2,9 @@
 
 import { useState, useEffect } from 'react'
 import { Folder as FolderIcon, FileText, Plus, Pencil, Trash2, ChevronDown, ChevronRight, Check } from 'lucide-react'
-import { listFolders, listDocuments, createFolder, updateFolder, deleteFolder, Folder, Document as DocumentType } from '@/lib/api'
+import { listFolders, listDocuments, type Folder, type Document as DocumentType } from '@/lib/api'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
-import FolderCrud from './FolderCrud'
+import { useFolderCrud } from '@/hooks/useFolderCrud'
 
 interface FolderTreeProps {
   workspaceId: string
@@ -60,10 +60,10 @@ function buildTree(folders: Folder[]): FolderNode[] {
   return roots
 }
 
-function FolderTreeNode({ 
-  node, 
-  level = 0, 
-  selectedFolderId, 
+function FolderTreeNode({
+  node,
+  level = 0,
+  selectedFolderId,
   onSelectFolder,
   workspaceId,
   documents,
@@ -71,7 +71,7 @@ function FolderTreeNode({
   showCrud = false,
   onFoldersChange,
   skipPerFolderFetch = false,
-}: { 
+}: {
   node: FolderNode
   level?: number
   selectedFolderId?: string
@@ -83,6 +83,8 @@ function FolderTreeNode({
   onFoldersChange?: () => void
   skipPerFolderFetch?: boolean
 }) {
+  const { createFolder, renameFolder, deleteFolder: deleteFolderMutation } = useFolderCrud(workspaceId ?? '')
+
   const [isExpanded, setIsExpanded] = useState(level < 2) // Expandir primeros 2 niveles por defecto
   const [folderDocuments, setFolderDocuments] = useState<DocumentType[]>([])
   const [loadingDocs, setLoadingDocs] = useState(false)
@@ -92,7 +94,7 @@ function FolderTreeNode({
   const [newSubfolderName, setNewSubfolderName] = useState('')
   const [editFolderName, setEditFolderName] = useState(node.folder.name)
   const [crudError, setCrudError] = useState<string | null>(null)
-  
+
   const isSelected = selectedFolderId === node.folder.id
   const hasChildren = node.children.length > 0
   const folderDocs = documents?.filter(d => d.folder_id === node.folder.id) || []
@@ -106,8 +108,8 @@ function FolderTreeNode({
         .then(docs => {
           setFolderDocuments(docs)
         })
-        .catch(err => {
-          console.error('Error cargando documentos:', err)
+        .catch(() => {
+          // Error silencioso: documentos simplemente no se muestran
         })
         .finally(() => {
           setLoadingDocs(false)
@@ -128,12 +130,11 @@ function FolderTreeNode({
     try {
       setIsSavingSubfolder(true)
       setCrudError(null)
-      const parentPath = node.folder.path || node.folder.name
       await createFolder({
         name: newSubfolderName.trim(),
-        path: `${parentPath}/${newSubfolderName.trim()}`,
-        parent_id: node.folder.id,
-        sort_order: node.children.length,
+        parentId: node.folder.id,
+        sortOrder: node.children.length,
+        allFolders: [], // el path se construye en el hook con el parentId
       })
       setNewSubfolderName('')
       setIsCreatingSubfolder(false)
@@ -155,9 +156,7 @@ function FolderTreeNode({
 
     try {
       setCrudError(null)
-      await updateFolder(node.folder.id, {
-        name: editFolderName.trim(),
-      })
+      await renameFolder(node.folder.id, editFolderName.trim())
       setIsEditing(false)
       if (onFoldersChange) {
         onFoldersChange()
@@ -177,9 +176,9 @@ function FolderTreeNode({
     try {
       setCrudError(null)
       const docsInFolder = await listDocuments(workspaceId, node.folder.id, 'process')
-      
+
       if (docsInFolder.length > 0) {
-        setCrudError(`No se puede eliminar la carpeta "${node.folder.name}" porque contiene ${docsInFolder.length} documento(s). Por favor, elimina o mueve los documentos primero.`)
+        setCrudError(`No se puede eliminar la carpeta "${node.folder.name}" porque contiene ${docsInFolder.length} documento(s). Por favor, eliminá o mové los documentos primero.`)
         return
       }
 
@@ -199,7 +198,7 @@ function FolderTreeNode({
       // Verificar todas las subcarpetas
       for (const child of node.children) {
         if (await checkSubfoldersForDocs(child)) {
-          setCrudError(`No se puede eliminar la carpeta "${node.folder.name}" porque contiene subcarpetas con documentos. Por favor, elimina o mueve los documentos primero.`)
+          setCrudError(`No se puede eliminar la carpeta "${node.folder.name}" porque contiene subcarpetas con documentos. Por favor, eliminá o mové los documentos primero.`)
           return
         }
       }
@@ -208,18 +207,12 @@ function FolderTreeNode({
         return
       }
 
-      await deleteFolder(node.folder.id)
+      await deleteFolderMutation(node.folder.id)
       if (onFoldersChange) {
         onFoldersChange()
       }
     } catch (err) {
-      // Si el error es del backend sobre documentos, mostrarlo
-      const errorMessage = err instanceof Error ? err.message : 'Error al eliminar carpeta'
-      if (errorMessage.includes('documento') || errorMessage.includes('subcarpeta')) {
-        setCrudError(errorMessage)
-      } else {
-        setCrudError(errorMessage)
-      }
+      setCrudError(err instanceof Error ? err.message : 'Error al eliminar carpeta')
     }
   }
 
@@ -228,15 +221,15 @@ function FolderTreeNode({
       <div
         className={`
           flex items-center gap-2 py-1.5 px-2 rounded-md
-          ${isSelected 
-            ? 'bg-accent-tint text-accent-ink font-medium' 
+          ${isSelected
+            ? 'bg-accent-tint text-accent-ink font-medium'
             : 'hover:bg-ink-100 text-ink-700'
           }
         `}
         style={{ paddingLeft: `${level * 1.5 + 0.5}rem` }}
       >
         {hasContent ? (
-          <span 
+          <span
             className="text-ink-400 text-xs w-4 cursor-pointer"
             onClick={(e) => {
               e.stopPropagation()
@@ -248,7 +241,7 @@ function FolderTreeNode({
         ) : (
           <span className="w-4" />
         )}
-        <span 
+        <span
           className="text-ink-500 text-sm mr-1 cursor-pointer flex-1 flex items-center gap-2"
           onClick={() => {
             if (onSelectFolder) {
@@ -431,9 +424,9 @@ function FolderTreeNode({
   )
 }
 
-export default function FolderTree({ 
-  workspaceId, 
-  selectedFolderId, 
+export default function FolderTree({
+  workspaceId,
+  selectedFolderId,
   onSelectFolder,
   showSelectable = true,
   showCrud = false,
@@ -457,19 +450,15 @@ export default function FolderTree({
     try {
       setLoading(true)
       setError(null)
-      console.log('Cargando carpetas para workspace:', workspaceId)
       const foldersData = await listFolders(workspaceId)
-      console.log('Carpetas cargadas:', foldersData)
       setFolders(foldersData)
       if (allDocuments !== undefined) {
         setDocuments(allDocuments)
       } else {
         const docsData = await listDocuments(workspaceId, undefined, 'process').catch(() => [])
-        console.log('Documentos cargados:', docsData)
         setDocuments(docsData)
       }
     } catch (err) {
-      console.error('Error cargando carpetas:', err)
       setError(err instanceof Error ? err.message : 'Error desconocido')
       setFolders([])
       setDocuments([])
@@ -594,7 +583,7 @@ export default function FolderTree({
             <div className="mt-3 pt-3 border-t border-ink-200">
               <p className="text-xs text-ink-600">
                 <span className="font-medium">Ubicación seleccionada:</span>{' '}
-                {folders.find(f => f.id === selectedFolderId)?.path || 
+                {folders.find(f => f.id === selectedFolderId)?.path ||
                  folders.find(f => f.id === selectedFolderId)?.name}
               </p>
             </div>
@@ -604,4 +593,3 @@ export default function FolderTree({
     </div>
   )
 }
-

@@ -2,7 +2,8 @@
 
 import { useState } from 'react'
 import { Plus, Pencil, Trash2 } from 'lucide-react'
-import { createFolder, updateFolder, deleteFolder, Folder, listFolders } from '@/lib/api'
+import { type Folder } from '@/lib/api'
+import { useFolderCrud } from '@/hooks/useFolderCrud'
 
 const FOLDER_COLOR_PALETTE = [
   '#48569C',
@@ -52,12 +53,13 @@ interface FolderCrudProps {
 }
 
 export default function FolderCrud({ workspaceId, folders, onFoldersChange, parentId = null }: FolderCrudProps) {
+  const { createFolder, updateFolder, deleteFolder, saving } = useFolderCrud(workspaceId)
+
   const [isCreating, setIsCreating] = useState(false)
-  const [isSaving, setIsSaving] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [parentIdForNew, setParentIdForNew] = useState<string | null>(null)
-  
+
   const [newFolderName, setNewFolderName] = useState('')
   const [newFolderPath, setNewFolderPath] = useState('')
   const [newFolderColor, setNewFolderColor] = useState<string>(DEFAULT_FOLDER_COLOR)
@@ -67,13 +69,13 @@ export default function FolderCrud({ workspaceId, folders, onFoldersChange, pare
   const [error, setError] = useState<string | null>(null)
 
   // Filtrar carpetas por parent_id
-  const filteredFolders = folders.filter(f => 
-    (parentId === null && !f.parent_id) || 
+  const filteredFolders = folders.filter(f =>
+    (parentId === null && !f.parent_id) ||
     (parentId !== null && f.parent_id === parentId)
   )
 
   const handleCreate = async () => {
-    if (isSaving) return // evitar doble-submit (crea carpetas duplicadas)
+    if (saving) return // evitar doble-submit (crea carpetas duplicadas)
     if (!newFolderName.trim()) {
       setError('El nombre es requerido')
       return
@@ -85,46 +87,28 @@ export default function FolderCrud({ workspaceId, folders, onFoldersChange, pare
     }
 
     try {
-      setIsSaving(true)
       setError(null)
       const actualParentId = parentIdForNew !== null ? parentIdForNew : (parentId || undefined)
-      
-      // Construir path automáticamente si no se especifica
-      let finalPath = newFolderPath.trim() || newFolderName.trim()
-      if (actualParentId && !newFolderPath.trim()) {
-        // Si tiene parent, construir path jerárquico
-        const parentFolder = folders.find(f => f.id === actualParentId)
-        if (parentFolder) {
-          finalPath = parentFolder.path ? `${parentFolder.path}/${newFolderName.trim()}` : `${parentFolder.name}/${newFolderName.trim()}`
-        }
-      }
-      
-      const created = await createFolder({
+
+      await createFolder({
         name: newFolderName.trim(),
-        path: finalPath,
-        parent_id: actualParentId || undefined,
-        sort_order: filteredFolders.length,
+        path: newFolderPath.trim() || undefined,
+        parentId: actualParentId,
+        sortOrder: filteredFolders.length,
         color: newFolderColor,
+        allFolders: folders,
       })
-      
-      console.log('Carpeta creada exitosamente:', created)
-      
+
       // Limpiar formulario
       setNewFolderName('')
       setNewFolderPath('')
       setNewFolderColor(DEFAULT_FOLDER_COLOR)
       setIsCreating(false)
       setParentIdForNew(null)
-      
-      // Recargar carpetas
-      console.log('Recargando carpetas...')
+
       await onFoldersChange()
-      console.log('Carpetas recargadas')
     } catch (err) {
-      console.error('Error al crear carpeta:', err)
       setError(err instanceof Error ? err.message : 'Error al crear carpeta')
-    } finally {
-      setIsSaving(false)
     }
   }
 
@@ -218,10 +202,10 @@ export default function FolderCrud({ workspaceId, folders, onFoldersChange, pare
           <div className="flex gap-2">
             <button
               onClick={handleCreate}
-              disabled={isSaving}
+              disabled={saving}
               className="flex-1 px-3 py-1.5 text-sm bg-action text-white rounded-md hover:bg-action-hover disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {isSaving ? 'Creando...' : 'Crear'}
+              {saving ? 'Creando...' : 'Crear'}
             </button>
             <button
               onClick={() => {
@@ -372,4 +356,3 @@ export default function FolderCrud({ workspaceId, folders, onFoldersChange, pare
     </div>
   )
 }
-
