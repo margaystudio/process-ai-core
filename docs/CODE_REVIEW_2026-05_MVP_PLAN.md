@@ -12,6 +12,38 @@
 
 ---
 
+## Estado de avance (actualizado 2026-07-10)
+
+Contraste del plan contra el código real. Resumen: **~90% cerrado** — los 3 bloqueantes
+críticos y las etapas duras (0/1/2) están resueltas.
+
+**Bloqueantes (§3):**
+- 3.1 Seguridad multi-tenant / JWT → ✅ **resuelto**: JWKS real en `api/dependencies.py`
+  (sin `verify_signature:False`), `api/workspace_client.py` consume `GET /api/session/context`,
+  identidad ya no viene por query param. Tests de aislamiento cross-tenant en `tests/`.
+- 3.2 Secretos en git → ✅ **resuelto**: no hay `.env*` reales trackeados; `.env.production`
+  en `.gitignore`.
+- 3.3 SQLite → Postgres → ✅ **resuelto**: `DATABASE_URL` Postgres obligatorio, SQLite
+  rechazado en prod/test; Alembic adoptado (migraciones 0001→0006).
+
+**Etapas (§4):**
+- Etapa 0 (Higiene) → ✅ (cola menor: borrar los ~21 `tools/migrate_*.py` que Alembic reemplazó).
+- Etapa 1 (Integración margay-workspace + multi-tenant) → ✅.
+- Etapa 2 (Postgres + Alembic) → ✅.
+- Etapa 3 (Endurecer pipeline IA) → 🟡 **parcial**:
+  - ✅ Bug multi-video (`media.py`): `enrich_assets` ya no descarta assets tras el primer video.
+  - ✅ Stub `GET /process-runs/{id}`: implementado (consulta real + aislamiento por tenant).
+  - ⏸️ Feedback de progreso real en la UI durante generación (diferido).
+  - ⬜ Manejo de errores de OpenAI (timeouts/rate limits): sin verificar a fondo.
+- Etapa 4 (Dogfooding) → 🟢 pila deployada en prod; falta lo operativo (cargar procesos + feedback).
+- Etapa 5 (Piloto GPU) → ⬜ no arrancada.
+
+**Nota:** la **capa semántica (Tyto/RAG)** — que el plan ubicaba en *fase 2 (§5)* — ya está en
+construcción (rama `feat/capa-semantica` + `feature/semantic-hardening`), con migraciones 0005/0006
+aplicadas en sandbox y prod. O sea, se empezó fase 2 en paralelo.
+
+---
+
 ## 1. TL;DR
 
 El motor de generación de documentos con IA **funciona de punta a punta de verdad**
