@@ -10,3 +10,14 @@ export { OptionSet, type Option } from "./OptionSet";
 export { Uploader } from "./Uploader";
 export { StatusBadge, VersionPill, ESTADO_LABEL, type DocumentEstado } from "./StatusBadge";
 export { Chip, type ChipProps } from "./Chip";
+export { Switch, type SwitchProps } from "./Switch";
+export { Tabs, TabsContent, type TabItem, type TabsProps, type TabsContentProps } from "./Tabs";
+export { Dialog, type DialogProps } from "./Dialog";
+export {
+  InheritancePill,
+  deriveInheritancePill,
+  type InheritanceKind,
+  type InheritancePillInput,
+  type InheritancePillDerived,
+  type InheritancePillProps,
+} from "./InheritancePill";
