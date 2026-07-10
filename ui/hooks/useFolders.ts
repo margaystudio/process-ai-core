@@ -12,10 +12,22 @@ import { useWorkspace } from '@/contexts/WorkspaceContext'
  * carpetas UNA vez por workspace (al montar el consumidor → parte de la carga de
  * la pantalla) y las reutiliza; reabrir el selector o volver a un paso es instantáneo.
  *
- * `refresh()` invalida y vuelve a pedir (para cuando se conecte creación de carpetas).
+ * `refresh()` invalida y vuelve a pedir.
+ * `invalidateFoldersCache(workspaceId)` borra la entrada de cache para un workspace
+ * específico; lo usa `useFolderCrud` para sincronizar las vistas tras cada mutación.
  */
 const cache = new Map<string, Folder[]>()
 const inflight = new Map<string, Promise<Folder[]>>()
+
+/**
+ * Invalida la cache de un workspace específico.
+ * El próximo `useFolders()` montado en ese workspace refetcheará desde el backend.
+ * Exportado para uso exclusivo de `useFolderCrud`.
+ */
+export function invalidateFoldersCache(workspaceId: string): void {
+  cache.delete(workspaceId)
+  inflight.delete(workspaceId)
+}
 
 function loadFolders(workspaceId: string): Promise<Folder[]> {
   const cached = cache.get(workspaceId)
