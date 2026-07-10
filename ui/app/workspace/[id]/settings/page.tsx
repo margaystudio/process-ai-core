@@ -3,12 +3,6 @@
 import { useState, useEffect, useCallback, ChangeEvent } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import {
-  getWorkspaceSubscription,
-  getWorkspaceLimits,
-  listSubscriptionPlans,
-  SubscriptionPlanResponse,
-  WorkspaceSubscriptionResponse,
-  WorkspaceLimitsResponse,
   listOperationalRoles,
   createOperationalRole,
   deleteOperationalRole,
@@ -26,26 +20,30 @@ import {
   updateWorkspaceBranding,
 } from '@/lib/api'
 import { useLoading } from '@/contexts/LoadingContext'
-import { useUserId } from '@/hooks/useUserId'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
 import { useCanEditWorkspace, useCanManageUsers } from '@/hooks/useHasPermission'
 import { useUserRole } from '@/hooks/useUserRole'
-import { createClient } from '@/lib/supabase/client'
+import { extractBrandingColors } from '@/lib/extractBrandingColors'
 import GeneralSettingsTab from '@/components/workspace/GeneralSettingsTab'
-import FolderCrud, { DEFAULT_FOLDER_COLOR } from '@/components/processes/FolderCrud'
+import UsersSettingsTab from '@/components/workspace/UsersSettingsTab'
+import RolesSettingsTab from '@/components/workspace/RolesSettingsTab'
+import FoldersSettingsTab from '@/components/workspace/FoldersSettingsTab'
+import SubscriptionSettingsTab from '@/components/workspace/SubscriptionSettingsTab'
+import LimitsSettingsTab from '@/components/workspace/LimitsSettingsTab'
+import BrandingSettingsTab from '@/components/workspace/BrandingSettingsTab'
 
 const DEFAULT_PRIMARY_BRAND_COLOR = '#2563EB'
 const DEFAULT_SECONDARY_BRAND_COLOR = '#1D4ED8'
+
+type ActiveTab = 'general' | 'users' | 'subscription' | 'limits' | 'roles' | 'folders' | 'branding'
 
 export default function WorkspaceSettingsPage() {
   const router = useRouter()
   const params = useParams()
   const { withLoading } = useLoading()
-  const userId = useUserId()
   const { selectedWorkspaceId, workspaces, platformRoles, refreshWorkspaces, activeTenantId } =
     useWorkspace()
   const paramWorkspaceId = params?.id as string | undefined
-  // El tenant activo en el header es la fuente de verdad; el id en la URL puede quedar desactualizado.
   const workspaceId = selectedWorkspaceId || paramWorkspaceId || null
 
   useEffect(() => {
@@ -59,23 +57,21 @@ export default function WorkspaceSettingsPage() {
   useEffect(() => {
     setError(null)
     setBrandingMessage(null)
-    setSubscription(null)
-    setLimits(null)
     setOperationalRoles([])
     setMembers([])
     setFolders([])
     setEditingMemberId(null)
     setFolderPermissionsModal(null)
   }, [workspaceId, activeTenantId])
+
   const { hasPermission: canEditWorkspace, loading: loadingEditPerm } = useCanEditWorkspace()
   const { hasPermission: canManageUsers, loading: loadingManagePerm } = useCanManageUsers()
   const { role, loading: loadingRole } = useUserRole()
   const currentWorkspace = workspaces.find((ws) => ws.id === workspaceId) || null
   const workspaceRole = currentWorkspace?.role ?? role
-  
+
   const isSuperadmin = platformRoles.includes('superadmin')
-  
-  // Superadmin tiene acceso a la configuración de cualquier workspace
+
   const hasAccess = isSuperadmin || canEditWorkspace || workspaceRole === 'owner' || workspaceRole === 'admin'
   const canManageBranding = workspaceRole === 'owner' || workspaceRole === 'creator'
   const canEditGeneralSettings =
@@ -85,7 +81,7 @@ export default function WorkspaceSettingsPage() {
     workspaceRole === 'admin'
   const hubUrl = process.env.NEXT_PUBLIC_HUB_URL
 
-  const [activeTab, setActiveTab] = useState<'general' | 'users' | 'subscription' | 'limits' | 'roles' | 'folders' | 'branding'>('general')
+  const [activeTab, setActiveTab] = useState<ActiveTab>('general')
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -94,20 +90,17 @@ export default function WorkspaceSettingsPage() {
       setActiveTab('general')
     }
   }, [isSuperadmin, canEditWorkspace, workspaceRole])
-  const [loading, setLoading] = useState(false)
+
   const [error, setError] = useState<string | null>(null)
+
+  // Branding state
   const [brandingIconUrl, setBrandingIconUrl] = useState<string | null>(null)
   const [brandingPrimaryColor, setBrandingPrimaryColor] = useState(DEFAULT_PRIMARY_BRAND_COLOR)
   const [brandingSecondaryColor, setBrandingSecondaryColor] = useState(DEFAULT_SECONDARY_BRAND_COLOR)
   const [brandingSaving, setBrandingSaving] = useState(false)
   const [brandingMessage, setBrandingMessage] = useState<string | null>(null)
 
-  // Subscription data
-  const [subscription, setSubscription] = useState<WorkspaceSubscriptionResponse | null>(null)
-  const [limits, setLimits] = useState<WorkspaceLimitsResponse | null>(null)
-  const [availablePlans, setAvailablePlans] = useState<SubscriptionPlanResponse[]>([])
-
-  // Roles operativos
+  // Roles operativos + miembros (compartido entre tabs users/roles/folders)
   const [operationalRoles, setOperationalRoles] = useState<OperationalRoleResponse[]>([])
   const [members, setMembers] = useState<WorkspaceMember[]>([])
   const [newRoleName, setNewRoleName] = useState('')
@@ -117,7 +110,10 @@ export default function WorkspaceSettingsPage() {
 
   // Carpetas y permisos
   const [folders, setFolders] = useState<Folder[]>([])
-  const [folderPermissionsModal, setFolderPermissionsModal] = useState<{ folder: Folder; perms: FolderPermissionsResponse } | null>(null)
+  const [folderPermissionsModal, setFolderPermissionsModal] = useState<{
+    folder: Folder
+    perms: FolderPermissionsResponse
+  } | null>(null)
   const [folderPermsInherit, setFolderPermsInherit] = useState(true)
   const [folderPermsRoleIds, setFolderPermsRoleIds] = useState<string[]>([])
 
@@ -134,96 +130,9 @@ export default function WorkspaceSettingsPage() {
     }
   }, [workspaceId])
 
-  const extractBrandingColors = (file: File): Promise<{ primary: string; secondary: string }> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader()
-      reader.onload = () => {
-        const img = new Image()
-        img.onload = () => {
-          const canvas = document.createElement('canvas')
-          const ctx = canvas.getContext('2d', { willReadFrequently: true })
-          if (!ctx) {
-            reject(new Error('No se pudo analizar el icono'))
-            return
-          }
-
-          const maxSize = 64
-          const scale = Math.min(maxSize / img.width, maxSize / img.height, 1)
-          canvas.width = Math.max(1, Math.round(img.width * scale))
-          canvas.height = Math.max(1, Math.round(img.height * scale))
-          ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
-
-          const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height)
-          const buckets = new Map<string, { count: number; rgb: [number, number, number] }>()
-
-          for (let i = 0; i < data.length; i += 4) {
-            const alpha = data[i + 3]
-            if (alpha < 64) continue
-
-            const r = data[i]
-            const g = data[i + 1]
-            const b = data[i + 2]
-            const max = Math.max(r, g, b)
-            const min = Math.min(r, g, b)
-            const saturation = max === 0 ? 0 : (max - min) / max
-            const brightness = (r + g + b) / 3
-
-            // Ignorar blancos/grises muy neutros que suelen ser fondo.
-            if (brightness > 245 || (saturation < 0.12 && brightness > 210)) continue
-
-            const qr = Math.round(r / 32) * 32
-            const qg = Math.round(g / 32) * 32
-            const qb = Math.round(b / 32) * 32
-            const key = `${qr},${qg},${qb}`
-            const existing = buckets.get(key)
-            if (existing) {
-              existing.count += 1
-            } else {
-              buckets.set(key, { count: 1, rgb: [qr, qg, qb] })
-            }
-          }
-
-          const colors = [...buckets.values()].sort((a, b) => b.count - a.count)
-          if (colors.length === 0) {
-            reject(new Error('No se pudieron detectar colores en el icono'))
-            return
-          }
-
-          const toHex = ([r, g, b]: [number, number, number]) =>
-            `#${[r, g, b].map((value) => Math.max(0, Math.min(255, value)).toString(16).padStart(2, '0')).join('').toUpperCase()}`
-
-          const distance = (a: [number, number, number], b: [number, number, number]) =>
-            Math.sqrt(
-              ((a[0] - b[0]) ** 2) +
-              ((a[1] - b[1]) ** 2) +
-              ((a[2] - b[2]) ** 2)
-            )
-
-          const primary = colors[0].rgb
-          const secondary = colors.find((color) => distance(color.rgb, primary) > 80)?.rgb || colors[Math.min(1, colors.length - 1)].rgb
-
-          resolve({
-            primary: toHex(primary),
-            secondary: toHex(secondary),
-          })
-        }
-        img.onerror = () => reject(new Error('No se pudo leer el icono'))
-        img.src = String(reader.result)
-      }
-      reader.onerror = () => reject(new Error('No se pudo procesar el icono'))
-      reader.readAsDataURL(file)
-    })
-  }
-
-  useEffect(() => {
-    if (workspaceId && (activeTab === 'subscription' || activeTab === 'limits')) {
-      loadData()
-    }
-  }, [workspaceId, activeTab])
-
   useEffect(() => {
     if (workspaceId && (activeTab === 'users' || activeTab === 'roles' || activeTab === 'folders')) {
-      loadOperationalRolesAndMembers()
+      void loadOperationalRolesAndMembers()
     }
   }, [workspaceId, activeTab])
 
@@ -249,56 +158,6 @@ export default function WorkspaceSettingsPage() {
       setActiveTab('branding')
     }
   }, [hasAccess, canManageBranding, loadingEditPerm, loadingRole])
-
-  const openFolderPermissions = async (folder: Folder) => {
-    try {
-      const perms = await getFolderPermissions(folder.id)
-      setFolderPermissionsModal({ folder, perms })
-      setFolderPermsInherit(perms.inherits_permissions)
-      setFolderPermsRoleIds(perms.operational_role_ids || [])
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al cargar permisos')
-    }
-  }
-
-  const saveFolderPermissions = async () => {
-    if (!folderPermissionsModal) return
-    try {
-      await updateFolderPermissions(folderPermissionsModal.folder.id, {
-        inherits_permissions: folderPermsInherit,
-        operational_role_ids: folderPermsInherit ? undefined : folderPermsRoleIds,
-      })
-      setFolderPermissionsModal(null)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al guardar permisos')
-    }
-  }
-
-  const loadData = async () => {
-    if (!workspaceId) return
-
-    await withLoading(async () => {
-      try {
-        setLoading(true)
-        setError(null)
-
-        // Load subscription and limits
-        const [subData, limitsData, plansData] = await Promise.all([
-          getWorkspaceSubscription(workspaceId).catch(() => null),
-          getWorkspaceLimits(workspaceId).catch(() => null),
-          listSubscriptionPlans('b2b'),
-        ])
-
-        setSubscription(subData)
-        setLimits(limitsData)
-        setAvailablePlans(plansData)
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Error cargando datos')
-      } finally {
-        setLoading(false)
-      }
-    })
-  }
 
   const loadOperationalRolesAndMembers = async () => {
     if (!workspaceId) return
@@ -332,6 +191,15 @@ export default function WorkspaceSettingsPage() {
     })
   }
 
+  const handleDeleteRole = async (roleId: string) => {
+    try {
+      await deleteOperationalRole(roleId)
+      await loadOperationalRolesAndMembers()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error al eliminar')
+    }
+  }
+
   const handleSaveMemberRoles = async () => {
     if (!editingMemberId) return
     await withLoading(async () => {
@@ -350,29 +218,29 @@ export default function WorkspaceSettingsPage() {
     setMemberRoleIds([...member.operational_role_ids])
   }
 
-  if (!workspaceId) {
-    return (
-      <div className="min-h-screen bg-ink-50 flex items-center justify-center">
-        <div className="text-center">
-          <p className="text-ink-600">Espacio de trabajo no seleccionado</p>
-        </div>
-      </div>
-    )
+  const openFolderPermissions = async (folder: Folder) => {
+    try {
+      const perms = await getFolderPermissions(folder.id)
+      setFolderPermissionsModal({ folder, perms })
+      setFolderPermsInherit(perms.inherits_permissions)
+      setFolderPermsRoleIds(perms.operational_role_ids || [])
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error al cargar permisos')
+    }
   }
 
-  const availableTabs = [
-    ...(hasAccess ? [
-      { id: 'general' as const, label: 'General' },
-      { id: 'users' as const, label: 'Usuarios' },
-      { id: 'roles' as const, label: 'Roles operativos' },
-      { id: 'folders' as const, label: 'Carpetas' },
-      { id: 'subscription' as const, label: 'Suscripción' },
-      { id: 'limits' as const, label: 'Límites y Uso' },
-    ] : []),
-    ...(canManageBranding ? [{ id: 'branding' as const, label: 'Personalización' }] : []),
-  ]
-
-  const hasAnyAccess = hasAccess || canManageBranding
+  const saveFolderPermissions = async () => {
+    if (!folderPermissionsModal) return
+    try {
+      await updateFolderPermissions(folderPermissionsModal.folder.id, {
+        inherits_permissions: folderPermsInherit,
+        operational_role_ids: folderPermsInherit ? undefined : folderPermsRoleIds,
+      })
+      setFolderPermissionsModal(null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error al guardar permisos')
+    }
+  }
 
   const handleBrandingFileChange = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -410,7 +278,6 @@ export default function WorkspaceSettingsPage() {
 
   const handleDeleteBrandingIcon = async () => {
     if (!workspaceId) return
-
     try {
       setBrandingSaving(true)
       setBrandingMessage(null)
@@ -429,7 +296,6 @@ export default function WorkspaceSettingsPage() {
 
   const handleSaveBrandingColors = async () => {
     if (!workspaceId) return
-
     try {
       setBrandingSaving(true)
       setBrandingMessage(null)
@@ -448,7 +314,32 @@ export default function WorkspaceSettingsPage() {
     }
   }
 
-  // Verificar permisos: owner/admin/superadmin ven settings completos; owner/creator ven personalización
+  if (!workspaceId) {
+    return (
+      <div className="min-h-screen bg-ink-50 flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-ink-600">Espacio de trabajo no seleccionado</p>
+        </div>
+      </div>
+    )
+  }
+
+  const availableTabs = [
+    ...(hasAccess
+      ? [
+          { id: 'general' as const, label: 'General' },
+          { id: 'users' as const, label: 'Usuarios' },
+          { id: 'roles' as const, label: 'Roles operativos' },
+          { id: 'folders' as const, label: 'Carpetas' },
+          { id: 'subscription' as const, label: 'Suscripción' },
+          { id: 'limits' as const, label: 'Límites y Uso' },
+        ]
+      : []),
+    ...(canManageBranding ? [{ id: 'branding' as const, label: 'Personalización' }] : []),
+  ]
+
+  const hasAnyAccess = hasAccess || canManageBranding
+
   if (!loadingEditPerm && !loadingRole && !hasAnyAccess) {
     return (
       <div className="min-h-screen bg-ink-50 py-8 px-4 sm:px-6 lg:px-8">
@@ -486,7 +377,10 @@ export default function WorkspaceSettingsPage() {
         </div>
 
         {error && (
-          <div className="mb-4 bg-danger-bg border border-danger-bd text-danger px-4 py-3 rounded relative" role="alert">
+          <div
+            className="mb-4 bg-danger-bg border border-danger-bd text-danger px-4 py-3 rounded relative"
+            role="alert"
+          >
             <span className="block sm:inline">{error}</span>
           </div>
         )}
@@ -498,7 +392,7 @@ export default function WorkspaceSettingsPage() {
               {availableTabs.map((tab) => (
                 <button
                   key={tab.id}
-                  onClick={() => setActiveTab(tab.id as any)}
+                  onClick={() => setActiveTab(tab.id as ActiveTab)}
                   className={`${
                     activeTab === tab.id
                       ? 'border-accent text-accent'
@@ -512,7 +406,6 @@ export default function WorkspaceSettingsPage() {
           </div>
 
           <div className="p-6">
-            {/* General Tab */}
             {activeTab === 'general' && hasAccess && workspaceId && (
               <GeneralSettingsTab
                 key={workspaceId}
@@ -522,559 +415,72 @@ export default function WorkspaceSettingsPage() {
               />
             )}
 
-            {/* Roles operativos Tab */}
-            {activeTab === 'roles' && (
-              <div>
-                <h2 className="text-xl font-semibold mb-4">Roles operativos</h2>
-                <p className="text-ink-600 text-sm mb-4">
-                  Los roles operativos definen en qué carpetas puede actuar cada usuario (ej: Pistero, Cajero). Creá los roles y asignálos a usuarios y a carpetas.
-                </p>
-                <form onSubmit={handleCreateRole} className="flex flex-wrap gap-3 items-end mb-6">
-                  <div>
-                    <label className="block text-xs font-medium text-ink-600 mb-1">Nombre del rol</label>
-                    <input
-                      type="text"
-                      value={newRoleName}
-                      onChange={(e) => setNewRoleName(e.target.value)}
-                      placeholder="ej: Pistero"
-                      className="px-3 py-2 border border-ink-300 rounded-md text-sm w-48"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-ink-600 mb-1">Descripción (opcional)</label>
-                    <input
-                      type="text"
-                      value={newRoleDescription}
-                      onChange={(e) => setNewRoleDescription(e.target.value)}
-                      placeholder="Breve descripción"
-                      className="px-3 py-2 border border-ink-300 rounded-md text-sm w-56"
-                    />
-                  </div>
-                  <button
-                    type="submit"
-                    disabled={!newRoleName.trim()}
-                    className="px-4 py-2 bg-action hover:bg-action-hover disabled:opacity-50 text-white text-sm font-medium rounded-md"
-                  >
-                    Crear rol
-                  </button>
-                </form>
-                <div className="space-y-2">
-                  {operationalRoles.length === 0 && <p className="text-ink-500">No hay roles operativos. Creá uno arriba.</p>}
-                  {operationalRoles.map((role) => (
-                    <div
-                      key={role.id}
-                      className="flex items-center justify-between py-2 px-3 bg-ink-50 rounded-md"
-                    >
-                      <div>
-                        <span className="font-medium">{role.name}</span>
-                        {role.description && <span className="text-ink-500 text-sm ml-2">— {role.description}</span>}
-                      </div>
-                      <button
-                        onClick={async () => {
-                          if (!confirm('¿Eliminar este rol operativo? Se quitará de todos los usuarios y carpetas.')) return
-                          try {
-                            await deleteOperationalRole(role.id)
-                            await loadOperationalRolesAndMembers()
-                          } catch (err) {
-                            setError(err instanceof Error ? err.message : 'Error al eliminar')
-                          }
-                        }}
-                        className="text-danger hover:text-danger text-sm"
-                      >
-                        Eliminar
-                      </button>
-                    </div>
-                  ))}
-                </div>
-                <p className="mt-6 text-sm text-ink-500">
-                  Para asignar estos roles a usuarios, andá a la pestaña <button type="button" onClick={() => setActiveTab('users')} className="text-accent hover:underline">Usuarios</button> y usá &quot;Asignar roles operativos&quot; en cada miembro.
-                </p>
-              </div>
-            )}
-
-            {/* Carpetas / Permisos por carpeta */}
-            {activeTab === 'folders' && workspaceId && (
-              <div>
-                <h2 className="text-xl font-semibold mb-2">Gestionar carpetas</h2>
-                <p className="text-ink-600 text-sm mb-4">
-                  Creá, editá o eliminá carpetas y elegí un color para identificarlas en la Biblioteca.
-                </p>
-                <FolderCrud
-                  workspaceId={workspaceId}
-                  folders={folders}
-                  onFoldersChange={reloadFolders}
-                />
-
-                <hr className="my-8 border-ink-200" />
-
-                <h2 className="text-xl font-semibold mb-4">Acceso por carpeta</h2>
-                <p className="text-ink-600 text-sm mb-4">
-                  Definí qué roles operativos pueden acceder a cada carpeta. Si una carpeta hereda del padre, usa los mismos permisos que la carpeta padre.
-                </p>
-                {folders.length === 0 ? (
-                  <p className="text-ink-500">No hay carpetas en este workspace.</p>
-                ) : (
-                  <ul className="space-y-2">
-                    {folders.map((folder) => (
-                      <li key={folder.id} className="flex items-center justify-between py-2 px-3 bg-ink-50 rounded-md">
-                        <span className="flex items-center gap-2 font-medium min-w-0">
-                          <span
-                            className="h-3 w-3 flex-shrink-0 rounded-full"
-                            style={{ backgroundColor: folder.color || DEFAULT_FOLDER_COLOR }}
-                            aria-hidden
-                          />
-                          <span className="truncate">{folder.name}</span>
-                        </span>
-                        <button
-                          onClick={() => openFolderPermissions(folder)}
-                          className="px-3 py-1.5 text-sm bg-accent-tint hover:bg-accent-tint text-accent-ink rounded-md flex-shrink-0 ml-2"
-                        >
-                          Permisos
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            )}
-
-            {/* Modal permisos de carpeta */}
-            {folderPermissionsModal && (
-              <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-                <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
-                  <h3 className="text-lg font-semibold mb-2">Permisos: {folderPermissionsModal.folder.name}</h3>
-                  <label className="flex items-center gap-2 mb-4">
-                    <input
-                      type="checkbox"
-                      checked={folderPermsInherit}
-                      onChange={(e) => setFolderPermsInherit(e.target.checked)}
-                      className="rounded border-ink-300"
-                    />
-                    <span className="text-sm">Heredar permisos del padre</span>
-                  </label>
-                  {!folderPermsInherit && (
-                    <div className="mb-4">
-                      <p className="text-sm font-medium text-ink-700 mb-2">Roles con acceso a esta carpeta</p>
-                      <div className="flex flex-wrap gap-2">
-                        {operationalRoles.filter((r) => r.is_active).map((role) => (
-                          <label key={role.id} className="inline-flex items-center gap-2">
-                            <input
-                              type="checkbox"
-                              checked={folderPermsRoleIds.includes(role.id)}
-                              onChange={(e) => {
-                                if (e.target.checked) {
-                                  setFolderPermsRoleIds((prev) => [...prev, role.id])
-                                } else {
-                                  setFolderPermsRoleIds((prev) => prev.filter((id) => id !== role.id))
-                                }
-                              }}
-                              className="rounded border-ink-300"
-                            />
-                            <span className="text-sm">{role.name}</span>
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  <div className="flex justify-end gap-2 mt-4">
-                    <button
-                      onClick={() => setFolderPermissionsModal(null)}
-                      className="px-4 py-2 bg-ink-200 hover:bg-ink-300 rounded-md text-sm"
-                    >
-                      Cerrar
-                    </button>
-                    <button
-                      onClick={saveFolderPermissions}
-                      className="px-4 py-2 bg-action hover:bg-action-hover text-white rounded-md text-sm"
-                    >
-                      Guardar
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Branding Tab */}
-            {activeTab === 'branding' && canManageBranding && (
-              <div className="space-y-6">
-                <div>
-                  <h2 className="text-xl font-semibold mb-2">Personalización</h2>
-                  <p className="text-ink-600">
-                    Cargá un icono para este cliente. El sistema tomará automaticamente 2 colores principales desde la imagen y podrás ajustarlos manualmente si hace falta.
-                  </p>
-                </div>
-
-                <div className="rounded-lg border border-ink-200 p-6 bg-ink-50">
-                  <div className="flex flex-col md:flex-row md:items-center gap-6">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-16 w-16 items-center justify-center rounded-lg border border-ink-200 bg-white overflow-hidden">
-                        {brandingIconUrl ? (
-                          <img src={brandingIconUrl} alt="Icono del cliente" className="h-14 w-14 object-contain" />
-                        ) : (
-                          <span className="text-xs text-ink-400 text-center px-2">Sin icono</span>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-white border border-ink-200">
-                          <img src="/margay-logo.png" alt="Logo de Process AI" className="h-10 w-10 object-contain" />
-                        </div>
-                        <span
-                          className="text-xl font-bold"
-                          style={
-                            brandingPrimaryColor === brandingSecondaryColor
-                              ? { color: brandingPrimaryColor }
-                              : {
-                                  backgroundImage: `linear-gradient(90deg, ${brandingPrimaryColor}, ${brandingSecondaryColor})`,
-                                  WebkitBackgroundClip: 'text',
-                                  backgroundClip: 'text',
-                                  color: 'transparent',
-                                }
-                          }
-                        >
-                          Process AI
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="space-y-4">
-                      <label className="inline-flex items-center px-4 py-2 bg-action hover:bg-action-hover text-white font-medium rounded-md cursor-pointer disabled:opacity-50">
-                        <input
-                          type="file"
-                          accept=".png,.jpg,.jpeg,.webp,.svg,image/png,image/jpeg,image/webp,image/svg+xml"
-                          className="sr-only"
-                          onChange={handleBrandingFileChange}
-                          disabled={brandingSaving}
-                        />
-                        {brandingSaving ? 'Guardando...' : 'Cargar icono'}
-                      </label>
-                      {brandingIconUrl && (
-                        <button
-                          type="button"
-                          onClick={handleDeleteBrandingIcon}
-                          className="block px-4 py-2 border border-ink-300 rounded-md text-sm font-medium text-ink-700 hover:bg-ink-100 disabled:opacity-50"
-                          disabled={brandingSaving}
-                        >
-                          Quitar icono
-                        </button>
-                      )}
-                      <p className="text-xs text-ink-500">
-                        Formatos permitidos: PNG, JPG, WEBP o SVG. Tamaño máximo: 2 MB.
-                      </p>
-
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
-                        <label className="block">
-                          <span className="block text-sm font-medium text-ink-700 mb-2">Color principal</span>
-                          <div className="flex items-center gap-3">
-                            <input
-                              type="color"
-                              value={brandingPrimaryColor}
-                              onChange={(e) => setBrandingPrimaryColor(e.target.value.toUpperCase())}
-                              className="h-11 w-14 rounded border border-ink-300 bg-white p-1"
-                              disabled={brandingSaving}
-                            />
-                            <span className="text-sm font-mono text-ink-600">{brandingPrimaryColor}</span>
-                          </div>
-                        </label>
-
-                        <label className="block">
-                          <span className="block text-sm font-medium text-ink-700 mb-2">Color secundario</span>
-                          <div className="flex items-center gap-3">
-                            <input
-                              type="color"
-                              value={brandingSecondaryColor}
-                              onChange={(e) => setBrandingSecondaryColor(e.target.value.toUpperCase())}
-                              className="h-11 w-14 rounded border border-ink-300 bg-white p-1"
-                              disabled={brandingSaving}
-                            />
-                            <span className="text-sm font-mono text-ink-600">{brandingSecondaryColor}</span>
-                          </div>
-                        </label>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={handleSaveBrandingColors}
-                        className="inline-flex items-center px-4 py-2 rounded-md text-white font-medium disabled:opacity-50"
-                        style={{ backgroundColor: brandingPrimaryColor }}
-                        disabled={brandingSaving}
-                      >
-                        {brandingSaving ? 'Guardando...' : 'Guardar colores'}
-                      </button>
-                    </div>
-                  </div>
-
-                  {brandingMessage && (
-                    <p className={`mt-4 text-sm ${brandingMessage.includes('correctamente') ? 'text-success-fg' : 'text-danger'}`}>
-                      {brandingMessage}
-                    </p>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* Users Tab */}
             {activeTab === 'users' && hasAccess && (
-              <div>
-                <div className="mb-6">
-                  <h2 className="text-xl font-semibold mb-4">Usuarios</h2>
-                  <p className="text-sm text-slate-500 mb-4">
-                    Las invitaciones se gestionan desde el hub de administración.
-                  </p>
-                </div>
-
-                <div className="space-y-4">
-                  <h3 className="text-lg font-medium">Miembros del workspace</h3>
-                  {members.length === 0 ? (
-                    <p className="text-ink-500">Cargando miembros...</p>
-                  ) : (
-                    <div className="divide-y divide-gray-200">
-                      {members.map((member) => (
-                        <div key={member.membership_id} className="py-4 flex items-center justify-between gap-4">
-                          <div>
-                            <p className="font-medium">{member.name || member.email}</p>
-                            <p className="text-sm text-ink-500">
-                              {member.email} • Rol: {member.role}
-                              {member.operational_role_ids?.length
-                                ? ` • Roles operativos: ${member.operational_role_ids.length}`
-                                : ''}
-                            </p>
-                          </div>
-                          {canManageUsers && (
-                            <button
-                              onClick={() => openMemberEdit(member)}
-                              className="px-3 py-1.5 text-sm bg-ink-100 hover:bg-ink-200 rounded-md"
-                            >
-                              {editingMemberId === member.membership_id ? 'Editando...' : 'Asignar roles operativos'}
-                            </button>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  {editingMemberId && (
-                    <div className="mt-4 p-4 bg-ink-50 rounded-lg border border-ink-200">
-                      <p className="text-sm font-medium mb-3">Seleccionar roles operativos para este usuario</p>
-                      <div className="flex flex-wrap gap-3">
-                        {operationalRoles.filter((r) => r.is_active).map((role) => (
-                          <label key={role.id} className="inline-flex items-center gap-2">
-                            <input
-                              type="checkbox"
-                              checked={memberRoleIds.includes(role.id)}
-                              onChange={(e) => {
-                                if (e.target.checked) {
-                                  setMemberRoleIds((prev) => [...prev, role.id])
-                                } else {
-                                  setMemberRoleIds((prev) => prev.filter((id) => id !== role.id))
-                                }
-                              }}
-                              className="rounded border-ink-300"
-                            />
-                            <span className="text-sm">{role.name}</span>
-                          </label>
-                        ))}
-                      </div>
-                      <div className="mt-3 flex gap-2">
-                        <button
-                          onClick={handleSaveMemberRoles}
-                          className="px-4 py-2 bg-action hover:bg-action-hover text-white text-sm font-medium rounded-md"
-                        >
-                          Guardar
-                        </button>
-                        <button
-                          onClick={() => setEditingMemberId(null)}
-                          className="px-4 py-2 bg-ink-200 hover:bg-ink-300 text-sm rounded-md"
-                        >
-                          Cancelar
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
+              <UsersSettingsTab
+                members={members}
+                operationalRoles={operationalRoles}
+                canManageUsers={canManageUsers}
+                editingMemberId={editingMemberId}
+                memberRoleIds={memberRoleIds}
+                onOpenMemberEdit={openMemberEdit}
+                onMemberRoleIdsChange={setMemberRoleIds}
+                onSaveMemberRoles={handleSaveMemberRoles}
+                onCancelEdit={() => setEditingMemberId(null)}
+              />
             )}
 
-            {/* Subscription Tab */}
-            {activeTab === 'subscription' && hasAccess && (
-              <div>
-                <h2 className="text-xl font-semibold mb-4">Suscripción</h2>
-                {subscription ? (
-                  <div className="space-y-4">
-                    <div className="bg-ink-50 rounded-lg p-4">
-                      <h3 className="font-medium mb-2">Plan Actual</h3>
-                      <p className="text-2xl font-bold">{subscription.plan.display_name}</p>
-                      <p className="text-sm text-ink-600">{subscription.plan.description}</p>
-                    </div>
-
-                    <div>
-                      <h3 className="font-medium mb-2">Período Actual</h3>
-                      <p className="text-sm text-ink-600">
-                        Desde: {new Date(subscription.current_period_start).toLocaleDateString()}
-                      </p>
-                      <p className="text-sm text-ink-600">
-                        Hasta: {new Date(subscription.current_period_end).toLocaleDateString()}
-                      </p>
-                    </div>
-
-                    <div>
-                      <h3 className="font-medium mb-2">Estado</h3>
-                      <span
-                        className={`px-3 py-1 text-xs font-medium rounded-full ${
-                          subscription.status === 'active'
-                            ? 'bg-success-bg text-success-fg'
-                            : subscription.status === 'trial'
-                            ? 'bg-accent-tint text-accent-ink'
-                            : 'bg-danger-bg text-danger'
-                        }`}
-                      >
-                        {subscription.status}
-                      </span>
-                    </div>
-
-                    <div>
-                      <h3 className="font-medium mb-2">Planes Disponibles</h3>
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {availablePlans.map((plan) => (
-                          <div
-                            key={plan.id}
-                            className={`border rounded-lg p-4 ${
-                              plan.id === subscription.plan_id
-                                ? 'border-accent bg-accent-tint'
-                                : 'border-ink-200'
-                            }`}
-                          >
-                            <h4 className="font-semibold">{plan.display_name}</h4>
-                            <p className="text-sm text-ink-600 mt-1">{plan.description}</p>
-                            <p className="text-lg font-bold mt-2">
-                              ${plan.price_monthly}/mes
-                            </p>
-                            {plan.id === subscription.plan_id && (
-                              <span className="text-xs text-accent font-medium">Plan Actual</span>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <p className="text-ink-600">No hay suscripción activa</p>
-                )}
-              </div>
+            {activeTab === 'roles' && (
+              <RolesSettingsTab
+                workspaceId={workspaceId}
+                operationalRoles={operationalRoles}
+                newRoleName={newRoleName}
+                newRoleDescription={newRoleDescription}
+                onNewRoleNameChange={setNewRoleName}
+                onNewRoleDescriptionChange={setNewRoleDescription}
+                onCreateRole={handleCreateRole}
+                onDeleteRole={handleDeleteRole}
+                onGoToUsers={() => setActiveTab('users')}
+              />
             )}
 
-            {/* Limits Tab */}
-            {activeTab === 'limits' && hasAccess && (
-              <div>
-                <h2 className="text-xl font-semibold mb-4">Límites y Uso Actual</h2>
-                {limits ? (
-                  <div className="space-y-6">
-                    <div className="bg-ink-50 rounded-lg p-4">
-                      <h3 className="font-medium mb-2">Plan: {limits.plan_display_name}</h3>
-                      <p className="text-sm text-ink-600">{limits.plan_name}</p>
-                    </div>
+            {activeTab === 'folders' && workspaceId && (
+              <FoldersSettingsTab
+                workspaceId={workspaceId}
+                folders={folders}
+                operationalRoles={operationalRoles}
+                folderPermissionsModal={folderPermissionsModal}
+                folderPermsInherit={folderPermsInherit}
+                folderPermsRoleIds={folderPermsRoleIds}
+                onFoldersChange={reloadFolders}
+                onOpenFolderPermissions={openFolderPermissions}
+                onFolderPermsInheritChange={setFolderPermsInherit}
+                onFolderPermsRoleIdsChange={setFolderPermsRoleIds}
+                onSaveFolderPermissions={saveFolderPermissions}
+                onCloseFolderPermissionsModal={() => setFolderPermissionsModal(null)}
+              />
+            )}
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {/* Usuarios */}
-                      <div className="border rounded-lg p-4">
-                        <h4 className="font-medium mb-2">Usuarios</h4>
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-sm text-ink-600">Usados</span>
-                          <span className="font-semibold">
-                            {limits.current_usage.current_users_count}
-                            {limits.limits.max_users !== null && ` / ${limits.limits.max_users}`}
-                          </span>
-                        </div>
-                        {limits.limits.max_users !== null && (
-                          <div className="w-full bg-ink-200 rounded-full h-2">
-                            <div
-                              className="bg-action h-2 rounded-full"
-                              style={{
-                                width: `${limits.limits.max_users ? Math.min((limits.current_usage.current_users_count / limits.limits.max_users) * 100, 100) : 0}%`,
-                              }}
-                            />
-                          </div>
-                        )}
-                        <p className={`text-xs mt-2 ${limits.can_create_users ? 'text-success' : 'text-danger'}`}>
-                          {limits.can_create_users ? 'Puede agregar usuarios' : 'Límite alcanzado'}
-                        </p>
-                      </div>
+            {activeTab === 'subscription' && hasAccess && workspaceId && (
+              <SubscriptionSettingsTab workspaceId={workspaceId} />
+            )}
 
-                      {/* Documentos */}
-                      <div className="border rounded-lg p-4">
-                        <h4 className="font-medium mb-2">Documentos</h4>
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-sm text-ink-600">Creados</span>
-                          <span className="font-semibold">
-                            {limits.current_usage.current_documents_count}
-                            {limits.limits.max_documents !== null && ` / ${limits.limits.max_documents}`}
-                          </span>
-                        </div>
-                        {limits.limits.max_documents !== null && (
-                          <div className="w-full bg-ink-200 rounded-full h-2">
-                            <div
-                              className="bg-action h-2 rounded-full"
-                              style={{
-                                width: `${limits.limits.max_documents ? Math.min((limits.current_usage.current_documents_count / limits.limits.max_documents) * 100, 100) : 0}%`,
-                              }}
-                            />
-                          </div>
-                        )}
-                        <p className={`text-xs mt-2 ${limits.can_create_documents ? 'text-success' : 'text-danger'}`}>
-                          {limits.can_create_documents ? 'Puede crear documentos' : 'Límite alcanzado'}
-                        </p>
-                      </div>
+            {activeTab === 'limits' && hasAccess && workspaceId && (
+              <LimitsSettingsTab workspaceId={workspaceId} />
+            )}
 
-                      {/* Documentos este mes */}
-                      <div className="border rounded-lg p-4">
-                        <h4 className="font-medium mb-2">Documentos este Mes</h4>
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-sm text-ink-600">Creados</span>
-                          <span className="font-semibold">
-                            {limits.current_usage.current_documents_this_month}
-                            {limits.limits.max_documents_per_month !== null && ` / ${limits.limits.max_documents_per_month}`}
-                          </span>
-                        </div>
-                        {limits.limits.max_documents_per_month !== null && (
-                          <div className="w-full bg-ink-200 rounded-full h-2">
-                            <div
-                              className="bg-action h-2 rounded-full"
-                              style={{
-                                width: `${limits.limits.max_documents_per_month ? Math.min((limits.current_usage.current_documents_this_month / limits.limits.max_documents_per_month) * 100, 100) : 0}%`,
-                              }}
-                            />
-                          </div>
-                        )}
-                        <p className={`text-xs mt-2 ${limits.can_create_documents_this_month ? 'text-success' : 'text-danger'}`}>
-                          {limits.can_create_documents_this_month ? 'Puede crear documentos' : 'Límite mensual alcanzado'}
-                        </p>
-                      </div>
-
-                      {/* Almacenamiento */}
-                      <div className="border rounded-lg p-4">
-                        <h4 className="font-medium mb-2">Almacenamiento</h4>
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-sm text-ink-600">Usado</span>
-                          <span className="font-semibold">
-                            {limits.current_usage.current_storage_gb.toFixed(2)} GB
-                            {limits.limits.max_storage_gb !== null && ` / ${limits.limits.max_storage_gb} GB`}
-                          </span>
-                        </div>
-                        {limits.limits.max_storage_gb !== null && (
-                          <div className="w-full bg-ink-200 rounded-full h-2">
-                            <div
-                              className="bg-action h-2 rounded-full"
-                              style={{
-                                width: `${limits.limits.max_storage_gb ? Math.min((limits.current_usage.current_storage_gb / limits.limits.max_storage_gb) * 100, 100) : 0}%`,
-                              }}
-                            />
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <p className="text-ink-600">No hay información de límites disponible</p>
-                )}
-              </div>
+            {activeTab === 'branding' && canManageBranding && (
+              <BrandingSettingsTab
+                brandingIconUrl={brandingIconUrl}
+                brandingPrimaryColor={brandingPrimaryColor}
+                brandingSecondaryColor={brandingSecondaryColor}
+                brandingSaving={brandingSaving}
+                brandingMessage={brandingMessage}
+                onFileChange={handleBrandingFileChange}
+                onDeleteIcon={handleDeleteBrandingIcon}
+                onPrimaryColorChange={setBrandingPrimaryColor}
+                onSecondaryColorChange={setBrandingSecondaryColor}
+                onSaveColors={handleSaveBrandingColors}
+              />
             )}
           </div>
         </div>
@@ -1082,4 +488,3 @@ export default function WorkspaceSettingsPage() {
     </div>
   )
 }
-
