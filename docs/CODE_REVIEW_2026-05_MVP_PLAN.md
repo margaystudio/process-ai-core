@@ -30,11 +30,13 @@ críticos y las etapas duras (0/1/2) están resueltas.
 - Etapa 0 (Higiene) → ✅ (cola menor: borrar los ~21 `tools/migrate_*.py` que Alembic reemplazó).
 - Etapa 1 (Integración margay-workspace + multi-tenant) → ✅.
 - Etapa 2 (Postgres + Alembic) → ✅.
-- Etapa 3 (Endurecer pipeline IA) → 🟡 **parcial**:
+- Etapa 3 (Endurecer pipeline IA) → 🟡 **casi cerrada**:
   - ✅ Bug multi-video (`media.py`): `enrich_assets` ya no descarta assets tras el primer video.
   - ✅ Stub `GET /process-runs/{id}`: implementado (consulta real + aislamiento por tenant).
-  - ⏸️ Feedback de progreso real en la UI durante generación (diferido).
-  - ⬜ Manejo de errores de OpenAI (timeouts/rate limits): sin verificar a fondo.
+  - ✅ Manejo de errores de OpenAI: cliente con timeout + reintentos con backoff
+    (rate-limit/5xx/timeout) y `AIProviderError` que hace diagnosticable un fallo de
+    transcripción/generación. Vars `OPENAI_TIMEOUT_SECONDS` / `OPENAI_MAX_RETRIES`.
+  - ⏸️ Feedback de progreso real en la UI durante generación (diferido; UI → margay-frontend).
 - Etapa 4 (Dogfooding) → 🟢 pila deployada en prod; falta lo operativo (cargar procesos + feedback).
 - Etapa 5 (Piloto GPU) → ⬜ no arrancada.
 
