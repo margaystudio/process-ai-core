@@ -30,6 +30,11 @@ allow_unauthenticated = true
 ENVIRONMENT = "prod"
 LOG_LEVEL = "WARNING"
 
+# Capa semántica en modo estricto (recomendado en prod): el preflight FALLA al
+# arrancar si falta pgvector/pg_trgm, la columna embedding no es 'vector', o falta
+# OPENAI_API_KEY. Requiere `alembic upgrade head` aplicado en la DB de prod.
+SEMANTIC_ALLOW_DEGRADED = "false"
+
 # Control plane margay-workspace (sin /api al final)
 WORKSPACE_URL = "https://margay-workspace-513594124246.us-central1.run.app"
 PROCESS_AI_APP_KEY = "process_ai"

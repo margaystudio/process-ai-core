@@ -44,6 +44,7 @@ from process_ai_core.db.models import (
     Document,
     Folder,
     Process,
+    Run,
     User,
     Workspace,
     WorkspaceMembership,
@@ -182,6 +183,20 @@ def _trigger_sync(client: TestClient, token: str) -> None:
     client.get("/api/v1/folders", headers=_h(token))
 
 
+def _create_run_in_workspace(workspace_id: str) -> tuple[str, str]:
+    """Crea un Process + un Run (dominio 'process') en el workspace dado.
+
+    Devuelve (run_id, doc_id). La fila en `runs` representa una corrida ya
+    completada (es como la deja el POST tras un pipeline exitoso).
+    """
+    doc_id = _create_process_in_workspace(workspace_id)
+    run_id = f"iso-run-{uuid.uuid4().hex[:8]}"
+    with get_db_session() as s:
+        s.add(Run(id=run_id, document_id=doc_id, domain="process"))
+        s.commit()
+    return run_id, doc_id
+
+
 def _create_process_in_workspace(workspace_id: str) -> str:
     """
     Crea un Process directamente en la DB y devuelve su ID.
@@ -191,7 +206,7 @@ def _create_process_in_workspace(workspace_id: str) -> str:
     assert folder_id is not None, (
         f"Workspace {workspace_id} debe tener una carpeta raíz creada por sync"
     )
-    doc_id = f"iso-doc-{uuid.uuid4()}"
+    doc_id = f"iso-doc-{uuid.uuid4().hex[:8]}"  # <=36 chars (columna id es String(36))
     with get_db_session() as s:
         doc = Process(
             id=doc_id,
@@ -658,3 +673,55 @@ class TestMultiWorkspaceUserIsolation:
             f"Usuario multi en contexto A debe acceder a su doc en A "
             f"(obtuvo {resp.status_code}: {resp.text})"
         )
+
+
+# ── Tests: GET /process-runs/{id} (antes era un stub que siempre daba 404) ────
+
+class TestProcessRunGet:
+    """
+    GET /api/v1/process-runs/{run_id} pasó de stub (404 fijo) a consulta real.
+    Verifica: (a) control positivo — el dueño ve su corrida con status/artefactos;
+    (b) aislamiento — tenant B recibe 404 por una corrida de tenant A;
+    (c) una corrida inexistente da 404.
+    has_permission se mockea en su fuente (el GET lo importa lazy) para no depender
+    de seed_permissions; el límite real sigue siendo membership + workspace activo.
+    """
+
+    @pytest.fixture(autouse=True)
+    def patch_has_permission(self, monkeypatch):
+        monkeypatch.setattr(
+            "process_ai_core.db.permissions.has_permission",
+            _membership_based_has_permission,
+        )
+
+    def test_control_positivo_dueno_ve_su_corrida(self, client):
+        _trigger_sync(client, TOKEN_A)
+        ws_a = _local_workspace_id(TENANT_A_ID)
+        run_id, doc_id = _create_run_in_workspace(ws_a)
+
+        resp = client.get(f"/api/v1/process-runs/{run_id}", headers=_h(TOKEN_A))
+        assert resp.status_code == 200, (
+            f"El dueño debe ver su corrida, obtuvo {resp.status_code}: {resp.text}"
+        )
+        body = resp.json()
+        assert body["run_id"] == run_id
+        assert body["status"] == "completed"
+        assert body["document_id"] == doc_id
+        assert "json" in body["artifacts"] and "markdown" in body["artifacts"]
+
+    def test_b_no_ve_corrida_de_a(self, client):
+        _trigger_sync(client, TOKEN_A)
+        _trigger_sync(client, TOKEN_B)
+        ws_a = _local_workspace_id(TENANT_A_ID)
+        run_id, _doc_id = _create_run_in_workspace(ws_a)
+
+        resp = client.get(f"/api/v1/process-runs/{run_id}", headers=_h(TOKEN_B))
+        assert resp.status_code == 404, (
+            f"Tenant B no debe ver la corrida de A (esperado 404), "
+            f"obtuvo {resp.status_code}: {resp.text}"
+        )
+
+    def test_corrida_inexistente_da_404(self, client):
+        _trigger_sync(client, TOKEN_A)
+        resp = client.get(f"/api/v1/process-runs/no-existe-{_RUN_ID}", headers=_h(TOKEN_A))
+        assert resp.status_code == 404

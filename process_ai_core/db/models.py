@@ -786,3 +786,15 @@ class WorkspaceInvitation(Base):
     invited_by: Mapped["User"] = relationship("User", foreign_keys=[invited_by_user_id])
     role: Mapped["Role"] = relationship("Role", foreign_keys=[role_id])
     accepted_by: Mapped["User | None"] = relationship("User", foreign_keys=[accepted_by_user_id])
+
+
+# Capa semántica (knowledge_objects, document_relations, document_chunks, evidence).
+# Se importa al final para registrar los modelos en Base.metadata cuando se
+# importa `process_ai_core.db.models` (patrón usado por los tests con create_all).
+from .models_semantic import (  # noqa: E402,F401
+    DocumentChunk,
+    DocumentRelation,
+    EvidenceItem,
+    KnowledgeObject,
+    SemanticPipelineRun,
+)

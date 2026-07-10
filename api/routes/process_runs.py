@@ -457,19 +457,71 @@ async def create_process_run(
 
 
 @router.get("/{run_id}", response_model=ProcessRunResponse)
-async def get_process_run(run_id: str):
+async def get_process_run(
+    run_id: str,
+    user_id: str = Depends(get_current_user_id),
+    ctx: WorkspaceSessionContext = Depends(get_workspace_context),
+):
     """
-    Obtiene el estado y resultados de una corrida.
+    Obtiene el estado y los artefactos de una corrida.
 
-    Args:
-        run_id: ID de la corrida
+    La fila en `runs` solo se crea cuando el pipeline terminó y persistió, así que
+    su existencia implica status="completed". Devuelve URLs firmadas a los artefactos
+    canónicos en object storage (json/md siempre; pdf si fue generado).
 
-    Returns:
-        ProcessRunResponse con el estado actual
+    Aislamiento por tenant: una corrida inexistente, de otro workspace, o de otro
+    dominio responde 404 — no distinguimos los casos para no filtrar su existencia.
     """
-    # TODO: Implementar consulta desde DB o storage
-    # Por ahora devolvemos un error 404
-    raise HTTPException(status_code=404, detail=f"Run {run_id} no encontrada")
+    workspace_id = resolve_tenant_workspace_id(ctx)
+
+    from process_ai_core.db.database import get_db_session
+    from process_ai_core.db.permissions import has_permission
+    from process_ai_core.db.models import Document, Run
+
+    with get_db_session() as session:
+        if not has_permission(session, user_id, workspace_id, "documents.view"):
+            raise HTTPException(
+                status_code=403, detail="No tiene permisos para ver documentos"
+            )
+
+        run = session.query(Run).filter_by(id=run_id).first()
+        document = (
+            session.query(Document).filter_by(id=run.document_id).first()
+            if run is not None
+            else None
+        )
+        if (
+            run is None
+            or run.domain != "process"
+            or document is None
+            or document.workspace_id != workspace_id
+        ):
+            raise HTTPException(status_code=404, detail=f"Run {run_id} no encontrada")
+
+        process_name = document.name
+        document_id = document.id
+
+    # Artefactos canónicos: json/md siempre; pdf solo si existe en storage.
+    from process_ai_core.storage import get_storage, run_artifact_key
+
+    artifacts = {
+        "json": sign_artifact_url(run_id, "process.json", workspace_id),
+        "markdown": sign_artifact_url(run_id, "process.md", workspace_id),
+    }
+    try:
+        if get_storage().exists(run_artifact_key(workspace_id, run_id, "process.pdf")):
+            artifacts["pdf"] = sign_artifact_url(run_id, "process.pdf", workspace_id)
+    except Exception:
+        # La existencia del PDF es best-effort; su ausencia no rompe la respuesta.
+        pass
+
+    return ProcessRunResponse(
+        run_id=run_id,
+        process_name=process_name,
+        status="completed",
+        artifacts=artifacts,
+        document_id=document_id,
+    )
 
 
 @router.post("/{run_id}/generate-pdf")

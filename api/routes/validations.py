@@ -10,7 +10,7 @@ Este modulo maneja:
 Nota: Los endpoints de versiones (submit, clone) estan en api/routes/documents.py
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Body
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Body
 from typing import Optional, List
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -32,6 +32,7 @@ from process_ai_core.db.helpers import (
     get_in_review_version,
 )
 from ._freeze import freeze_approved_pdf
+from process_ai_core.semantic.pipeline import trigger_semantic_pipeline_for_version
 import logging
 import json
 from datetime import datetime, UTC
@@ -172,6 +173,7 @@ class ValidationDecisionResponse(BaseModel):
 @router.post("/documents/{document_id}/validate/approve", response_model=ValidationDecisionResponse)
 async def approve_document_validation_direct(
     document_id: str,
+    background_tasks: BackgroundTasks,
     request: ValidationApproveRequest = Body(...),
     user_id: str = Depends(get_current_user_id),
     session: Session = Depends(get_db),
@@ -274,7 +276,11 @@ async def approve_document_validation_direct(
         freeze_approved_pdf(session, approved_version)
         session.commit()
         session.refresh(doc)
-        
+
+        # Hook capa semántica: extracción de entidades + relaciones candidatas +
+        # indexado de chunks. Corre en background y jamás afecta la aprobación.
+        background_tasks.add_task(trigger_semantic_pipeline_for_version, approved_version.id)
+
         return ValidationDecisionResponse(
             version_id=approved_version.id,
             version_status=approved_version.version_status,
@@ -410,6 +416,7 @@ async def reject_document_validation_direct(
 @router.post("/validations/{validation_id}/approve", response_model=ValidationResponse)
 async def approve_document_validation(
     validation_id: str,
+    background_tasks: BackgroundTasks,
     user_id: str = Depends(get_current_user_id),
     ctx: WorkspaceSessionContext = Depends(get_workspace_context),
 ):
@@ -487,6 +494,9 @@ async def approve_document_validation(
             freeze_approved_pdf(session, approved_version)
             session.commit()
             session.refresh(validation)
+
+            # Hook capa semántica (background, best-effort).
+            background_tasks.add_task(trigger_semantic_pipeline_for_version, approved_version.id)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
         

@@ -93,6 +93,12 @@ class Settings:
     # Modelo de embeddings (chunks/RAG de Tyto — aún no usado, reservado).
     openai_model_embedding: str = "text-embedding-3-small"
 
+    # Robustez de las llamadas a OpenAI. timeout por request (la transcripción de
+    # video puede tardar minutos) y reintentos con backoff del SDK ante rate-limit,
+    # errores 5xx, timeouts y fallos de conexión.
+    openai_timeout_seconds: float = 600.0
+    openai_max_retries: int = 3
+
     # I/O
     input_dir: str = "input"
     output_dir: str = "output"
@@ -122,6 +128,41 @@ class Settings:
     tesseract_cmd: str = ""
     # Idiomas Tesseract (formato +, ej. spa+eng)
     ocr_languages: str = "spa+eng"
+
+    # ── Capa semántica ──────────────────────────────────────────────────────
+    # Modo degradado. Si es False (estricto; default en prod), el preflight de
+    # infraestructura FALLA al arrancar cuando falta pgvector/pg_trgm, la columna
+    # embedding no es de tipo vector, o no hay OPENAI_API_KEY. Si es True (default
+    # en dev/test) arranca igual, logueando warnings explícitos (funcionalidad
+    # reducida: sin vector search, Tyto degrada a scoring léxico).
+    semantic_allow_degraded: bool = True
+
+    # Umbral de autoconfirmación de relaciones candidatas (opcional; default OFF).
+    # None / no seteado (default): TODA candidata va a revisión humana (ADR-006).
+    # Si se setea (0.0–1.0), las candidatas con confidence >= umbral se marcan
+    # 'confirmed' automáticamente al generarse, con created_by_ai=True y
+    # confirmed_by=NULL (rastro de "confirmada por el sistema, sin intervención
+    # humana"). Es un opt-in operativo explícito; no altera el default de gobernanza.
+    relation_autoconfirm_threshold: float | None = None
+
+
+def _env_bool(name: str, *, default: bool) -> bool:
+    """Lee un booleano de entorno. Acepta 1/true/yes/on (y sus negativos)."""
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in ("1", "true", "yes", "on")
+
+
+def _env_float_optional(name: str) -> float | None:
+    """Lee un float opcional de entorno. Vacío/ausente/ inválido => None (off)."""
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return None
+    try:
+        return float(raw.strip())
+    except ValueError:
+        return None
 
 
 @lru_cache
@@ -181,8 +222,20 @@ def get_settings() -> Settings:
             "OPENAI_MODEL_EMBEDDING",
             "text-embedding-3-small"
         ),
+        openai_timeout_seconds=float(os.getenv("OPENAI_TIMEOUT_SECONDS", "600")),
+        openai_max_retries=int(os.getenv("OPENAI_MAX_RETRIES", "3")),
 
         # OCR local (Tesseract)
         tesseract_cmd=os.getenv("TESSERACT_CMD", ""),
         ocr_languages=os.getenv("OCR_LANGUAGES", "spa+eng"),
+
+        # Capa semántica: estricto en prod (default false), degradado en dev/test.
+        semantic_allow_degraded=_env_bool(
+            "SEMANTIC_ALLOW_DEGRADED",
+            default=os.getenv("ENVIRONMENT", "dev").strip().lower()
+            not in ("prod", "production"),
+        ),
+        relation_autoconfirm_threshold=_env_float_optional(
+            "RELATION_AUTOCONFIRM_THRESHOLD"
+        ),
     )

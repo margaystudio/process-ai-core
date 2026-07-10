@@ -274,13 +274,14 @@ def test_enforce_db_previene_dos_drafts(session, test_document):
     import uuid
     from sqlalchemy import text
     
-    # Verificar si el índice existe
-    result = session.execute(text("""
-        SELECT name FROM sqlite_master 
-        WHERE type='index' AND name='uq_document_one_draft'
-    """))
-    index_exists = result.fetchone() is not None
-    
+    # Verificar si el índice existe (dialect-aware: sqlite_master en SQLite, pg_indexes en Postgres).
+    _bind = session.get_bind()
+    if _bind.dialect.name == "sqlite":
+        _idx_q = "SELECT name FROM sqlite_master WHERE type='index' AND name='uq_document_one_draft'"
+    else:
+        _idx_q = "SELECT indexname FROM pg_indexes WHERE indexname = 'uq_document_one_draft'"
+    index_exists = session.execute(text(_idx_q)).fetchone() is not None
+
     if not index_exists:
         pytest.skip("Índice único parcial uq_document_one_draft no existe. Ejecuta tools/reset_db_versions.py")
     
@@ -338,13 +339,14 @@ def test_enforce_db_previene_dos_in_review(session, test_document):
     import uuid
     from sqlalchemy import text
     
-    # Verificar si el índice existe
-    result = session.execute(text("""
-        SELECT name FROM sqlite_master 
-        WHERE type='index' AND name='uq_document_one_in_review'
-    """))
-    index_exists = result.fetchone() is not None
-    
+    # Verificar si el índice existe (dialect-aware: sqlite_master en SQLite, pg_indexes en Postgres).
+    _bind = session.get_bind()
+    if _bind.dialect.name == "sqlite":
+        _idx_q = "SELECT name FROM sqlite_master WHERE type='index' AND name='uq_document_one_in_review'"
+    else:
+        _idx_q = "SELECT indexname FROM pg_indexes WHERE indexname = 'uq_document_one_in_review'"
+    index_exists = session.execute(text(_idx_q)).fetchone() is not None
+
     if not index_exists:
         pytest.skip("Índice único parcial uq_document_one_in_review no existe. Ejecuta tools/reset_db_versions.py")
     
