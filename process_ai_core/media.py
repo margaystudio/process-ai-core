@@ -502,8 +502,11 @@ def enrich_assets(
                     )
                 )
 
-            # El video suele ser el asset principal → salimos
-            return enriched, images_by_step, evidence_images
+            # Video procesado; seguimos con el resto de los assets (puede haber
+            # más de un video, o imágenes/texto/audio adicionales). Antes acá se
+            # hacía `return`, lo que descartaba en silencio todo lo que viniera
+            # después del primer video.
+            continue
 
         raise ValueError(f"Tipo de asset no soportado: {a.kind}")
 
