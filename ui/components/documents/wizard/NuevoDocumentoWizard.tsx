@@ -65,6 +65,8 @@ export default function NuevoDocumentoWizard() {
 
   // ---- Estado de generación ----
   const [generating, setGenerating] = useState(false);
+  /** true cuando createProcessRun() resolvió (éxito o error) */
+  const [genDone, setGenDone] = useState(false);
   const [genError, setGenError] = useState<string | null>(null);
   const [documentId, setDocumentId] = useState<string | null>(null);
 
@@ -124,6 +126,7 @@ export default function NuevoDocumentoWizard() {
     if (!s1.name.trim() || !s1.folderId) return;
 
     setGenError(null);
+    setGenDone(false);
     setGenerating(true);
 
     try {
@@ -164,6 +167,12 @@ export default function NuevoDocumentoWizard() {
         err instanceof Error ? err.message : "Error al generar el borrador",
       );
     } finally {
+      // Señalamos al overlay que el backend respondió (éxito o error) para
+      // que complete visualmente el stepper antes de desmontarse.
+      setGenDone(true);
+      // Pequeña pausa para que el usuario vea el estado "completado" del overlay
+      // antes de que desaparezca. Solo aplica si el overlay está montado.
+      await new Promise<void>((r) => setTimeout(r, 600));
       setGenerating(false);
     }
   };
@@ -231,7 +240,8 @@ export default function NuevoDocumentoWizard() {
   };
 
   if (generating) {
-    return <GeneratingOverlay current={0} />;
+    const hasVideo = s1.evidences.some((ev) => ev.fileType === "video");
+    return <GeneratingOverlay hasVideo={hasVideo} done={genDone} />;
   }
 
   const canGenerate = Boolean(s1.name.trim() && s1.folderId);
