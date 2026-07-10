@@ -11,14 +11,40 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import mimetypes
 import tempfile
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-from openai import OpenAI
+from openai import OpenAI, OpenAIError
 
 from ..config import get_settings
+
+logger = logging.getLogger(__name__)
+
+
+class AIProviderError(RuntimeError):
+    """Falla de una operación contra OpenAI tras agotar los reintentos del SDK.
+
+    El SDK ya reintenta con backoff ante rate-limit, 5xx, timeouts y errores de
+    conexión; si igual falla, traducimos la excepción cruda del SDK a esta —con el
+    nombre de la operación— para que el pipeline la loguee y la propague de forma
+    diagnosticable (p. ej. un fallo de transcripción no queda como traceback opaco).
+    """
+
+
+@contextmanager
+def _openai_call(operation: str):
+    """Envuelve una llamada al SDK: traduce OpenAIError a AIProviderError (logueado)."""
+    try:
+        yield
+    except OpenAIError as exc:
+        logger.error("OpenAI %s falló: %s: %s", operation, type(exc).__name__, exc)
+        raise AIProviderError(
+            f"OpenAI {operation} falló: {type(exc).__name__}: {exc}"
+        ) from exc
 
 
 class OpenAIProvider:
@@ -41,30 +67,41 @@ class OpenAIProvider:
             model_transcribe_timestamps
             or getattr(settings, "openai_model_transcribe_timestamps", "whisper-1")
         )
+        self._timeout = getattr(settings, "openai_timeout_seconds", 600.0)
+        self._max_retries = getattr(settings, "openai_max_retries", 3)
         self._client = client
 
     @property
     def client(self) -> OpenAI:
-        """Cliente OpenAI (lazy). Falla si no hay API key configurada."""
+        """Cliente OpenAI (lazy). Falla si no hay API key configurada.
+
+        Se configura timeout por request y reintentos con backoff (el SDK reintenta
+        solo ante rate-limit, 5xx, timeouts y errores de conexión).
+        """
         if self._client is None:
             if not self._api_key:
                 raise RuntimeError("OPENAI_API_KEY no está configurada en el .env")
-            self._client = OpenAI(api_key=self._api_key)
+            self._client = OpenAI(
+                api_key=self._api_key,
+                timeout=self._timeout,
+                max_retries=self._max_retries,
+            )
         return self._client
 
     # ------------------------------------------------------------------
     # LLMProvider
     # ------------------------------------------------------------------
     def complete_json(self, *, system: str, user: str, temperature: float = 0.2) -> str:
-        completion = self.client.chat.completions.create(
-            model=self._model_text,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
-            response_format={"type": "json_object"},
-            temperature=temperature,
-        )
+        with _openai_call("chat.completions (complete_json)"):
+            completion = self.client.chat.completions.create(
+                model=self._model_text,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                response_format={"type": "json_object"},
+                temperature=temperature,
+            )
         return completion.choices[0].message.content or "{}"
 
     # ------------------------------------------------------------------
@@ -74,10 +111,11 @@ class OpenAIProvider:
         if not texts:
             return []
         settings = get_settings()
-        response = self.client.embeddings.create(
-            model=settings.openai_model_embedding,
-            input=texts,
-        )
+        with _openai_call("embeddings.create"):
+            response = self.client.embeddings.create(
+                model=settings.openai_model_embedding,
+                input=texts,
+            )
         # La API devuelve los embeddings con índice; ordenar por las dudas.
         items = sorted(response.data, key=lambda d: d.index)
         return [item.embedding for item in items]
@@ -109,16 +147,17 @@ class OpenAIProvider:
 
         try:
             with audio_file_path.open("rb") as audio_file:
-                transcription = self.client.audio.transcriptions.create(
-                    model=self._model_transcribe,
-                    file=(
-                        audio_file_path.name,
-                        audio_file,
-                        "audio/mpeg" if needs_conversion else None,
-                    ),
-                    prompt=prompt or "",
-                    response_format="json",
-                )
+                with _openai_call("audio.transcriptions (transcribe)"):
+                    transcription = self.client.audio.transcriptions.create(
+                        model=self._model_transcribe,
+                        file=(
+                            audio_file_path.name,
+                            audio_file,
+                            "audio/mpeg" if needs_conversion else None,
+                        ),
+                        prompt=prompt or "",
+                        response_format="json",
+                    )
             return transcription.text
         finally:
             if needs_conversion and tmp_mp3_path.exists():
@@ -162,17 +201,18 @@ class OpenAIProvider:
 
         try:
             with audio_file_path.open("rb") as audio_file:
-                transcription = self.client.audio.transcriptions.create(
-                    model=model,
-                    file=(
-                        audio_file_path.name,
-                        audio_file,
-                        "audio/mpeg" if needs_conversion else None,
-                    ),
-                    prompt=prompt or "",
-                    response_format="verbose_json",
-                    timestamp_granularities=[granularity],
-                )
+                with _openai_call("audio.transcriptions (transcribe_with_timestamps)"):
+                    transcription = self.client.audio.transcriptions.create(
+                        model=model,
+                        file=(
+                            audio_file_path.name,
+                            audio_file,
+                            "audio/mpeg" if needs_conversion else None,
+                        ),
+                        prompt=prompt or "",
+                        response_format="verbose_json",
+                        timestamp_granularities=[granularity],
+                    )
 
             data: dict[str, Any] = {}
             if hasattr(transcription, "text"):
@@ -228,21 +268,22 @@ class OpenAIProvider:
                 }
             )
 
-        completion = self.client.chat.completions.create(
-            model=vision_model,
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "Sos un asistente que analiza capturas de pantalla "
-                        "para documentación operativa. Respondés solo JSON."
-                    ),
-                },
-                {"role": "user", "content": content},
-            ],
-            response_format={"type": "json_object"},
-            temperature=0.0,
-        )
+        with _openai_call("chat.completions (pick_frame)"):
+            completion = self.client.chat.completions.create(
+                model=vision_model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "Sos un asistente que analiza capturas de pantalla "
+                            "para documentación operativa. Respondés solo JSON."
+                        ),
+                    },
+                    {"role": "user", "content": content},
+                ],
+                response_format={"type": "json_object"},
+                temperature=0.0,
+            )
 
         raw = completion.choices[0].message.content or "{}"
         data = json.loads(raw)

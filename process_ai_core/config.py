@@ -93,6 +93,12 @@ class Settings:
     # Modelo de embeddings (chunks/RAG de Tyto — aún no usado, reservado).
     openai_model_embedding: str = "text-embedding-3-small"
 
+    # Robustez de las llamadas a OpenAI. timeout por request (la transcripción de
+    # video puede tardar minutos) y reintentos con backoff del SDK ante rate-limit,
+    # errores 5xx, timeouts y fallos de conexión.
+    openai_timeout_seconds: float = 600.0
+    openai_max_retries: int = 3
+
     # I/O
     input_dir: str = "input"
     output_dir: str = "output"
@@ -216,6 +222,8 @@ def get_settings() -> Settings:
             "OPENAI_MODEL_EMBEDDING",
             "text-embedding-3-small"
         ),
+        openai_timeout_seconds=float(os.getenv("OPENAI_TIMEOUT_SECONDS", "600")),
+        openai_max_retries=int(os.getenv("OPENAI_MAX_RETRIES", "3")),
 
         # OCR local (Tesseract)
         tesseract_cmd=os.getenv("TESSERACT_CMD", ""),
