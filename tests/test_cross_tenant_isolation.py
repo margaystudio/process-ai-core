@@ -725,3 +725,69 @@ class TestProcessRunGet:
         _trigger_sync(client, TOKEN_A)
         resp = client.get(f"/api/v1/process-runs/no-existe-{_RUN_ID}", headers=_h(TOKEN_A))
         assert resp.status_code == 404
+
+
+# ── Tests: API de tipos documentales por-tenant (Fase 4) ─────────────────────
+
+class TestDocumentTypesApi:
+    """
+    Los tipos documentales son por-tenant: el GET lista los del workspace activo
+    (sembrados al provisionar), y un tenant NO puede editar los de otro (404).
+    El gate owner/admin se mockea (los roles de sistema no están sembrados en el
+    entorno de test, igual que en los tests de documents); lo que se verifica acá es
+    el aislamiento por workspace y la validación de behaviors contra la allowlist.
+    """
+
+    @pytest.fixture(autouse=True)
+    def bypass_admin_gate(self, monkeypatch):
+        import api.routes.document_types as dt_route
+        monkeypatch.setattr(dt_route, "_require_ws_admin", lambda *a, **k: None)
+
+    def _type_id(self, workspace_id: str, key: str) -> str | None:
+        from process_ai_core.db.models import DocumentType
+        with get_db_session() as s:
+            row = s.query(DocumentType).filter_by(workspace_id=workspace_id, key=key).first()
+            return row.id if row else None
+
+    def test_a_ve_sus_tipos_sembrados(self, client):
+        _trigger_sync(client, TOKEN_A)
+        resp = client.get("/api/v1/document-types", headers=_h(TOKEN_A))
+        assert resp.status_code == 200, resp.text
+        types = resp.json()
+        keys = {t["key"] for t in types}
+        assert "procedimiento" in keys, "el workspace debe venir sembrado con los defaults"
+        assert len(types) >= 10
+
+    def test_b_no_puede_editar_tipo_de_a(self, client):
+        _trigger_sync(client, TOKEN_A)
+        _trigger_sync(client, TOKEN_B)
+        ws_a = _local_workspace_id(TENANT_A_ID)
+        a_type_id = self._type_id(ws_a, "procedimiento")
+        assert a_type_id is not None
+
+        resp = client.patch(
+            f"/api/v1/document-types/{a_type_id}",
+            json={"label": "hackeado por B"},
+            headers=_h(TOKEN_B),
+        )
+        assert resp.status_code == 404, (
+            f"Tenant B no debe poder editar el tipo de A (esperado 404), obtuvo {resp.status_code}"
+        )
+
+    def test_a_edita_su_tipo_y_behaviors_se_validan(self, client):
+        _trigger_sync(client, TOKEN_A)
+        ws_a = _local_workspace_id(TENANT_A_ID)
+        tid = self._type_id(ws_a, "instructivo")
+        assert tid is not None
+
+        resp = client.patch(
+            f"/api/v1/document-types/{tid}",
+            json={"label": "Instructivo A", "behaviors": {"tyto": True, "basura": True}},
+            headers=_h(TOKEN_A),
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["label"] == "Instructivo A"
+        # La key desconocida se descarta (allowlist); las conocidas quedan.
+        assert "basura" not in body["behaviors"]
+        assert body["behaviors"]["tyto"] is True
