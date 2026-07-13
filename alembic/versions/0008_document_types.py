@@ -6,11 +6,12 @@ set de defaults (mismo template que usa la provisión de tenants nuevos).
 
 Ver docs/PLAN_DOCUMENT_TYPES.md.
 
-Nota: down_revision = 0006 (no 0007). La 0007 de la rama de Nacho —behaviors en
-catalog_option— queda superseded por este modelo y no se mergea.
+Nota: encadena tras la 0007 (behaviors en catalog_option, de la rama de Nacho, ya
+aplicada al sandbox). Ese `behaviors_json` de catalog_option queda vestigial: document_type
+se mueve a su propia tabla. Se puede dropear en la fase de retiro del catálogo.
 
 Revision ID: 0008_document_types
-Revises: 0006_semantic_pipeline_runs
+Revises: 0007_catalog_option_behaviors
 Create Date: 2026-07-13
 """
 
@@ -30,7 +31,7 @@ if not SCHEMA:
 
 
 revision = "0008_document_types"
-down_revision = "0006_semantic_pipeline_runs"
+down_revision = "0007_catalog_option_behaviors"
 branch_labels = None
 depends_on = None
 
