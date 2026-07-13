@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { Search, Plus, Upload, ChevronDown, X } from 'lucide-react'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
-import { listDocuments, getCatalogOptions, Document, Folder, CatalogOption } from '@/lib/api'
+import { listDocuments, getDocumentTypes, Document, Folder, CatalogOption } from '@/lib/api'
 import { useUserRole } from '@/hooks/useUserRole'
 import { useCanEditWorkspace } from '@/hooks/useHasPermission'
 import { useWorkspaceProfileIncomplete } from '@/hooks/useWorkspaceProfileIncomplete'
@@ -376,8 +376,10 @@ export default function WorkspacePage() {
 
   // Cargar opciones de tipo documental
   useEffect(() => {
-    getCatalogOptions('document_type')
-      .then(setTipoOptions)
+    getDocumentTypes(false)
+      .then((types) =>
+        setTipoOptions(types.map((t) => ({ value: t.key, label: t.label, sort_order: t.sort_order })))
+      )
       .catch(() => setTipoOptions([]))
   }, [])
 

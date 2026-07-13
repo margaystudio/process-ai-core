@@ -130,86 +130,10 @@ SEED = [
         sort_order=10,
     ),
 
-    # =========================================================
-    # document_type (tipo documental — Blueprint §5 + presupuesto)
-    # =========================================================
-    dict(
-        domain="document_type",
-        value="procedimiento",
-        label="Procedimiento",
-        prompt_text="Tipo documental: procedimiento. Secuencia formal de trabajo, con pasos ordenados, responsables y evidencias.",
-        sort_order=10,
-    ),
-    dict(
-        domain="document_type",
-        value="instructivo",
-        label="Instructivo",
-        prompt_text="Tipo documental: instructivo. Guía puntual para una tarea concreta, breve y accionable.",
-        sort_order=20,
-    ),
-    dict(
-        domain="document_type",
-        value="manual_interno",
-        label="Manual interno",
-        prompt_text="Tipo documental: manual interno. Documentación amplia propia de la organización.",
-        sort_order=30,
-    ),
-    dict(
-        domain="document_type",
-        value="manual_externo",
-        label="Manual externo",
-        prompt_text="Tipo documental: manual externo. Documento de proveedor o fabricante; es referencia, no procedimiento interno.",
-        sort_order=40,
-    ),
-    dict(
-        domain="document_type",
-        value="politica",
-        label="Política",
-        prompt_text="Tipo documental: política. Regla o criterio organizacional; foco en el qué y el por qué, no en pasos.",
-        sort_order=50,
-    ),
-    dict(
-        domain="document_type",
-        value="normativa",
-        label="Normativa",
-        prompt_text="Tipo documental: normativa. Ordenanza, regulación, ley o estándar; lenguaje preciso y citable.",
-        sort_order=60,
-    ),
-    dict(
-        domain="document_type",
-        value="formulario",
-        label="Formulario",
-        prompt_text="Tipo documental: formulario. Documento a completar o generar; describir campos y su propósito.",
-        sort_order=70,
-    ),
-    dict(
-        domain="document_type",
-        value="checklist",
-        label="Checklist",
-        prompt_text="Tipo documental: checklist. Lista de verificación con ítems controlables (sí/no/observación).",
-        sort_order=80,
-    ),
-    dict(
-        domain="document_type",
-        value="tramite",
-        label="Trámite",
-        prompt_text="Tipo documental: trámite. Procedimiento ciudadano o administrativo; requisitos, costo, oficina, plazos.",
-        sort_order=90,
-    ),
-    dict(
-        domain="document_type",
-        value="faq_validada",
-        label="FAQ validada",
-        prompt_text="Tipo documental: FAQ validada. Pregunta frecuente con respuesta aprobada, clara y autocontenida.",
-        sort_order=100,
-    ),
-    dict(
-        domain="document_type",
-        value="presupuesto",
-        label="Presupuesto",
-        prompt_text="Tipo documental: presupuesto. Cotización con cliente, ítems, cantidades, importes y vigencia.",
-        sort_order=110,
-    ),
+    # document_type ya NO vive en el catálogo: es una entidad por-tenant
+    # (tabla document_type). El vocabulario y sus defaults viven en
+    # process_ai_core/domains/document_types/defaults.py y se siembran por workspace.
+    # Ver docs/PLAN_DOCUMENT_TYPES.md.
 ]
 
 

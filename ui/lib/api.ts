@@ -1726,6 +1726,125 @@ export async function deleteDocument(documentId: string): Promise<{ message: str
   return response.json()
 }
 
+// ============================================================
+// Document Types API (entidad por-tenant)
+// ============================================================
+
+export interface DocumentTypeBehaviors {
+  versionado?: boolean;
+  aprobacion?: boolean;
+  tyto?: boolean;
+  relaciones?: boolean;
+  metadatos?: boolean;
+}
+
+export interface DocumentType {
+  id: string;
+  key: string;
+  label: string;
+  prompt_text: string | null;
+  behaviors: DocumentTypeBehaviors;
+  is_active: boolean;
+  sort_order: number;
+  /** 'default' = tipo de sistema; 'custom' = creado por el tenant. */
+  origin: 'default' | 'custom';
+  icon: string | null;
+  color: string | null;
+}
+
+export interface DocumentTypePatch {
+  label?: string;
+  prompt_text?: string;
+  behaviors?: DocumentTypeBehaviors;
+  is_active?: boolean;
+  sort_order?: number;
+  icon?: string | null;
+  color?: string | null;
+}
+
+export interface DocumentTypeCreateRequest {
+  key?: string;
+  label: string;
+  prompt_text?: string;
+  behaviors?: DocumentTypeBehaviors;
+  icon?: string | null;
+  color?: string | null;
+  sort_order?: number;
+}
+
+/**
+ * Lista tipos documentales del tenant activo.
+ * Por defecto solo retorna los activos; pasá include_inactive=true para todos.
+ */
+export async function getDocumentTypes(
+  includeInactive = false
+): Promise<DocumentType[]> {
+  const { getAuthHeaders } = await import('@/lib/api-auth')
+  const headers = await getAuthHeaders({})
+
+  const url = new URL(`${API_URL}/api/v1/document-types`)
+  if (includeInactive) {
+    url.searchParams.set('include_inactive', 'true')
+  }
+
+  const response = await fetch(url.toString(), { headers })
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }))
+    throw new Error(error.detail || `HTTP ${response.status}`)
+  }
+
+  return response.json()
+}
+
+/**
+ * Actualiza parcialmente un tipo documental.
+ * Solo los campos presentes en el patch se modifican.
+ */
+export async function updateDocumentType(
+  id: string,
+  patch: DocumentTypePatch
+): Promise<DocumentType> {
+  const { getAuthHeaders } = await import('@/lib/api-auth')
+  const headers = await getAuthHeaders({ 'Content-Type': 'application/json' })
+
+  const response = await fetch(`${API_URL}/api/v1/document-types/${id}`, {
+    method: 'PATCH',
+    headers,
+    body: JSON.stringify(patch),
+  })
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }))
+    throw new Error(formatApiErrorDetail(error.detail, `HTTP ${response.status}`))
+  }
+
+  return response.json()
+}
+
+/**
+ * Crea un tipo documental custom para el tenant activo.
+ */
+export async function createDocumentType(
+  body: DocumentTypeCreateRequest
+): Promise<DocumentType> {
+  const { getAuthHeaders } = await import('@/lib/api-auth')
+  const headers = await getAuthHeaders({ 'Content-Type': 'application/json' })
+
+  const response = await fetch(`${API_URL}/api/v1/document-types`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+  })
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }))
+    throw new Error(formatApiErrorDetail(error.detail, `HTTP ${response.status}`))
+  }
+
+  return response.json()
+}
+
 // SUPERADMIN (createB2BWorkspace y listAllWorkspaces eliminados — endpoints removidos)
 
 /**

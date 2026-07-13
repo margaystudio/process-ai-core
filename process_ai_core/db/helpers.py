@@ -27,6 +27,26 @@ from .models import (
 from datetime import datetime, UTC
 
 
+def seed_default_document_types(session: Session, workspace_id: str) -> None:
+    """Siembra el set de tipos documentales por defecto para un workspace nuevo.
+
+    Copy-on-provision: cada tenant arranca con su propio set (ver
+    docs/PLAN_DOCUMENT_TYPES.md). Idempotente por el UNIQUE(workspace_id, key):
+    si ya hay tipos para el workspace, no vuelve a sembrar.
+    """
+    from process_ai_core.domains.document_types import build_default_rows
+
+    from .models_document_types import DocumentType
+
+    existing = (
+        session.query(DocumentType.id).filter_by(workspace_id=workspace_id).first()
+    )
+    if existing:
+        return
+    rows = build_default_rows(workspace_id)
+    session.add_all([DocumentType(**row) for row in rows])
+
+
 def get_or_create_workspace_for_tenant(session: Session, tenant_id: str, tenant_name: str, tenant_slug: str) -> str:
     """
     Busca o crea el Workspace local que corresponde al tenant del control plane.
@@ -71,6 +91,21 @@ def get_or_create_workspace_for_tenant(session: Session, tenant_id: str, tenant_
         sort_order=0,
     )
     session.flush()
+
+    # Sembrar el set de tipos documentales por defecto (copy-on-provision).
+    # Best-effort dentro de un SAVEPOINT: si la tabla aún no existe (migración 0008 sin
+    # aplicar) o falla el insert, se revierte SOLO el seed y se sigue con el workspace ya
+    # creado. La provisión de un tenant es crítica (login) y no debe poder tumbarse por esto.
+    try:
+        with session.begin_nested():
+            seed_default_document_types(session, workspace.id)
+    except Exception:
+        logger.warning(
+            "No se pudieron sembrar los tipos documentales por defecto para workspace %s "
+            "(¿migración 0008 sin aplicar?); se continúa sin ellos.",
+            workspace.id,
+            exc_info=True,
+        )
 
     logger.info(
         "workspace creado para tenant: local_id=%s tenant_id=%s slug=%s",
