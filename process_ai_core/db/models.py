@@ -798,3 +798,4 @@ from .models_semantic import (  # noqa: E402,F401
     KnowledgeObject,
     SemanticPipelineRun,
 )
+from .models_document_types import DocumentType  # noqa: E402,F401

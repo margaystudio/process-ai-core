@@ -13,6 +13,9 @@ Los prompts salen del catálogo actual; los behaviors, del diseño de comportami
 
 from __future__ import annotations
 
+import json
+import uuid
+from datetime import datetime
 from typing import Any
 
 # Allowlist de comportamientos (MVP). La API valida contra esta lista.
@@ -170,3 +173,33 @@ DEFAULT_DOCUMENT_TYPES: list[dict[str, Any]] = [
         "color": "#8B5CF6",
     },
 ]
+
+
+def build_default_rows(workspace_id: str, *, now: datetime | None = None) -> list[dict[str, Any]]:
+    """Filas completas de `document_type` para sembrar un workspace con los defaults.
+
+    Fuente única usada por la migración de backfill y por el hook de provisión de
+    tenant. `origin="default"` marca estas filas como sembradas. `behaviors` se
+    serializa a JSON.
+    """
+    ts = now or datetime.utcnow()
+    rows: list[dict[str, Any]] = []
+    for dt in DEFAULT_DOCUMENT_TYPES:
+        rows.append(
+            {
+                "id": str(uuid.uuid4()),
+                "workspace_id": workspace_id,
+                "key": dt["key"],
+                "label": dt["label"],
+                "prompt_text": dt["prompt_text"],
+                "behaviors_json": json.dumps(dt["behaviors"]),
+                "is_active": True,
+                "sort_order": dt["sort_order"],
+                "origin": "default",
+                "icon": dt["icon"],
+                "color": dt["color"],
+                "created_at": ts,
+                "updated_at": ts,
+            }
+        )
+    return rows

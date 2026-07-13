@@ -7,11 +7,13 @@ por workspace; cada tenant arranca con el set de `defaults.DEFAULT_DOCUMENT_TYPE
 from .defaults import (
     BEHAVIOR_KEYS,
     DEFAULT_DOCUMENT_TYPES,
+    build_default_rows,
     normalize_behaviors,
 )
 
 __all__ = [
     "BEHAVIOR_KEYS",
     "DEFAULT_DOCUMENT_TYPES",
+    "build_default_rows",
     "normalize_behaviors",
 ]
