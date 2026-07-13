@@ -18,6 +18,7 @@ import { useUser } from '@/hooks/useUser'
 import { createClient } from '@/lib/supabase/client'
 import { redirectToHubLogin } from '@/lib/hub-login'
 import { clearLocalAuthState } from '@/lib/clear-auth-state'
+import { canAdministerWorkspace } from '@/lib/adminGating'
 
 // Páginas fuera del shell del módulo (sin sidebar). El login es del hub (SSO).
 const BARE_PREFIXES = ['/login', '/onboarding', '/invitations', '/auth']
@@ -33,7 +34,7 @@ function initialsOf(name: string): string {
 export default function ChromeShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const router = useRouter()
-  const { workspaces, selectedWorkspaceId, activeTenantId, setActiveTenantId, currentUser } =
+  const { workspaces, selectedWorkspace, selectedWorkspaceId, activeTenantId, platformRoles, setActiveTenantId, currentUser } =
     useWorkspace()
   const user = useUser()
 
@@ -61,6 +62,11 @@ export default function ChromeShell({ children }: { children: React.ReactNode })
   const settingsPath = selectedWorkspaceId
     ? `/workspace/${selectedWorkspaceId}/settings`
     : '/workspace'
+
+  const canAdminister = canAdministerWorkspace({
+    platformRoles,
+    workspaceRole: selectedWorkspace?.role,
+  })
 
   // Switcher de organización (tenant) en el topbar, como el hub.
   const tenants: TopbarTenant[] = workspaces
@@ -124,13 +130,16 @@ export default function ChromeShell({ children }: { children: React.ReactNode })
           active: Boolean(pathname?.includes('/settings') && pathname?.includes('folders')),
           onClick: go(settingsPath),
         },
-        {
-          label: 'Tipo de documentos',
-          icon: <List />,
-          // placeholder — pantalla aún no implementada
-          active: false,
-          onClick: undefined,
-        },
+        ...(canAdminister
+          ? [
+              {
+                label: 'Tipos de documento',
+                icon: <List />,
+                active: active('/document-types'),
+                onClick: go('/document-types'),
+              },
+            ]
+          : []),
         {
           label: 'Usuarios y roles',
           icon: <Users />,

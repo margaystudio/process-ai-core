@@ -2,24 +2,24 @@
 
 import { useEffect, useState } from 'react'
 import { Field } from '@/shared/ui/components'
-import { getCatalogOptions, CatalogOption } from '@/lib/api'
+import { getDocumentTypes } from '@/lib/api'
 
 const selectClass =
   'h-10 w-full rounded-md border border-ink-300 bg-white px-3 text-body text-ink-800 transition-colors focus:border-action focus:outline-none focus:ring-[3px] focus:ring-action-ring'
 
-// Fallback si el catálogo aún no está seedeado (domain "document_type").
-const FALLBACK: CatalogOption[] = [
-  { value: 'procedimiento', label: 'Procedimiento', sort_order: 10 },
-  { value: 'instructivo', label: 'Instructivo', sort_order: 20 },
-  { value: 'manual_interno', label: 'Manual interno', sort_order: 30 },
-  { value: 'manual_externo', label: 'Manual externo', sort_order: 40 },
-  { value: 'politica', label: 'Política', sort_order: 50 },
-  { value: 'normativa', label: 'Normativa', sort_order: 60 },
-  { value: 'formulario', label: 'Formulario', sort_order: 70 },
-  { value: 'checklist', label: 'Checklist', sort_order: 80 },
-  { value: 'tramite', label: 'Trámite', sort_order: 90 },
-  { value: 'faq_validada', label: 'FAQ validada', sort_order: 100 },
-  { value: 'presupuesto', label: 'Presupuesto', sort_order: 110 },
+// Fallback si el endpoint aún no está disponible (en dev sin backend).
+const FALLBACK: { value: string; label: string }[] = [
+  { value: 'procedimiento', label: 'Procedimiento' },
+  { value: 'instructivo', label: 'Instructivo' },
+  { value: 'manual_interno', label: 'Manual interno' },
+  { value: 'manual_externo', label: 'Manual externo' },
+  { value: 'politica', label: 'Política' },
+  { value: 'normativa', label: 'Normativa' },
+  { value: 'formulario', label: 'Formulario' },
+  { value: 'checklist', label: 'Checklist' },
+  { value: 'tramite', label: 'Trámite' },
+  { value: 'faq_validada', label: 'FAQ validada' },
+  { value: 'presupuesto', label: 'Presupuesto' },
 ]
 
 interface DocumentTypeSelectorProps {
@@ -33,11 +33,19 @@ export default function DocumentTypeSelector({
   onChange,
   label = 'Tipo de documento',
 }: DocumentTypeSelectorProps) {
-  const [options, setOptions] = useState<CatalogOption[]>([])
+  const [options, setOptions] = useState<{ value: string; label: string }[]>([])
 
   useEffect(() => {
-    getCatalogOptions('document_type')
-      .then((opts) => setOptions(opts.length > 0 ? opts : FALLBACK))
+    getDocumentTypes(false)
+      .then((types) => {
+        if (types.length === 0) {
+          setOptions(FALLBACK)
+          return
+        }
+        setOptions(
+          types.map((t) => ({ value: t.key, label: t.label }))
+        )
+      })
       .catch(() => setOptions(FALLBACK))
   }, [])
 
