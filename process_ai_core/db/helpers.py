@@ -280,6 +280,10 @@ def update_folder(
     sort_order: int | None = None,
     inherits_permissions: bool | None = None,
     color: str | None = None,
+    icon: str | None = None,
+    default_document_type: str | None = None,
+    tyto_enabled: bool | None = None,
+    allow_document_override: bool | None = None,
     metadata: Dict[str, Any] | None = None,
 ) -> Folder:
     """
@@ -329,6 +333,14 @@ def update_folder(
         folder.inherits_permissions = inherits_permissions
     if color is not None:
         folder.color = color
+    if icon is not None:
+        folder.icon = icon
+    if default_document_type is not None:
+        folder.default_document_type = default_document_type
+    if tyto_enabled is not None:
+        folder.tyto_enabled = tyto_enabled
+    if allow_document_override is not None:
+        folder.allow_document_override = allow_document_override
     if metadata is not None:
         # Mergear metadata existente con la nueva
         existing_meta = json.loads(folder.metadata_json) if folder.metadata_json else {}

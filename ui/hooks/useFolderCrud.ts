@@ -22,6 +22,7 @@ import {
   updateFolder as apiUpdateFolder,
   deleteFolder as apiDeleteFolder,
   type Folder,
+  type FolderCreateRequest,
 } from '@/lib/api'
 import { invalidateFoldersCache } from '@/hooks/useFolders'
 
@@ -99,7 +100,19 @@ export interface UseFolderCrudResult {
    * Invalida la cache de carpetas tras éxito.
    * @returns La carpeta actualizada.
    */
-  updateFolder: (id: string, fields: { name?: string; color?: string; path?: string }) => Promise<Folder>
+  updateFolder: (
+    id: string,
+    fields: {
+      name?: string
+      color?: string
+      path?: string
+      icon?: string | null
+      default_document_type?: string | null
+      tyto_enabled?: boolean | null
+      allow_document_override?: boolean
+      metadata?: Record<string, any>
+    }
+  ) => Promise<Folder>
 
   /**
    * Elimina una carpeta.
@@ -214,19 +227,36 @@ export function useFolderCrud(workspaceId: string): UseFolderCrudResult {
   )
 
   const updateFolder = useCallback(
-    async (id: string, fields: { name?: string; color?: string; path?: string }): Promise<Folder> => {
+    async (
+      id: string,
+      fields: {
+        name?: string
+        color?: string
+        path?: string
+        icon?: string | null
+        default_document_type?: string | null
+        tyto_enabled?: boolean | null
+        allow_document_override?: boolean
+        metadata?: Record<string, any>
+      }
+    ): Promise<Folder> => {
       if (fields.name !== undefined && !fields.name.trim()) {
         throw new Error('El nombre es requerido')
       }
       setError(null)
       setSaving(true)
       try {
-        const payload: Record<string, string> = {}
+        const payload: Partial<FolderCreateRequest> = {}
         if (fields.name !== undefined) payload.name = fields.name.trim()
         if (fields.color !== undefined) payload.color = fields.color
+        if (fields.icon !== undefined) payload.icon = fields.icon
+        if (fields.default_document_type !== undefined) payload.default_document_type = fields.default_document_type
+        if (fields.tyto_enabled !== undefined) payload.tyto_enabled = fields.tyto_enabled
+        if (fields.allow_document_override !== undefined) payload.allow_document_override = fields.allow_document_override
         // El backend NO recalcula el path desde el name: si no se envía, queda
         // stale al renombrar. Preservamos el envío explícito del path.
         if (fields.path !== undefined) payload.path = fields.path
+        if (fields.metadata !== undefined) payload.metadata = fields.metadata
         const folder = await apiUpdateFolder(id, payload)
         invalidate()
         return folder

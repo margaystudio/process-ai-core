@@ -7,14 +7,17 @@ Este endpoint maneja:
 - GET /api/v1/folders/{folder_id}: Obtener una carpeta
 """
 
+import json
 import uuid
 
 from fastapi import APIRouter, HTTPException, Depends
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from process_ai_core.db.helpers import create_folder, get_folders_by_workspace, get_folder_by_id, update_folder, delete_folder
-from process_ai_core.db.models import Folder, FolderPermission, OperationalRole
+from process_ai_core.db.models import Document, Folder, FolderPermission, OperationalRole
+from process_ai_core.db.models_semantic import DocumentRelation
 from api.dependencies import get_db, get_current_user_id
 from api.dependencies import is_superadmin
 from process_ai_core.db.permissions import (
@@ -56,6 +59,35 @@ def _assert_folder_in_active_workspace(folder_workspace_id: str, active_workspac
     """Lanza 404 si la carpeta no pertenece al workspace activo del contexto."""
     if folder_workspace_id != active_workspace_id:
         raise HTTPException(status_code=404, detail=f"Carpeta {folder_id} no encontrada")
+
+
+def _provided_fields(model) -> set[str]:
+    return set(getattr(model, "model_fields_set", getattr(model, "__fields_set__", set())))
+
+
+def _folder_metadata(folder: Folder) -> dict:
+    try:
+        metadata = json.loads(folder.metadata_json or "{}")
+    except (TypeError, json.JSONDecodeError):
+        return {}
+    return metadata if isinstance(metadata, dict) else {}
+
+
+def resolve_inherited(folder: Folder, attr: str) -> tuple[object, str, str | None]:
+    value = getattr(folder, attr)
+    if value is not None:
+        return value, "personalizado", None
+
+    current = folder.parent
+    visited: set[str] = {folder.id}
+    while current and current.id not in visited:
+        visited.add(current.id)
+        value = getattr(current, attr)
+        if value is not None:
+            return value, "heredado", current.name
+        current = current.parent
+
+    return None, "base", None
 
 
 @router.post("", response_model=FolderResponse)
@@ -144,6 +176,11 @@ async def create_folder_endpoint(
             sort_order=folder.sort_order,
             inherits_permissions=getattr(folder, "inherits_permissions", True),
             color=folder.color,
+            icon=folder.icon,
+            default_document_type=folder.default_document_type,
+            tyto_enabled=folder.tyto_enabled,
+            allow_document_override=folder.allow_document_override,
+            metadata=_folder_metadata(folder),
             created_at=folder.created_at.isoformat(),
         )
 
@@ -193,6 +230,11 @@ async def list_folders(
             sort_order=f.sort_order,
             inherits_permissions=getattr(f, "inherits_permissions", True),
             color=f.color,
+            icon=f.icon,
+            default_document_type=f.default_document_type,
+            tyto_enabled=f.tyto_enabled,
+            allow_document_override=f.allow_document_override,
+            metadata=_folder_metadata(f),
             created_at=f.created_at.isoformat(),
         )
         for f in visible_folders
@@ -299,6 +341,131 @@ async def update_folder_permissions(
     return {"message": "Permisos actualizados", "folder_id": folder_id}
 
 
+@router.get("/{folder_id}/stats")
+async def get_folder_stats(
+    folder_id: str,
+    user_id: str = Depends(get_current_user_id),
+    session: Session = Depends(get_db),
+    ctx: WorkspaceSessionContext = Depends(get_workspace_context),
+):
+    """
+    Devuelve metricas agregadas de una carpeta para la ficha de configuracion.
+    """
+    folder = get_folder_by_id(session, folder_id)
+    if not folder:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Carpeta {folder_id} no encontrada",
+        )
+    workspace_id = resolve_tenant_workspace_id(ctx)
+    _assert_folder_in_active_workspace(folder.workspace_id, workspace_id, folder_id)
+
+    _require_workspace_member(session, user_id, folder.workspace_id)
+    if not can_view_folder(session, user_id, folder.workspace_id, folder.id):
+        raise HTTPException(
+            status_code=403,
+            detail="No tiene permisos para acceder a esta carpeta",
+        )
+
+    status_rows = (
+        session.query(Document.status, func.count(Document.id))
+        .filter(
+            Document.workspace_id == workspace_id,
+            Document.folder_id == folder_id,
+        )
+        .group_by(Document.status)
+        .all()
+    )
+    counts_by_status = {status: count for status, count in status_rows}
+    total_documents = sum(counts_by_status.values())
+
+    relation_base = (
+        session.query(DocumentRelation)
+        .join(Document, Document.id == DocumentRelation.document_id)
+        .filter(
+            Document.workspace_id == workspace_id,
+            Document.folder_id == folder_id,
+            DocumentRelation.workspace_id == workspace_id,
+        )
+    )
+    relaciones_nuevas = (
+        relation_base
+        .filter(DocumentRelation.status == "candidate")
+        .count()
+    )
+    confianza_prom_raw = (
+        session.query(func.avg(DocumentRelation.confidence))
+        .join(Document, Document.id == DocumentRelation.document_id)
+        .filter(
+            Document.workspace_id == workspace_id,
+            Document.folder_id == folder_id,
+            DocumentRelation.workspace_id == workspace_id,
+            DocumentRelation.status == "confirmed",
+            DocumentRelation.confidence.isnot(None),
+        )
+        .scalar()
+    )
+
+    return {
+        "documentos": total_documents,
+        "aprobados": counts_by_status.get("approved", 0),
+        "borradores": counts_by_status.get("draft", 0),
+        "pendientes": counts_by_status.get("pending_validation", 0),
+        "archivados": counts_by_status.get("archived", 0),
+        "relaciones_nuevas": relaciones_nuevas,
+        "confianza_prom": round(float(confianza_prom_raw), 2) if confianza_prom_raw is not None else None,
+    }
+
+
+@router.get("/{folder_id}/governance")
+async def get_folder_governance(
+    folder_id: str,
+    user_id: str = Depends(get_current_user_id),
+    session: Session = Depends(get_db),
+    ctx: WorkspaceSessionContext = Depends(get_workspace_context),
+):
+    """
+    Devuelve el valor efectivo y origen de los bloques de gobierno de una carpeta.
+    """
+    folder = get_folder_by_id(session, folder_id)
+    if not folder:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Carpeta {folder_id} no encontrada",
+        )
+    workspace_id = resolve_tenant_workspace_id(ctx)
+    _assert_folder_in_active_workspace(folder.workspace_id, workspace_id, folder_id)
+
+    _require_workspace_member(session, user_id, folder.workspace_id)
+    if not can_view_folder(session, user_id, folder.workspace_id, folder.id):
+        raise HTTPException(
+            status_code=403,
+            detail="No tiene permisos para acceder a esta carpeta",
+        )
+
+    default_document_type, default_origin, default_from = resolve_inherited(
+        folder, "default_document_type"
+    )
+    tyto_enabled, tyto_origin, tyto_from = resolve_inherited(folder, "tyto_enabled")
+
+    return {
+        "default_document_type": {
+            "value": default_document_type,
+            "origin": default_origin,
+            "from": default_from,
+        },
+        "tyto_enabled": {
+            "value": tyto_enabled,
+            "origin": tyto_origin,
+            "from": tyto_from,
+        },
+        "allow_document_override": {
+            "value": folder.allow_document_override,
+            "origin": "personalizado",
+        },
+    }
+
+
 @router.get("/{folder_id}", response_model=FolderResponse)
 async def get_folder(
     folder_id: str,
@@ -342,6 +509,11 @@ async def get_folder(
         sort_order=folder.sort_order,
         inherits_permissions=getattr(folder, "inherits_permissions", True),
         color=folder.color,
+        icon=folder.icon,
+        default_document_type=folder.default_document_type,
+        tyto_enabled=folder.tyto_enabled,
+        allow_document_override=folder.allow_document_override,
+        metadata=_folder_metadata(folder),
         created_at=folder.created_at.isoformat(),
     )
 
@@ -412,8 +584,20 @@ async def update_folder_endpoint(
             sort_order=request.sort_order,
             inherits_permissions=request.inherits_permissions,
             color=request.color,
+            icon=request.icon,
+            default_document_type=request.default_document_type,
+            tyto_enabled=request.tyto_enabled,
+            allow_document_override=request.allow_document_override,
             metadata=request.metadata,
         )
+
+        provided = _provided_fields(request)
+        if "icon" in provided:
+            folder.icon = request.icon
+        if "default_document_type" in provided:
+            folder.default_document_type = request.default_document_type
+        if "tyto_enabled" in provided:
+            folder.tyto_enabled = request.tyto_enabled
 
         session.flush()
 
@@ -426,6 +610,11 @@ async def update_folder_endpoint(
             sort_order=folder.sort_order,
             inherits_permissions=getattr(folder, "inherits_permissions", True),
             color=folder.color,
+            icon=folder.icon,
+            default_document_type=folder.default_document_type,
+            tyto_enabled=folder.tyto_enabled,
+            allow_document_override=folder.allow_document_override,
+            metadata=_folder_metadata(folder),
             created_at=folder.created_at.isoformat(),
         )
 

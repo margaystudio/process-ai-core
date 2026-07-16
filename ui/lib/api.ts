@@ -127,7 +127,39 @@ export interface Folder {
   sort_order: number;
   inherits_permissions?: boolean;
   color?: string;
+  icon?: string | null;
+  default_document_type?: string | null;
+  tyto_enabled?: boolean | null;
+  allow_document_override?: boolean;
+  metadata?: { description?: string } | null;
   created_at: string;
+}
+
+export interface FolderStats {
+  documentos: number;
+  aprobados: number;
+  borradores: number;
+  pendientes: number;
+  archivados: number;
+  relaciones_nuevas: number;
+  confianza_prom: number | null;
+}
+
+export type FolderGovernanceOrigin = 'base' | 'heredado' | 'personalizado';
+
+export interface FolderGovernanceValue<T> {
+  value: T | null;
+  origin: FolderGovernanceOrigin;
+  from?: string | null;
+}
+
+export interface FolderGovernance {
+  default_document_type: FolderGovernanceValue<string>;
+  tyto_enabled: FolderGovernanceValue<boolean>;
+  allow_document_override: {
+    value: boolean;
+    origin: 'personalizado';
+  };
 }
 
 export interface OperationalRoleResponse {
@@ -198,6 +230,10 @@ export interface FolderCreateRequest {
   parent_id?: string;
   sort_order?: number;
   color?: string;
+  icon?: string | null;
+  default_document_type?: string | null;
+  tyto_enabled?: boolean | null;
+  allow_document_override?: boolean;
   metadata?: Record<string, any>;
 }
 
@@ -768,6 +804,40 @@ export async function listFolders(workspaceId?: string): Promise<Folder[]> {
 
     return response.json()
   })
+}
+
+/**
+ * Obtiene metricas agregadas de una carpeta.
+ */
+export async function getFolderStats(folderId: string): Promise<FolderStats> {
+  const { getAuthHeaders } = await import('@/lib/api-auth')
+  const headers = await getAuthHeaders({})
+
+  const response = await fetch(`${API_URL}/api/v1/folders/${folderId}/stats`, { headers })
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }))
+    throw new Error(error.detail || `HTTP ${response.status}`)
+  }
+
+  return response.json()
+}
+
+/**
+ * Obtiene la configuracion efectiva de gobierno de una carpeta.
+ */
+export async function getFolderGovernance(folderId: string): Promise<FolderGovernance> {
+  const { getAuthHeaders } = await import('@/lib/api-auth')
+  const headers = await getAuthHeaders({})
+
+  const response = await fetch(`${API_URL}/api/v1/folders/${folderId}/governance`, { headers })
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }))
+    throw new Error(error.detail || `HTTP ${response.status}`)
+  }
+
+  return response.json()
 }
 
 /**

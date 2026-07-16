@@ -174,6 +174,19 @@ class FolderUpdateRequest(BaseModel):
         pattern=r"^#(?:[0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$",
         description="Color de acento para UI (hex, ej. #48569C)",
     )
+    icon: Optional[str] = Field(default=None, description="Icono de la carpeta")
+    default_document_type: Optional[str] = Field(
+        default=None,
+        description="Tipo documental por defecto; null hereda del padre",
+    )
+    tyto_enabled: Optional[bool] = Field(
+        default=None,
+        description="Si Tyto esta habilitado; null hereda del padre",
+    )
+    allow_document_override: Optional[bool] = Field(
+        default=None,
+        description="Permite que documentos de la carpeta sobrescriban el tipo por defecto",
+    )
     metadata: Optional[dict] = Field(default=None, description="Metadata adicional (JSON, se mergea con existente)")
 
 
@@ -188,6 +201,11 @@ class FolderResponse(BaseModel):
     sort_order: int = Field(..., description="Orden de visualización")
     inherits_permissions: Optional[bool] = Field(default=True, description="Si usa permisos del padre")
     color: Optional[str] = Field(default=None, description="Color de acento para UI (hex)")
+    icon: Optional[str] = Field(default=None, description="Icono de la carpeta")
+    default_document_type: Optional[str] = Field(default=None, description="Tipo documental por defecto")
+    tyto_enabled: Optional[bool] = Field(default=None, description="Si Tyto esta habilitado")
+    allow_document_override: bool = Field(default=True, description="Permite sobrescribir tipo por documento")
+    metadata: Optional[dict] = Field(default=None, description="Metadata adicional de la carpeta")
     created_at: str = Field(..., description="Fecha de creación")
 
 
