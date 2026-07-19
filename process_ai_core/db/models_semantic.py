@@ -38,6 +38,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from .pgvector_type import VectorLiteral
+
 from .database import Base
 
 
@@ -99,6 +101,15 @@ class KnowledgeObject(Base):
 
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     metadata_json: Mapped[str] = mapped_column(Text, default="{}")
+
+    # Embedding persistido del normalized_name (paso 3 de la cascada de matching).
+    # vector(1536) en PostgreSQL, TEXT en SQLite (VectorLiteral), igual que
+    # DocumentChunk.embedding. Guarda el literal pgvector ("[...]").
+    name_embedding: Mapped[str | None] = mapped_column(VectorLiteral(1536), nullable=True)
+    # Versionado del embedding (lección ADR-008): modelo con el que se generó el
+    # vector. Si cambia el modelo, los vectores viejos NO se comparan a ciegas
+    # (se recomputan) y hace falta backfill explícito.
+    name_embedding_model: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
@@ -177,7 +188,8 @@ class DocumentChunk(Base):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     page_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     section_title: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    embedding: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # vector(1536) en PostgreSQL, TEXT en SQLite (VectorLiteral). Guarda el literal.
+    embedding: Mapped[str | None] = mapped_column(VectorLiteral(1536), nullable=True)
     metadata_json: Mapped[str] = mapped_column(Text, default="{}")
 
     __table_args__ = (

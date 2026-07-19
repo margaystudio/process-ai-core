@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from datetime import datetime, UTC
 from difflib import SequenceMatcher
 
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from ..db.models import Document, DocumentVersion
@@ -33,6 +34,8 @@ from ..db.models_semantic import (
     RELATION_TYPES,
     KNOWLEDGE_OBJECT_TYPES,
 )
+from . import _pg
+from .chunking import embedding_to_literal, literal_to_embedding
 from .extraction import ExtractionResult
 from .normalize import normalize_name
 
@@ -42,6 +45,15 @@ logger = logging.getLogger(__name__)
 FUZZY_MATCH_THRESHOLD = 0.88        # se considera la misma entidad
 EMBEDDING_MATCH_THRESHOLD = 0.90    # similitud coseno para casos ambiguos
 DUPLICATE_HINT_THRESHOLD = 0.72     # sugerir "posible duplicado" en la UI
+
+# Shortlist fuzzy server-side (pg_trgm). El floor del operador `%` (0.3, el default
+# de pg_trgm) mantiene el índice selectivo: un match real (SequenceMatcher >= 0.88,
+# o el hint de duplicado >= 0.72) tiene alta similitud de trigramas, así que entra;
+# un floor más bajo hincharía el shortlist con ruido y forzaría un scan casi total.
+# La autoridad de la decisión de identidad sigue siendo SequenceMatcher (umbrales
+# de arriba) sobre este shortlist.
+FUZZY_SHORTLIST_LIMIT = 50
+FUZZY_TRGM_FLOOR = 0.3
 
 
 def _similarity(a: str, b: str) -> float:
@@ -73,6 +85,9 @@ class RelationService:
         # Provider opcional; si es None se resuelve lazy y puede no estar configurado.
         self._embedding_provider = embedding_provider
         self._embedding_unavailable = False
+        # Cache de embeddings de nombres POR CORRIDA: evita re-embeber el mismo
+        # nombre (query o candidato) más de una vez dentro de la vida del service.
+        self._name_embedding_cache: dict[str, list[float]] = {}
         # Umbral de autoconfirmación (Tarea 3). Por defecto se lee de settings
         # (RELATION_AUTOCONFIRM_THRESHOLD, off por defecto); inyectable en tests.
         self._autoconfirm_threshold_arg = autoconfirm_threshold
@@ -108,15 +123,15 @@ class RelationService:
         if exact:
             return MatchResult(exact, "exact", 1.0)
 
-        candidates = (
-            session.query(KnowledgeObject)
-            .filter_by(workspace_id=workspace_id, type=entity_type)
-            .all()
+        # Shortlist de candidatos: en Postgres lo hace pg_trgm server-side (índice
+        # GIN); en SQLite u otro dialecto trae todos y filtra en Python.
+        candidates = self._fuzzy_candidates(
+            session, workspace_id, entity_type, normalized_name
         )
         if not candidates:
             return MatchResult(None, "none", 0.0)
 
-        # 2) Fuzzy
+        # 2) Fuzzy — SequenceMatcher sigue siendo la autoridad (umbrales sin cambios).
         best, best_score = None, 0.0
         for ko in candidates:
             score = _similarity(normalized_name, ko.normalized_name)
@@ -133,30 +148,163 @@ class RelationService:
 
         return MatchResult(None, "none", best_score)
 
+    def _fuzzy_candidates(
+        self,
+        session: Session,
+        workspace_id: str,
+        entity_type: str,
+        normalized_name: str,
+    ) -> list[KnowledgeObject]:
+        """Candidatos para los pasos fuzzy/embedding.
+
+        En PostgreSQL con pg_trgm hace el shortlist server-side entrando por el
+        índice GIN (ix_knowledge_objects_name_trgm); si no hay pg_trgm (SQLite,
+        degradado) o el SQL falla, trae todos los del workspace+tipo (comportamiento
+        actual, portable).
+        """
+        if _pg.trgm_ready(session):
+            try:
+                return self._fuzzy_candidates_sql(
+                    session, workspace_id, entity_type, normalized_name
+                )
+            except Exception as exc:  # pragma: no cover - defensivo (degradación)
+                logger.warning(
+                    "matching: shortlist pg_trgm falló, fallback Python (%s)",
+                    type(exc).__name__,
+                )
+        return (
+            session.query(KnowledgeObject)
+            .filter_by(workspace_id=workspace_id, type=entity_type)
+            .all()
+        )
+
+    def _fuzzy_candidates_sql(
+        self,
+        session: Session,
+        workspace_id: str,
+        entity_type: str,
+        normalized_name: str,
+    ) -> list[KnowledgeObject]:
+        """Shortlist por pg_trgm: `%` en el WHERE (usa el índice GIN), similarity()
+        solo en el ORDER BY. El umbral del operador `%` se baja con set_limit()
+        acotado por save/restore para no filtrarse a otras consultas de la txn."""
+        sch = _pg.schema()
+        # Save/restore del umbral de `%` (garantía dura de no-leak; verificable con
+        # show_limit() antes/después). SET LOCAL afectaría al resto de la txn.
+        # set_limit espera 'real' (float4); psycopg manda float como double → cast.
+        old_limit = session.execute(text("SELECT show_limit()")).scalar()
+        try:
+            session.execute(
+                text("SELECT set_limit(CAST(:f AS real))"), {"f": FUZZY_TRGM_FLOOR}
+            )
+            rows = session.execute(
+                text(
+                    f"""
+                    SELECT id
+                    FROM "{sch}".knowledge_objects
+                    WHERE workspace_id = :ws AND type = :type
+                      AND normalized_name % :name
+                    ORDER BY similarity(normalized_name, :name) DESC
+                    LIMIT :k
+                    """
+                ),
+                {
+                    "ws": workspace_id,
+                    "type": entity_type,
+                    "name": normalized_name,
+                    "k": FUZZY_SHORTLIST_LIMIT,
+                },
+            ).all()
+        finally:
+            try:
+                session.execute(
+                    text("SELECT set_limit(CAST(:f AS real))"), {"f": old_limit}
+                )
+            except Exception:  # pragma: no cover - defensivo
+                pass
+
+        ids = [r.id for r in rows]
+        if not ids:
+            return []
+        # Hidratar ORM preservando el orden por similitud del shortlist.
+        objs = {
+            o.id: o
+            for o in session.query(KnowledgeObject)
+            .filter(KnowledgeObject.id.in_(ids))
+            .all()
+        }
+        return [objs[i] for i in ids if i in objs]
+
     def _embedding_match(
         self, normalized_name: str, candidates: list[KnowledgeObject]
     ) -> MatchResult | None:
-        """Paso 3 de la cascada. Devuelve None si no hay provider o no hay match."""
+        """Paso 3 de la cascada. Devuelve None si no hay provider o no hay match.
+
+        Ya no re-embebe los candidatos en cada llamada: usa el `name_embedding`
+        persistido de cada knowledge_object (si su modelo coincide con el activo),
+        y solo embebe el nombre de la query una vez (con cache por corrida). Si a un
+        candidato le falta el vector o fue generado con otro modelo, lo recomputa y
+        lo persiste write-through (nunca compara vectores de modelos distintos)."""
         provider = self._get_embedding_provider()
         if provider is None:
             return None
+        model = self._active_embedding_model()
         try:
-            pool = candidates[:50]
-            vectors = provider.embed([normalized_name] + [ko.normalized_name for ko in pool])
+            query_vec = self._embed_name(normalized_name, provider)
         except Exception as exc:
             logger.warning("Embedding matching no disponible: %s", type(exc).__name__)
             self._embedding_unavailable = True
             return None
 
-        query, rest = vectors[0], vectors[1:]
+        pool = candidates[:50]
         best, best_score = None, 0.0
-        for ko, vec in zip(pool, rest):
-            score = _cosine(query, vec)
+        for ko in pool:
+            try:
+                vec = self._candidate_embedding(ko, provider, model)
+            except Exception as exc:
+                logger.warning("Embedding matching no disponible: %s", type(exc).__name__)
+                self._embedding_unavailable = True
+                break
+            if vec is None:
+                continue
+            score = _cosine(query_vec, vec)
             if score > best_score:
                 best, best_score = ko, score
         if best is not None and best_score >= EMBEDDING_MATCH_THRESHOLD:
             return MatchResult(best, "embedding", best_score)
         return None
+
+    def _active_embedding_model(self) -> str | None:
+        """Modelo de embeddings activo (para versionar `name_embedding`)."""
+        try:
+            from ..config import get_settings
+
+            return get_settings().openai_model_embedding
+        except Exception:  # pragma: no cover - defensivo
+            return None
+
+    def _embed_name(self, name: str, provider) -> list[float]:
+        """Embebe un nombre con cache por corrida (evita recomputar el mismo nombre)."""
+        cached = self._name_embedding_cache.get(name)
+        if cached is not None:
+            return cached
+        vec = provider.embed([name])[0]
+        self._name_embedding_cache[name] = vec
+        return vec
+
+    def _candidate_embedding(
+        self, ko: KnowledgeObject, provider, model: str | None
+    ) -> list[float] | None:
+        """Vector del nombre del candidato: usa el persistido si el modelo coincide;
+        si falta o difiere el modelo, lo recomputa y lo persiste write-through."""
+        if ko.name_embedding and ko.name_embedding_model == model:
+            vec = literal_to_embedding(ko.name_embedding)
+            if vec:
+                return vec
+        vec = self._embed_name(ko.normalized_name, provider)
+        ko.name_embedding = embedding_to_literal(vec)
+        ko.name_embedding_model = model
+        return vec
 
     def _get_embedding_provider(self):
         if self._embedding_unavailable:
@@ -222,6 +370,12 @@ class RelationService:
                     description=rel.entity.description or None,
                     metadata_json=json.dumps({"created_by_ai": True}),
                 )
+                # name_embedding queda NULL al crear: se completa lazy (write-through)
+                # la primera vez que el KO entra al paso embedding del matching. Así
+                # generate_candidates NO dispara llamadas de embedding por cada entidad
+                # (que además romperían la portabilidad/costo de los tests); la
+                # persistencia ocurre donde el vector realmente se usa. El backfill
+                # masivo de filas viejas corre aparte (script manual contra Supabase).
                 session.add(ko)
                 session.flush()
 
