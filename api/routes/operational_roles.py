@@ -54,9 +54,9 @@ def _make_unique_slug(session: Session, workspace_id: str, base_slug: str) -> st
 
 
 def _require_workspace_admin(session: Session, user_id: str, workspace_id: str) -> None:
-    """Lanza 403 si el usuario no es owner/admin del workspace."""
+    """Lanza 403 si el usuario no es owner/admin (o superadmin) del workspace."""
     role = get_user_role(session, user_id, workspace_id)
-    if not role or role.name not in ("owner", "admin"):
+    if not role or role.name not in ("owner", "admin", "superadmin"):
         raise HTTPException(
             status_code=403,
             detail="Se requiere rol owner o admin en el workspace",

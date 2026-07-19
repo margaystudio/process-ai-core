@@ -230,7 +230,7 @@ async def get_folder_permissions(
         }
 
     role = get_user_role(session, user_id, folder.workspace_id)
-    if not role or role.name not in ("owner", "admin"):
+    if not role or role.name not in ("owner", "admin", "superadmin"):
         raise HTTPException(status_code=403, detail="Se requiere rol owner o admin")
     inherits = getattr(folder, "inherits_permissions", True)
     perms = session.query(FolderPermission).filter_by(folder_id=folder_id).all()
@@ -262,7 +262,7 @@ async def update_folder_permissions(
         raise HTTPException(status_code=404, detail="Carpeta no encontrada")
     _assert_folder_in_active_workspace(folder.workspace_id, resolve_tenant_workspace_id(ctx), folder_id)
     role = get_user_role(session, user_id, folder.workspace_id)
-    if not role or role.name not in ("owner", "admin"):
+    if not role or role.name not in ("owner", "admin", "superadmin"):
         raise HTTPException(status_code=403, detail="Se requiere rol owner o admin")
     if request.inherits_permissions is not None:
         folder.inherits_permissions = request.inherits_permissions

@@ -203,7 +203,12 @@ export default function DocumentReviewPage() {
       if (pdfSourceUrl) {
         const urlWithCache = `${pdfSourceUrl}${pdfSourceUrl.includes('?') ? '&' : '?'}t=${Date.now()}`
         try {
-          const res = await fetch(urlWithCache, { cache: 'no-store' })
+          // El endpoint de preview-pdf exige auth; mandamos el Bearer y servimos blob.
+          const { getAccessToken } = await import('@/lib/api-auth')
+          const token = await getAccessToken()
+          const authHeaders: HeadersInit = {}
+          if (token) authHeaders['Authorization'] = `Bearer ${token}`
+          const res = await fetch(urlWithCache, { cache: 'no-store', headers: authHeaders })
           if (res.ok) {
             const blob = await res.blob()
             blobUrl = URL.createObjectURL(blob)
