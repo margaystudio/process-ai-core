@@ -327,11 +327,12 @@ export async function importDocuments(formData: FormData): Promise<Document[]> {
  * Obtiene el estado de una corrida.
  */
 export async function getRun(runId: string, domain: 'process' | 'recipe'): Promise<RunResponse> {
-  const endpoint = domain === 'process' 
+  const endpoint = domain === 'process'
     ? `/api/v1/process-runs/${runId}`
     : `/api/v1/recipe-runs/${runId}`;
-  
-  const response = await fetch(`${API_URL}${endpoint}`);
+
+  const { getAuthHeaders } = await import('@/lib/api-auth');
+  const response = await fetch(`${API_URL}${endpoint}`, { headers: await getAuthHeaders() });
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
