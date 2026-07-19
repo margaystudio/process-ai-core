@@ -251,6 +251,13 @@ class Folder(Base):
     # Color de acento para UI (hex, ej. "#48569C")
     color: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
+    # Gobierno documental por carpeta. Null en default_document_type/tyto_enabled
+    # significa que hereda la configuracion de la carpeta padre.
+    icon: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    default_document_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    tyto_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    allow_document_override: Mapped[bool] = mapped_column(Boolean, default=True)
+
     # Si True, la carpeta usa los permisos del padre; si False, tiene su propia lista de roles
     inherits_permissions: Mapped[bool] = mapped_column(Boolean, default=True)
 

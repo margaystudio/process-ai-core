@@ -124,12 +124,16 @@ export default function ChromeShell({ children }: { children: React.ReactNode })
     {
       label: 'Administración',
       items: [
-        {
-          label: 'Carpetas',
-          icon: <Folder />,
-          active: Boolean(pathname?.includes('/settings') && pathname?.includes('folders')),
-          onClick: go(settingsPath),
-        },
+        ...(canAdminister
+          ? [
+              {
+                label: 'Carpetas',
+                icon: <Folder />,
+                active: active('/folders'),
+                onClick: go('/folders'),
+              },
+            ]
+          : []),
         ...(canAdminister
           ? [
               {
