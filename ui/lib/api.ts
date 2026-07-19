@@ -363,11 +363,12 @@ export async function importDocuments(formData: FormData): Promise<Document[]> {
  * Obtiene el estado de una corrida.
  */
 export async function getRun(runId: string, domain: 'process' | 'recipe'): Promise<RunResponse> {
-  const endpoint = domain === 'process' 
+  const endpoint = domain === 'process'
     ? `/api/v1/process-runs/${runId}`
     : `/api/v1/recipe-runs/${runId}`;
-  
-  const response = await fetch(`${API_URL}${endpoint}`);
+
+  const { getAuthHeaders } = await import('@/lib/api-auth');
+  const response = await fetch(`${API_URL}${endpoint}`, { headers: await getAuthHeaders() });
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
@@ -1302,7 +1303,10 @@ export async function rejectValidation(
  * Lista todas las validaciones de un documento.
  */
 export async function listValidations(documentId: string): Promise<Validation[]> {
-  const response = await fetch(`${API_URL}/api/v1/documents/${documentId}/validations`);
+  const { getAuthHeaders } = await import('@/lib/api-auth');
+  const response = await fetch(`${API_URL}/api/v1/documents/${documentId}/validations`, {
+    headers: await getAuthHeaders(),
+  });
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
@@ -1471,7 +1475,10 @@ export function getVersionPreviewPdfUrl(documentId: string, versionId: string): 
  * Obtiene todas las versiones de un documento.
  */
 export async function getDocumentVersions(documentId: string): Promise<DocumentVersion[]> {
-  const response = await fetch(`${API_URL}/api/v1/documents/${documentId}/versions`);
+  const { getAuthHeaders } = await import('@/lib/api-auth');
+  const response = await fetch(`${API_URL}/api/v1/documents/${documentId}/versions`, {
+    headers: await getAuthHeaders(),
+  });
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
@@ -1495,7 +1502,10 @@ export async function getCurrentDocumentVersion(documentId: string): Promise<{
   approved_by: string | null;
   created_at: string;
 }> {
-  const response = await fetch(`${API_URL}/api/v1/documents/${documentId}/current-version`);
+  const { getAuthHeaders } = await import('@/lib/api-auth');
+  const response = await fetch(`${API_URL}/api/v1/documents/${documentId}/current-version`, {
+    headers: await getAuthHeaders(),
+  });
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
@@ -1525,7 +1535,10 @@ export interface AuditLogEntry {
  * Obtiene el historial completo de cambios (audit log) de un documento.
  */
 export async function getDocumentAuditLog(documentId: string): Promise<AuditLogEntry[]> {
-  const response = await fetch(`${API_URL}/api/v1/documents/${documentId}/audit-log`);
+  const { getAuthHeaders } = await import('@/lib/api-auth');
+  const response = await fetch(`${API_URL}/api/v1/documents/${documentId}/audit-log`, {
+    headers: await getAuthHeaders(),
+  });
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
