@@ -129,6 +129,9 @@ export default function DocumentDetailPage() {
   const [rejectObservations, setRejectObservations] = useState('')
   const [aiPatchObservations, setAiPatchObservations] = useState('')
 
+  // Preview PDF servido como blob (el endpoint exige auth; ver effect abajo)
+  const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null)
+
   // Nueva versión
   const [revisionNotes, setRevisionNotes] = useState('')
   const [newVersionFiles, setNewVersionFiles] = useState<FileItemData[]>([])
@@ -264,7 +267,47 @@ export default function DocumentDetailPage() {
   }
 
   const previewVersion = getRelevantPdfVersion()
-  const pdfUrl = previewVersion ? getVersionPreviewPdfUrl(documentId, previewVersion.id) : null
+
+  // El endpoint de preview-pdf exige auth (Bearer) y un <iframe src> NO puede
+  // mandar ese header → 401. Lo fetcheamos con el token y lo servimos como blob URL.
+  useEffect(() => {
+    const version = getRelevantPdfVersion()
+    if (!version) {
+      setPdfBlobUrl(null)
+      return
+    }
+    let cancelled = false
+    let objectUrl: string | null = null
+    ;(async () => {
+      try {
+        const { getAccessToken } = await import('@/lib/api-auth')
+        const token = await getAccessToken()
+        const headers: HeadersInit = {}
+        if (token) headers['Authorization'] = `Bearer ${token}`
+        const res = await fetch(getVersionPreviewPdfUrl(documentId, version.id), {
+          headers,
+          cache: 'no-store',
+        })
+        if (!res.ok) {
+          if (!cancelled) setPdfBlobUrl(null)
+          return
+        }
+        const blob = await res.blob()
+        if (cancelled) return
+        objectUrl = URL.createObjectURL(blob)
+        setPdfBlobUrl(objectUrl)
+      } catch {
+        if (!cancelled) setPdfBlobUrl(null)
+      }
+    })()
+    return () => {
+      cancelled = true
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [versions, documentId])
+
+  const pdfUrl = pdfBlobUrl
 
   // ── Handlers ──────────────────────────────────────────────────────────────
   async function handleSave() {
