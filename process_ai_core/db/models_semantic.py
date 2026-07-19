@@ -100,6 +100,15 @@ class KnowledgeObject(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     metadata_json: Mapped[str] = mapped_column(Text, default="{}")
 
+    # Embedding persistido del normalized_name (paso 3 de la cascada de matching).
+    # En PostgreSQL la columna es vector(1536) (pgvector); en el ORM se mapea como
+    # Text con el literal pgvector, igual que DocumentChunk.embedding (compat SQLite).
+    name_embedding: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Versionado del embedding (lección ADR-008): modelo con el que se generó el
+    # vector. Si cambia el modelo, los vectores viejos NO se comparan a ciegas
+    # (se recomputan) y hace falta backfill explícito.
+    name_embedding_model: Mapped[str | None] = mapped_column(String(100), nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     __table_args__ = (
