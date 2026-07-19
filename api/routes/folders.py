@@ -257,23 +257,13 @@ async def get_folder_permissions(
         raise HTTPException(status_code=404, detail="Carpeta no encontrada")
     _assert_folder_in_active_workspace(folder.workspace_id, resolve_tenant_workspace_id(ctx), folder_id)
 
-    # Superadmin tiene acceso global a la configuración.
-    if is_superadmin(user_id, session):
-        inherits = getattr(folder, "inherits_permissions", True)
-        perms = session.query(FolderPermission).filter_by(folder_id=folder_id).all()
-        role_ids = [p.operational_role_id for p in perms]
-        roles = session.query(OperationalRole).filter(OperationalRole.id.in_(role_ids)).all() if role_ids else []
-        role_list = [{"id": r.id, "name": r.name, "slug": r.slug} for r in roles]
-        return {
-            "folder_id": folder_id,
-            "inherits_permissions": inherits,
-            "operational_role_ids": role_ids,
-            "operational_roles": role_list,
-        }
+    # Autorización: superadmin (acceso global a la configuración) o rol owner/admin
+    # del workspace. Se resuelve primero; la respuesta se arma una sola vez.
+    if not is_superadmin(user_id, session):
+        role = get_user_role(session, user_id, folder.workspace_id)
+        if not role or role.name not in ("owner", "admin"):
+            raise HTTPException(status_code=403, detail="Se requiere rol owner o admin")
 
-    role = get_user_role(session, user_id, folder.workspace_id)
-    if not role or role.name not in ("owner", "admin"):
-        raise HTTPException(status_code=403, detail="Se requiere rol owner o admin")
     inherits = getattr(folder, "inherits_permissions", True)
     perms = session.query(FolderPermission).filter_by(folder_id=folder_id).all()
     role_ids = [p.operational_role_id for p in perms]
