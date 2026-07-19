@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from datetime import datetime, UTC
 from difflib import SequenceMatcher
 
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from ..db.models import Document, DocumentVersion
@@ -33,6 +34,7 @@ from ..db.models_semantic import (
     RELATION_TYPES,
     KNOWLEDGE_OBJECT_TYPES,
 )
+from . import _pg
 from .extraction import ExtractionResult
 from .normalize import normalize_name
 
@@ -42,6 +44,12 @@ logger = logging.getLogger(__name__)
 FUZZY_MATCH_THRESHOLD = 0.88        # se considera la misma entidad
 EMBEDDING_MATCH_THRESHOLD = 0.90    # similitud coseno para casos ambiguos
 DUPLICATE_HINT_THRESHOLD = 0.72     # sugerir "posible duplicado" en la UI
+
+# Shortlist fuzzy server-side (pg_trgm). Floor de recall bajo para no perder
+# candidatos que SequenceMatcher sí matchearía; la autoridad de la decisión de
+# identidad sigue siendo SequenceMatcher con los umbrales de arriba.
+FUZZY_SHORTLIST_LIMIT = 50
+FUZZY_TRGM_FLOOR = 0.1
 
 
 def _similarity(a: str, b: str) -> float:
@@ -108,15 +116,15 @@ class RelationService:
         if exact:
             return MatchResult(exact, "exact", 1.0)
 
-        candidates = (
-            session.query(KnowledgeObject)
-            .filter_by(workspace_id=workspace_id, type=entity_type)
-            .all()
+        # Shortlist de candidatos: en Postgres lo hace pg_trgm server-side (índice
+        # GIN); en SQLite u otro dialecto trae todos y filtra en Python.
+        candidates = self._fuzzy_candidates(
+            session, workspace_id, entity_type, normalized_name
         )
         if not candidates:
             return MatchResult(None, "none", 0.0)
 
-        # 2) Fuzzy
+        # 2) Fuzzy — SequenceMatcher sigue siendo la autoridad (umbrales sin cambios).
         best, best_score = None, 0.0
         for ko in candidates:
             score = _similarity(normalized_name, ko.normalized_name)
@@ -132,6 +140,88 @@ class RelationService:
                 return emb_match
 
         return MatchResult(None, "none", best_score)
+
+    def _fuzzy_candidates(
+        self,
+        session: Session,
+        workspace_id: str,
+        entity_type: str,
+        normalized_name: str,
+    ) -> list[KnowledgeObject]:
+        """Candidatos para los pasos fuzzy/embedding.
+
+        En PostgreSQL con pg_trgm hace el shortlist server-side entrando por el
+        índice GIN (ix_knowledge_objects_name_trgm); si no hay pg_trgm (SQLite,
+        degradado) o el SQL falla, trae todos los del workspace+tipo (comportamiento
+        actual, portable).
+        """
+        if _pg.trgm_ready(session):
+            try:
+                return self._fuzzy_candidates_sql(
+                    session, workspace_id, entity_type, normalized_name
+                )
+            except Exception as exc:  # pragma: no cover - defensivo (degradación)
+                logger.warning(
+                    "matching: shortlist pg_trgm falló, fallback Python (%s)",
+                    type(exc).__name__,
+                )
+        return (
+            session.query(KnowledgeObject)
+            .filter_by(workspace_id=workspace_id, type=entity_type)
+            .all()
+        )
+
+    def _fuzzy_candidates_sql(
+        self,
+        session: Session,
+        workspace_id: str,
+        entity_type: str,
+        normalized_name: str,
+    ) -> list[KnowledgeObject]:
+        """Shortlist por pg_trgm: `%` en el WHERE (usa el índice GIN), similarity()
+        solo en el ORDER BY. El umbral del operador `%` se baja con set_limit()
+        acotado por save/restore para no filtrarse a otras consultas de la txn."""
+        sch = _pg.schema()
+        # Save/restore del umbral de `%` (garantía dura de no-leak; verificable con
+        # show_limit() antes/después). SET LOCAL afectaría al resto de la txn.
+        old_limit = session.execute(text("SELECT show_limit()")).scalar()
+        try:
+            session.execute(text("SELECT set_limit(:f)"), {"f": FUZZY_TRGM_FLOOR})
+            rows = session.execute(
+                text(
+                    f"""
+                    SELECT id
+                    FROM "{sch}".knowledge_objects
+                    WHERE workspace_id = :ws AND type = :type
+                      AND normalized_name % :name
+                    ORDER BY similarity(normalized_name, :name) DESC
+                    LIMIT :k
+                    """
+                ),
+                {
+                    "ws": workspace_id,
+                    "type": entity_type,
+                    "name": normalized_name,
+                    "k": FUZZY_SHORTLIST_LIMIT,
+                },
+            ).all()
+        finally:
+            try:
+                session.execute(text("SELECT set_limit(:f)"), {"f": old_limit})
+            except Exception:  # pragma: no cover - defensivo
+                pass
+
+        ids = [r.id for r in rows]
+        if not ids:
+            return []
+        # Hidratar ORM preservando el orden por similitud del shortlist.
+        objs = {
+            o.id: o
+            for o in session.query(KnowledgeObject)
+            .filter(KnowledgeObject.id.in_(ids))
+            .all()
+        }
+        return [objs[i] for i in ids if i in objs]
 
     def _embedding_match(
         self, normalized_name: str, candidates: list[KnowledgeObject]
