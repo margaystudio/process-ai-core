@@ -19,15 +19,29 @@ import logging
 import re
 from dataclasses import dataclass, field
 
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from ..db.models import Document, DocumentVersion
 from ..db.models_semantic import DocumentChunk, DocumentRelation, KnowledgeObject
-from .chunking import literal_to_embedding
+from . import _pg
+from .chunking import embedding_to_literal, literal_to_embedding
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_TOP_K = 6
+
+
+@dataclass
+class _ScoredChunk:
+    """Fila rankeada, uniforme entre el camino SQL y el camino Python."""
+    chunk_id: str
+    document_version_id: str
+    document_id: str
+    document_name: str
+    section_title: str | None
+    content: str
+    score: float
 
 
 @dataclass
@@ -101,44 +115,48 @@ class TytoQueryService:
         query: str,
         top_k: int = DEFAULT_TOP_K,
     ) -> TytoContext:
-        """Recupera chunks relevantes + expansión por la red confirmada."""
+        """Recupera chunks relevantes + expansión por la red confirmada.
+
+        En PostgreSQL con pgvector rankea y filtra por gobernanza en UNA query SQL
+        (workspace + APPROVED vigente + LIMIT top_k, sin N+1). En SQLite u otro
+        dialecto, o si no hay vector de query, cae al camino Python portable.
+        """
         versions = self.approved_current_versions(session, workspace_id)
         if not versions:
             return TytoContext()
-        version_by_id = {v.id: v for v in versions}
 
-        chunks = (
-            session.query(DocumentChunk)
-            .filter(DocumentChunk.document_version_id.in_(list(version_by_id)))
-            .all()
-        )
-        if not chunks:
-            return TytoContext()
+        query_vector = self._embed_query(query)
 
-        scored = self._rank(query, chunks)[:top_k]
-
-        doc_by_version: dict[str, Document] = {}
-        for v in versions:
-            doc = session.query(Document).filter_by(id=v.document_id).first()
-            if doc:
-                doc_by_version[v.id] = doc
+        scored: list[_ScoredChunk] | None = None
+        # Camino rápido: ranking vectorial en SQL (pgvector). Solo si hay vector de
+        # query e infra lista; ante cualquier fallo o cero hits, cae a Python.
+        if query_vector is not None and _pg.vector_search_ready(session):
+            try:
+                scored = self._retrieve_sql(session, workspace_id, query_vector, top_k)
+            except Exception as exc:  # pragma: no cover - defensivo (degradación)
+                logger.warning(
+                    "Tyto: retrieval SQL falló, fallback a Python (%s)",
+                    type(exc).__name__,
+                )
+                scored = None
+        # Fallback Python: mismo universo gobernado, ranking en memoria. Se usa
+        # también cuando el SQL no trae hits (p.ej. no hay embeddings → léxico).
+        if not scored:
+            scored = self._retrieve_python(session, query, query_vector, versions, top_k)
 
         citations: list[TytoCitation] = []
         cited_doc_ids: set[str] = set()
-        for chunk, score in scored:
-            doc = doc_by_version.get(chunk.document_version_id)
-            if not doc:
-                continue
-            cited_doc_ids.add(doc.id)
+        for sc in scored:
+            cited_doc_ids.add(sc.document_id)
             citations.append(
                 TytoCitation(
-                    document_id=doc.id,
-                    document_name=doc.name,
-                    document_version_id=chunk.document_version_id,
-                    chunk_id=chunk.id,
-                    section_title=chunk.section_title,
-                    content=chunk.content,
-                    score=round(score, 4),
+                    document_id=sc.document_id,
+                    document_name=sc.document_name,
+                    document_version_id=sc.document_version_id,
+                    chunk_id=sc.chunk_id,
+                    section_title=sc.section_title,
+                    content=sc.content,
+                    score=round(sc.score, 4),
                 )
             )
 
@@ -177,10 +195,139 @@ class TytoQueryService:
         )
 
     # ------------------------------------------------------------------
+    # Retrieval SQL (PostgreSQL + pgvector)
+    # ------------------------------------------------------------------
+    def _retrieve_sql(
+        self,
+        session: Session,
+        workspace_id: str,
+        query_vector: list[float],
+        top_k: int,
+    ) -> list[_ScoredChunk]:
+        """Ranking vectorial + gobernanza + LIMIT en una sola query (sin N+1).
+
+        Los filtros de gobernanza viven en el WHERE (workspace + APPROVED vigente),
+        el orden lo da el índice HNSW (ix_document_chunks_embedding_hnsw) y el
+        recorte lo hace la base con LIMIT top_k. El join a documents/document_versions
+        elimina el N+1 que traía una query de Document por versión.
+        """
+        sch = _pg.schema()
+        vtype = _pg.vector_type(session)
+        qlit = embedding_to_literal(query_vector)
+        sql = text(
+            f"""
+            SELECT c.id                  AS chunk_id,
+                   c.document_version_id AS document_version_id,
+                   c.section_title       AS section_title,
+                   c.content             AS content,
+                   d.id                  AS document_id,
+                   d.name                AS document_name,
+                   (c.embedding <=> CAST(:qvec AS {vtype})) AS distance
+            FROM "{sch}".document_chunks c
+            JOIN "{sch}".document_versions v ON v.id = c.document_version_id
+            JOIN "{sch}".documents d         ON d.id = v.document_id
+            WHERE d.workspace_id = :ws
+              AND v.version_status = 'APPROVED'
+              AND v.is_current = true
+              AND c.embedding IS NOT NULL
+            ORDER BY c.embedding <=> CAST(:qvec AS {vtype})
+            LIMIT :top_k
+            """
+        )
+        rows = session.execute(
+            sql, {"qvec": qlit, "ws": workspace_id, "top_k": top_k}
+        ).all()
+
+        out: list[_ScoredChunk] = []
+        for r in rows:
+            # coseno: score = 1 - distancia. Mantiene el mismo filtro >0 del path Python.
+            score = 1.0 - float(r.distance)
+            if score <= 0:
+                continue
+            out.append(
+                _ScoredChunk(
+                    chunk_id=r.chunk_id,
+                    document_version_id=r.document_version_id,
+                    document_id=r.document_id,
+                    document_name=r.document_name,
+                    section_title=r.section_title,
+                    content=r.content,
+                    score=score,
+                )
+            )
+        return out
+
+    # ------------------------------------------------------------------
+    # Retrieval Python (SQLite / fallback portable)
+    # ------------------------------------------------------------------
+    def _retrieve_python(
+        self,
+        session: Session,
+        query: str,
+        query_vector: list[float] | None,
+        versions: list[DocumentVersion],
+        top_k: int,
+    ) -> list[_ScoredChunk]:
+        version_by_id = {v.id: v for v in versions}
+        chunks = (
+            session.query(DocumentChunk)
+            .filter(DocumentChunk.document_version_id.in_(list(version_by_id)))
+            .all()
+        )
+        if not chunks:
+            return []
+
+        ranked = self._rank(query, chunks, query_vector)[:top_k]
+
+        # Batch-load de documentos (elimina el N+1: una query en vez de una por versión).
+        needed_doc_ids = {
+            version_by_id[c.document_version_id].document_id
+            for c, _ in ranked
+            if c.document_version_id in version_by_id
+        }
+        docs = (
+            {
+                d.id: d
+                for d in session.query(Document)
+                .filter(Document.id.in_(needed_doc_ids))
+                .all()
+            }
+            if needed_doc_ids
+            else {}
+        )
+
+        out: list[_ScoredChunk] = []
+        for chunk, score in ranked:
+            version = version_by_id.get(chunk.document_version_id)
+            if not version:
+                continue
+            doc = docs.get(version.document_id)
+            if not doc:
+                continue
+            out.append(
+                _ScoredChunk(
+                    chunk_id=chunk.id,
+                    document_version_id=chunk.document_version_id,
+                    document_id=doc.id,
+                    document_name=doc.name,
+                    section_title=chunk.section_title,
+                    content=chunk.content,
+                    score=score,
+                )
+            )
+        return out
+
+    # ------------------------------------------------------------------
     # Ranking
     # ------------------------------------------------------------------
-    def _rank(self, query: str, chunks: list[DocumentChunk]) -> list[tuple[DocumentChunk, float]]:
-        query_vector = self._embed_query(query)
+    def _rank(
+        self,
+        query: str,
+        chunks: list[DocumentChunk],
+        query_vector: list[float] | None = None,
+    ) -> list[tuple[DocumentChunk, float]]:
+        if query_vector is None:
+            query_vector = self._embed_query(query)
         with_embeddings = [
             (c, literal_to_embedding(c.embedding)) for c in chunks
         ]
