@@ -238,3 +238,42 @@ def test_embedding_writethrough_persiste_vector_y_modelo(session, monkeypatch):
     assert match is not None and match.knowledge_object.id == ko.id
     assert ko.name_embedding is not None
     assert ko.name_embedding_model == "text-embedding-3-small"
+
+
+# ── Floor del shortlist: fija el 0.3 (recall de casos que SÍ deben entrar) ─────
+
+def test_floor_preserva_recall_de_duplicados(session):
+    """El shortlist SQL con floor pg_trgm=0.3 debe seguir devolviendo los casos que
+    la cascada necesita ver. SequenceMatcher solo evalúa lo que el SQL le pasa, así
+    que si alguien sube el floor y deja de devolver estos pares, este test se pone
+    en rojo (los tests de SQLite no cubren este umbral porque corren el path Python).
+
+    Similitudes trigram medidas: sap/sap erp=0.50, supervisor de turno/turnos=0.86,
+    sistema sap/sistema sap erp=0.73 — todas > 0.3.
+    """
+    rng = random.Random(7)
+    ws = H.new_workspace(session, rng, "WS")
+    for name in ["SAP ERP", "Supervisor de Turno", "Sistema SAP", "POS",
+                 "Balanza Digital", "Planilla de Cierres"]:
+        H.add_ko(session, rng, ws, name=name)
+    session.commit()
+
+    svc = RelationService()
+
+    def shortlist_names(probe):
+        return {
+            c.normalized_name
+            for c in svc._fuzzy_candidates(session, ws.id, "sistema", probe)
+        }
+
+    # Nombre corto: "sap" debe traer "sap erp" (y "sistema sap").
+    got = shortlist_names("sap")
+    assert "sap erp" in got, f"'sap' no trajo 'sap erp' (floor demasiado alto?): {got}"
+
+    # Typo: "supervisor de turnos" debe traer "supervisor de turno".
+    got = shortlist_names("supervisor de turnos")
+    assert "supervisor de turno" in got, f"typo no matcheó: {got}"
+
+    # Frase con subcadena: "sistema sap erp" debe traer "sistema sap".
+    got = shortlist_names("sistema sap erp")
+    assert "sistema sap" in got, f"subcadena no matcheó: {got}"
