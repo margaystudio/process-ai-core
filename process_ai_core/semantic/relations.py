@@ -46,11 +46,14 @@ FUZZY_MATCH_THRESHOLD = 0.88        # se considera la misma entidad
 EMBEDDING_MATCH_THRESHOLD = 0.90    # similitud coseno para casos ambiguos
 DUPLICATE_HINT_THRESHOLD = 0.72     # sugerir "posible duplicado" en la UI
 
-# Shortlist fuzzy server-side (pg_trgm). Floor de recall bajo para no perder
-# candidatos que SequenceMatcher sí matchearía; la autoridad de la decisión de
-# identidad sigue siendo SequenceMatcher con los umbrales de arriba.
+# Shortlist fuzzy server-side (pg_trgm). El floor del operador `%` (0.3, el default
+# de pg_trgm) mantiene el índice selectivo: un match real (SequenceMatcher >= 0.88,
+# o el hint de duplicado >= 0.72) tiene alta similitud de trigramas, así que entra;
+# un floor más bajo hincharía el shortlist con ruido y forzaría un scan casi total.
+# La autoridad de la decisión de identidad sigue siendo SequenceMatcher (umbrales
+# de arriba) sobre este shortlist.
 FUZZY_SHORTLIST_LIMIT = 50
-FUZZY_TRGM_FLOOR = 0.1
+FUZZY_TRGM_FLOOR = 0.3
 
 
 def _similarity(a: str, b: str) -> float:
@@ -188,9 +191,12 @@ class RelationService:
         sch = _pg.schema()
         # Save/restore del umbral de `%` (garantía dura de no-leak; verificable con
         # show_limit() antes/después). SET LOCAL afectaría al resto de la txn.
+        # set_limit espera 'real' (float4); psycopg manda float como double → cast.
         old_limit = session.execute(text("SELECT show_limit()")).scalar()
         try:
-            session.execute(text("SELECT set_limit(:f)"), {"f": FUZZY_TRGM_FLOOR})
+            session.execute(
+                text("SELECT set_limit(CAST(:f AS real))"), {"f": FUZZY_TRGM_FLOOR}
+            )
             rows = session.execute(
                 text(
                     f"""
@@ -211,7 +217,9 @@ class RelationService:
             ).all()
         finally:
             try:
-                session.execute(text("SELECT set_limit(:f)"), {"f": old_limit})
+                session.execute(
+                    text("SELECT set_limit(CAST(:f AS real))"), {"f": old_limit}
+                )
             except Exception:  # pragma: no cover - defensivo
                 pass
 

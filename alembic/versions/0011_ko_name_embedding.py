@@ -5,14 +5,23 @@ performance del paso 3 de la cascada de matching):
 - knowledge_objects.name_embedding        (vector(1536) pgvector; TEXT si degradado)
 - knowledge_objects.name_embedding_model  (versionado del embedding, ADR-008)
 - índice ANN HNSW sobre name_embedding (coseno)
+- índice GIN trgm sobre la EXPRESIÓN (normalized_name::text) para el shortlist fuzzy
 
 Se elige HNSW (no IVFFlat): no requiere entrenamiento, se construye sobre tabla
 vacía, mejor recall/latencia, y es consistente con ix_document_chunks_embedding_hnsw
 (0005). Si pgvector no está o es <0.5, la columna queda TEXT y no se crea el índice
 (degradación grácil, igual que 0005).
 
-NOTA: los índices ix_document_chunks_embedding_hnsw y ix_knowledge_objects_name_trgm
-YA los crea la migración 0005; esta migración NO los recrea.
+Índice trgm sobre expresión — POR QUÉ: normalized_name es varchar(300) y el operador
+`%` fuerza `(normalized_name)::text`. El índice de 0005 (gin sobre la columna varchar
+cruda) queda con un costo estimado altísimo y el planner NUNCA lo elige (se puede usar
+solo forzando enable_seqscan=off). Un GIN sobre la expresión `(normalized_name::text)`
+matchea el predicado exacto y el planner sí lo usa (bitmap index scan). Sin este índice,
+el shortlist de la Tarea 2 caería en Seq Scan. Es aditivo: NO recrea el de 0005 (que
+queda superado/redundante; su drop se puede evaluar en un follow-up).
+
+NOTA: ix_document_chunks_embedding_hnsw y ix_knowledge_objects_name_trgm YA los crea la
+migración 0005; esta migración NO los recrea.
 
 Encadenada sobre 0010_folder_governance_fields (rama feat/config-carpetas), NO sobre
 0009: 0010 ya cuelga de 0009 y dos hermanas 0010 bifurcarían la cadena. Implica que
@@ -99,9 +108,28 @@ def upgrade() -> None:
             # pgvector < 0.5 no soporta hnsw; el matching funciona igual (seq scan).
             pass
 
+    # Índice trgm sobre la EXPRESIÓN (normalized_name::text): el único que el planner
+    # elige para el shortlist con `%` (ver docstring). Requiere pg_trgm.
+    if _has_extension(conn, "pg_trgm"):
+        trgm_schema = _extension_schema(conn, "pg_trgm")
+        opclass = f'"{trgm_schema}".gin_trgm_ops' if trgm_schema else "gin_trgm_ops"
+        try:
+            conn.execute(
+                text(
+                    f"CREATE INDEX IF NOT EXISTS ix_knowledge_objects_name_trgm_txt "
+                    f'ON "{SCHEMA}".knowledge_objects '
+                    f"USING gin ((normalized_name::text) {opclass})"
+                )
+            )
+        except Exception:
+            pass
+
 
 def downgrade() -> None:
     conn = op.get_bind()
+    conn.execute(
+        text(f'DROP INDEX IF EXISTS "{SCHEMA}".ix_knowledge_objects_name_trgm_txt')
+    )
     conn.execute(
         text(
             f'DROP INDEX IF EXISTS "{SCHEMA}".ix_knowledge_objects_name_embedding_hnsw'
