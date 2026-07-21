@@ -187,6 +187,8 @@ export interface FolderPermissionsResponse {
   inherits_permissions: boolean;
   operational_role_ids: string[];
   operational_roles: { id: string; name: string; slug: string }[];
+  origin: 'heredado' | 'personalizado';
+  from: string | null;
 }
 
 export interface DocumentMetadata {

@@ -13,9 +13,8 @@
  *  - `canEditWorkspace` → permiso granular (e.g. workspace.edit) que puede
  *    otorgarse independientemente del rol (settings/page lo usa).
  *
- * Los call-sites existentes NO se modifican con este helper (los unificará
- * el junior en tickets separados para no introducir cambios de comportamiento
- * en ramas en vuelo).
+ * Los call-sites de administración usan este helper para conservar una única
+ * definición de acceso en toda la UI.
  */
 export interface AdminGatingInput {
   /** Roles de plataforma (e.g. ['superadmin']). Opcional: si se omite, solo se evalúa `isSuperadmin`. */
