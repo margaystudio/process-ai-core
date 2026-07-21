@@ -1,0 +1,69 @@
+# Config real de deploy — process-ai API prod. Se versiona: no contiene secretos (viven en Secret Manager).
+
+[gcp]
+project = "margay-platform-prod"
+region = "us-central1"
+artifact_repo = "margay-services"
+
+[image]
+name = "margay-process-ai-api"
+context = "."
+dockerfile = "Dockerfile.api"
+
+[runtime]
+type = "service"
+name = "margay-process-ai-api"
+service_account = "process-ai-api-sa@margay-platform-prod.iam.gserviceaccount.com"
+
+[service]
+cpu = "2"
+memory = "2Gi"
+timeout = "900s"
+min_instances = 0
+max_instances = 10
+concurrency = 10
+# Público a nivel Cloud Run: la UI la llama desde el navegador con JWT Bearer.
+# La seguridad la da la validación de JWT (JWKS) + gate en la app, NO el IAM de Cloud Run.
+allow_unauthenticated = true
+
+[env]
+ENVIRONMENT = "prod"
+LOG_LEVEL = "WARNING"
+
+# Capa semántica en modo estricto: el preflight FALLA al arrancar si falta
+# pgvector/pg_trgm, la columna embedding no es 'vector', o falta OPENAI_API_KEY.
+# La infra ya está lista en prod (mqld): extensiones + columna vector verificadas.
+SEMANTIC_ALLOW_DEGRADED = "false"
+
+# Control plane margay-workspace (prod)
+WORKSPACE_URL = "https://margay-workspace-513594124246.us-central1.run.app"
+PROCESS_AI_APP_KEY = "process_ai"
+
+# Schema Postgres dedicado en el mismo Supabase prod (mqld) que workspace
+DATABASE_SCHEMA = "process_ai"
+
+# URL pública de esta API (links en PDF/HTML y firma de artefactos)
+API_BASE_URL = "https://api.process.margaystudio.io"
+
+# CORS: UI + hub (prod)
+CORS_ORIGINS = "https://process.margaystudio.io,https://hub.margaystudio.io"
+
+# Supabase PROD (mqld)
+SUPABASE_URL = "https://mqldatizgvmjqisuqabv.supabase.co"
+
+# Almacenamiento de artefactos en Supabase Storage (bucket privado).
+# Sin esto el backend usaría el disco efímero del contenedor.
+STORAGE_BACKEND = "supabase"
+SUPABASE_STORAGE_BUCKET = "process-ai-artifacts"
+
+OPENAI_MODEL_TEXT = "gpt-4.1-mini"
+OPENAI_MODEL_TRANSCRIBE = "gpt-4o-mini-transcribe"
+OPENAI_MODEL_TRANSCRIBE_TIMESTAMPS = "whisper-1"
+ARTIFACT_URL_TTL_SECONDS = "900"
+
+[secrets]
+# Secret Manager (margay-platform-prod) → Cloud Run
+DATABASE_URL = "process-ai-database-url:latest"
+OPENAI_API_KEY = "process-ai-openai-api-key:latest"
+ARTIFACT_SIGNING_SECRET = "process-ai-artifact-signing-secret:latest"
+SUPABASE_SERVICE_ROLE_KEY = "process-ai-supabase-service-role-key:latest"

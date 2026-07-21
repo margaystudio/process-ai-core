@@ -1,8 +1,8 @@
-# Copiar a ops/ui/prod.config.toml y completar los valores.
+# Config real de deploy — process-ai UI prod. Se versiona: no contiene secretos (viven en Secret Manager).
 
 [gcp]
 project = "margay-platform-prod"
-region = "europe-west1"
+region = "us-central1"
 artifact_repo = "margay-services"
 
 [image]
@@ -27,14 +27,17 @@ allow_unauthenticated = true
 
 [env]
 ENVIRONMENT = "prod"
+NODE_ENV = "production"
+NEXT_PUBLIC_COOKIE_DOMAIN = ".margaystudio.io"
 
 # Build-time public env (NEXT_PUBLIC_*) para Next.js
 [build_args]
 NEXT_PUBLIC_ENVIRONMENT = "production"
-NEXT_PUBLIC_API_URL = "https://margay-process-ai-api-NUMERO-DE-PROYECTO.europe-west1.run.app"
+NEXT_PUBLIC_API_URL = "https://api.process.margaystudio.io"
 NEXT_PUBLIC_HUB_URL = "https://hub.margaystudio.io"
 NEXT_PUBLIC_SITE_URL = "https://process.margaystudio.io"
-NEXT_PUBLIC_SUPABASE_URL = "https://MI-SUPABASE-REF-PROD.supabase.co"
-NEXT_PUBLIC_SUPABASE_ANON_KEY = "MI_SUPABASE_ANON_KEY"
+NEXT_PUBLIC_SUPABASE_URL = "https://mqldatizgvmjqisuqabv.supabase.co"
+NEXT_PUBLIC_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1xbGRhdGl6Z3ZtanFpc3VxYWJ2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAzOTYyODIsImV4cCI6MjA5NTk3MjI4Mn0.DOKZcp6S-vKj_rbocRcjQ0IETXl4TtlnDziLsB9Dszs"
+NEXT_PUBLIC_COOKIE_DOMAIN = ".margaystudio.io"
 
 [secrets]

@@ -20,10 +20,6 @@ data/*.sqlite
 **/.DS_Store
 
 # Ops / Cloud Run (configs locales con secretos)
-ops/api/prod.config.toml
-ops/api/test.config.toml
-ops/ui/prod.config.toml
-ops/ui/test.config.toml
 _cloudbuild_tmp_*.yaml
 ui/.next/
 
@@ -35,3 +31,10 @@ ops/ui/releases/*
 ui/node_modules/
 /.venv312
 .env.local.example
+
+# --- Configs de deploy (convención unificada Margay) ---
+# prod SE VERSIONA: es el manifiesto de deploy y no contiene secretos
+# (solo referencias a Secret Manager). Da trazabilidad de región/proyecto.
+# test y locales NO: son entornos personales.
+ops/**/*.config.toml
+!ops/**/prod*.config.toml

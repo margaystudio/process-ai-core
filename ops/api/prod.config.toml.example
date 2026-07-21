@@ -3,7 +3,7 @@
 
 [gcp]
 project = "margay-platform-prod"
-region = "us-central1"
+region = "europe-west1"
 artifact_repo = "margay-services"
 
 [image]
@@ -36,20 +36,20 @@ LOG_LEVEL = "WARNING"
 SEMANTIC_ALLOW_DEGRADED = "false"
 
 # Control plane margay-workspace (sin /api al final)
-WORKSPACE_URL = "https://margay-workspace-513594124246.us-central1.run.app"
+WORKSPACE_URL = "https://margay-workspace-NUMERO-DE-PROYECTO.europe-west1.run.app"
 PROCESS_AI_APP_KEY = "process_ai"
 
 # Schema Postgres dedicado (mismo proyecto Supabase que workspace)
 DATABASE_SCHEMA = "process_ai"
 
 # URL pública de esta API (para links en PDF/HTML y firma de artefactos)
-API_BASE_URL = "https://margay-process-ai-api-513594124246.us-central1.run.app"
+API_BASE_URL = "https://margay-process-ai-api-NUMERO-DE-PROYECTO.europe-west1.run.app"
 
 # CORS: UI + hub
 CORS_ORIGINS = "https://process.margaystudio.io,https://hub.margaystudio.io"
 
 # Supabase (JWKS se deriva de SUPABASE_URL si no se setea SUPABASE_JWKS_URL)
-SUPABASE_URL = "https://nbigcpjmckewuhrqjzrt.supabase.co"
+SUPABASE_URL = "https://MI-SUPABASE-REF-PROD.supabase.co"
 
 # PostgreSQL (Supabase o Cloud SQL). En prod no uses SQLite.
 # DATABASE_URL se recomienda inyectar vía [secrets] abajo.
