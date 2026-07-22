@@ -34,10 +34,11 @@ NEXT_PUBLIC_COOKIE_DOMAIN = ".margaystudio.io"
 
 [build_args]
 NEXT_PUBLIC_ENVIRONMENT = "test"
-NEXT_PUBLIC_API_URL = "https://api.process-test.margaystudio.io"
+# API de test por run.app (no depende de cookies; la UI le pega con Bearer JWT).
+NEXT_PUBLIC_API_URL = "https://margay-process-ai-api-test-1062202104268.europe-west1.run.app"
 NEXT_PUBLIC_HUB_URL = "https://hub.margaystudio.io"
-NEXT_PUBLIC_SITE_URL = "https://process-test.margaystudio.io"
-NEXT_PUBLIC_SUPABASE_URL = "REEMPLAZAR_URL_SUPABASE_TEST"
+NEXT_PUBLIC_SITE_URL = "https://process.test.margaystudio.io"
+NEXT_PUBLIC_SUPABASE_URL = "https://zgujorkqulkdsnmjdxtj.supabase.co"
 # anon key del Supabase de TEST (público). Obtenerlo del dashboard del proyecto test.
-NEXT_PUBLIC_SUPABASE_ANON_KEY = "REEMPLAZAR_ANON_KEY_SUPABASE_TEST"
+NEXT_PUBLIC_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpndWpvcmtxdWxrZHNubWpkeHRqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQyMTMzODksImV4cCI6MjA5OTc4OTM4OX0.1IRgQHaNze7d4VsasZ3lcJHT-N54SBuVwtLR55d5ozs"
 NEXT_PUBLIC_COOKIE_DOMAIN = ".margaystudio.io"

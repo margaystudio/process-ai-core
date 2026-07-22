@@ -1,6 +1,5 @@
 # Config de deploy — process-ai API TEST (margay-platform-test).
 # Versionada: sin secretos (viven en Secret Manager del proyecto test).
-# TODO(Santi): completar los valores marcados REEMPLAZAR_* antes del primer deploy a test.
 
 [gcp]
 project = "margay-platform-test"
@@ -33,13 +32,14 @@ LOG_LEVEL = "INFO"
 # tiene pgvector/pg_trgm/columna vector. Poné "false" cuando la infra semántica esté lista.
 SEMANTIC_ALLOW_DEGRADED = "true"
 # Workspace de test (ya corre en margay-platform-test).
-WORKSPACE_URL = "REEMPLAZAR_URL_WORKSPACE_TEST"   # ej. https://margay-workspace-<NUM-TEST>.europe-west1.run.app
+WORKSPACE_URL = "https://margay-workspace-1062202104268.europe-west1.run.app"
 PROCESS_AI_APP_KEY = "process_ai"
 DATABASE_SCHEMA = "process_ai"
-API_BASE_URL = "https://api.process-test.margaystudio.io"
-CORS_ORIGINS = "https://process-test.margaystudio.io,https://hub.margaystudio.io"
+# API de test por run.app (URL determinística; no lleva dominio propio en test).
+API_BASE_URL = "https://margay-process-ai-api-test-1062202104268.europe-west1.run.app"
+CORS_ORIGINS = "https://process.test.margaystudio.io,https://hub.margaystudio.io"
 # Supabase de TEST (dedicado).
-SUPABASE_URL = "REEMPLAZAR_URL_SUPABASE_TEST"   # https://<ref-test>.supabase.co
+SUPABASE_URL = "https://zgujorkqulkdsnmjdxtj.supabase.co"
 STORAGE_BACKEND = "supabase"
 SUPABASE_STORAGE_BUCKET = "process-ai-artifacts"
 OPENAI_MODEL_TEXT = "gpt-4.1-mini"
