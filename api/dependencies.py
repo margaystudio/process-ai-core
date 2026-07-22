@@ -24,7 +24,7 @@ from jwt import PyJWKClient, PyJWKClientError
 logger = logging.getLogger(__name__)
 
 DEFAULT_SUPABASE_JWKS_URL = (
-    "https://nbigcpjmckewuhrqjzrt.supabase.co/auth/v1/.well-known/jwks.json"
+    "https://zgujorkqulkdsnmjdxtj.supabase.co/auth/v1/.well-known/jwks.json"
 )
 
 _jwks_client: PyJWKClient | None = None
