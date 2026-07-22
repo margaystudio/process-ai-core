@@ -25,7 +25,9 @@ ui/.next/
 
 # Punteros de release (artefactos por build; se conserva el dir con .gitkeep)
 ops/api/releases/*
+!ops/api/releases/*.txt
 ops/ui/releases/*
+!ops/ui/releases/*.txt
 !ops/api/releases/.gitkeep
 !ops/ui/releases/.gitkeep
 ui/node_modules/

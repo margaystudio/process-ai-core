@@ -1,0 +1,9 @@
+.git
+.github
+.venv
+__pycache__
+*.pyc
+.env
+# Credenciales temporales de google-github-actions/auth en CI
+gha-creds-*.json
+ops/releases

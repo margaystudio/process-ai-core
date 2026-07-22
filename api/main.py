@@ -122,7 +122,12 @@ def _semantic_preflight() -> None:
 @app.get("/")
 async def root():
     """Health check endpoint."""
-    return {"status": "ok", "service": "process-ai-core-api"}
+    # APP_VERSION la setea el deploy con el tag releaseado; "dev" en local.
+    return {
+        "status": "ok",
+        "service": "process-ai-core-api",
+        "version": os.environ.get("APP_VERSION", "dev"),
+    }
 
 
 @app.get("/health")

@@ -1,0 +1,92 @@
+# Release al pushear un tag semver: build + push + registro del digest.
+# NO deploya. El deploy se hace aparte con el workflow "deploy" (elegís entorno).
+# Así un mismo artefacto versionado puede ir a test, a prod, o ambos —y un hotfix
+# puede saltarse test si hace falta.
+#
+# Flujo (norma Margay):
+#   git tag v1.2.0 && git push origin v1.2.0          -> buildea y registra el digest
+#   (o desde la UI: Releases -> Create a new release -> tag v1.2.0)
+#   luego: Actions -> deploy -> version v1.2.0, env test|prod
+#
+# Monorepos: api-v1.2.0 / ui-v1.2.0 releasean solo ese componente.
+#
+# Requisitos:
+# - Una vez por proyecto GCP: correr ops/bootstrap-github-wif.sh
+# - Variables del repo (Settings -> Secrets and variables -> Actions -> Variables):
+#     GCP_WIF_PROVIDER  projects/<NUMBER>/locations/global/workloadIdentityPools/github/providers/github-oidc
+#     GCP_DEPLOY_SA     github-deployer@<PROJECT_ID>.iam.gserviceaccount.com
+
+name: release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+      - "api-v*.*.*"
+      - "ui-v*.*.*"
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write   # para commitear el release file a main
+  id-token: write   # para Workload Identity Federation
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Parse tag (componente + versión)
+        id: tag
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          if [[ "$TAG" == *-v* ]]; then
+            echo "component=${TAG%%-v*}" >> "$GITHUB_OUTPUT"
+            echo "version=v${TAG#*-v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "component=" >> "$GITHUB_OUTPUT"
+            echo "version=$TAG" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Auth GCP (Workload Identity Federation)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SA }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Release (build + push + digest)
+        id: release
+        run: |
+          ARGS=(--env prod --version "${{ steps.tag.outputs.version }}" --no-tag)
+          if [[ -n "${{ steps.tag.outputs.component }}" ]]; then
+            ARGS+=(--component "${{ steps.tag.outputs.component }}")
+          fi
+          python ops/release.py "${ARGS[@]}"
+
+      - name: Commit release file a main
+        run: |
+          git config user.name "margay-release-bot"
+          git config user.email "sdalto@margaystudio.io"
+          git fetch origin main
+          git checkout main
+          git add "${{ steps.release.outputs.release_file }}"
+          git diff --cached --quiet || git commit -m "release: ${GITHUB_REF_NAME} [skip ci]"
+          git push origin main
+
+      - name: GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          body: |
+            Artefacto releaseado (sin deployar todavía):
+            ```
+            ${{ steps.release.outputs.immutable }}
+            ```
+            Para deployar: Actions -> **deploy** -> version `${{ steps.tag.outputs.version }}`, elegí entorno (test/prod).

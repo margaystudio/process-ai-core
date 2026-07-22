@@ -1,0 +1,8 @@
+# Qué NO subir a Cloud Build (gcloud builds submit).
+# La directiva #!include reutiliza el .gitignore del repo.
+#!include:.gitignore
+.git
+# Credenciales temporales de google-github-actions/auth en CI — NUNCA al build
+gha-creds-*.json
+.github/
+ops/releases/

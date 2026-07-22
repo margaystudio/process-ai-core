@@ -1,0 +1,84 @@
+# Deploy: promociona una versión YA releaseada a Cloud Run, al entorno que elijas.
+# No buildea nada: consume el digest registrado en ops/[component/]releases/.
+# Es el ÚNICO camino de deploy (el tag solo releasea). Sirve para test, prod,
+# hotfixes que se saltan test, y rollback (deployar una versión anterior).
+#
+# Esta es la variante GENÉRICA del template (soporta monorepos con --component).
+# Para un repo de 1 solo deployable, quitá el input "component" (ver margay-insights).
+#
+# Uso: GitHub -> Actions -> deploy -> Run workflow
+#   env:       test | prod
+#   version:   vacío = última versión released; vX.Y.Z solo para rollback
+#   component: vacío para repo simple; api/ui para monorepos
+#
+# Variables del repo (Settings -> Secrets and variables -> Actions -> Variables):
+#   prod:  GCP_WIF_PROVIDER       + GCP_DEPLOY_SA
+#   test:  GCP_WIF_PROVIDER_TEST  + GCP_DEPLOY_SA_TEST   (solo si usás test)
+# Si test y prod son el MISMO proyecto GCP, dejá las _TEST sin definir: caen a las de prod.
+
+name: deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      env:
+        description: "Entorno"
+        type: choice
+        options:
+          - prod
+          - test
+        default: prod
+        required: true
+      version:
+        description: "Versión (vacío = última released; vX.Y.Z solo para rollback)"
+        required: false
+        default: ""
+      component:
+        description: "Componente a deployar"
+        type: choice
+        options:
+          - api
+          - ui
+        default: api
+        required: true
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.env }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Elegir credenciales GCP según entorno
+        id: wif
+        run: |
+          if [[ "${{ inputs.env }}" == "test" && -n "${{ vars.GCP_WIF_PROVIDER_TEST }}" ]]; then
+            echo "provider=${{ vars.GCP_WIF_PROVIDER_TEST }}" >> "$GITHUB_OUTPUT"
+            echo "sa=${{ vars.GCP_DEPLOY_SA_TEST }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "provider=${{ vars.GCP_WIF_PROVIDER }}" >> "$GITHUB_OUTPUT"
+            echo "sa=${{ vars.GCP_DEPLOY_SA }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Auth GCP (Workload Identity Federation)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ steps.wif.outputs.provider }}
+          service_account: ${{ steps.wif.outputs.sa }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Deploy
+        run: |
+          ARGS=(--env "${{ inputs.env }}")
+          if [[ -n "${{ inputs.version }}" ]]; then
+            ARGS+=(--version "${{ inputs.version }}")   # rollback a una versión exacta
+          fi
+          if [[ -n "${{ inputs.component }}" ]]; then
+            ARGS+=(--component "${{ inputs.component }}")
+          fi
+          python ops/deploy.py "${ARGS[@]}"
