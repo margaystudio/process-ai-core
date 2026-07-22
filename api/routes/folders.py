@@ -16,7 +16,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from process_ai_core.db.helpers import create_folder, get_folders_by_workspace, get_folder_by_id, update_folder, delete_folder
-from process_ai_core.db.models import Document, Folder, FolderPermission, OperationalRole
+from process_ai_core.db.models import Document, DocumentType, Folder, FolderPermission, OperationalRole
 from process_ai_core.db.models_semantic import DocumentRelation
 from api.dependencies import get_db, get_current_user_id
 from api.dependencies import is_superadmin
@@ -564,6 +564,29 @@ async def update_folder_endpoint(
                 raise HTTPException(
                     status_code=403,
                     detail="No tiene permisos para mover/actualizar en la carpeta destino",
+                )
+
+        # El tipo documental por defecto debe existir (y estar activo) en ESTE workspace.
+        # `null` es válido: significa "heredar del padre", por eso solo se valida si viene
+        # un valor. Sin esto, un llamado directo al API deja la carpeta apuntando a un
+        # tipo inexistente (la UI ya restringe el picker, pero el backend no validaba).
+        if request.default_document_type is not None:
+            tipo_existe = (
+                session.query(DocumentType.id)
+                .filter_by(
+                    workspace_id=existing.workspace_id,
+                    key=request.default_document_type,
+                    is_active=True,
+                )
+                .first()
+            )
+            if not tipo_existe:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Tipo documental '{request.default_document_type}' no existe "
+                        "o está inactivo en este workspace"
+                    ),
                 )
 
         folder = update_folder(
