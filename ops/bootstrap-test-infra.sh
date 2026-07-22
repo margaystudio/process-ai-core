@@ -52,11 +52,17 @@ for S in process-ai-database-url process-ai-openai-api-key \
 done
 
 echo "==> 4) El deployer (CI) puede DEPLOYAR Cloud Run con esas SAs (serviceAccountUser)"
-for SA in "$API_SA" "$UI_SA"; do
-  gcloud iam service-accounts add-iam-policy-binding "$SA" --project "$PROJECT" \
-    --member="serviceAccount:${DEPLOYER}" --role=roles/iam.serviceAccountUser >/dev/null
-  echo "   + serviceAccountUser $(echo "$SA" | cut -d@ -f1) -> deployer"
-done
+if gcloud iam service-accounts describe "$DEPLOYER" --project "$PROJECT" >/dev/null 2>&1; then
+  for SA in "$API_SA" "$UI_SA"; do
+    gcloud iam service-accounts add-iam-policy-binding "$SA" --project "$PROJECT" \
+      --member="serviceAccount:${DEPLOYER}" --role=roles/iam.serviceAccountUser >/dev/null
+    echo "   + serviceAccountUser $(echo "$SA" | cut -d@ -f1) -> deployer"
+  done
+else
+  echo "   ! Falta el deployer (${DEPLOYER}). Corré primero el WIF de test:"
+  echo "     (desde margay-gcp-run-template) ./ops/bootstrap-github-wif.sh ${PROJECT} margaystudio process-ai-core"
+  echo "     y volvé a correr este script (es idempotente: completa solo este paso)."
+fi
 
 echo
 echo "==> Infra de test lista. Falta (fuera de este script):"
