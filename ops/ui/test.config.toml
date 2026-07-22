@@ -1,0 +1,43 @@
+# Config de deploy — process-ai UI TEST (margay-platform-test).
+# La imagen de UI hornea los NEXT_PUBLIC_* en build-time, por eso test buildea su
+# PROPIA imagen (no se puede reusar la de prod). Versionada: el anon key es público.
+# TODO(Santi): completar los REEMPLAZAR_* antes del primer deploy a test.
+
+[gcp]
+project = "margay-platform-test"
+region = "europe-west1"
+artifact_repo = "margay-services"
+
+[image]
+name = "margay-process-ai-ui-test"
+context = "."
+dockerfile = "Dockerfile.ui"
+
+[runtime]
+type = "service"
+name = "margay-process-ai-ui-test"
+service_account = "process-ai-ui-sa@margay-platform-test.iam.gserviceaccount.com"
+
+[service]
+cpu = "1"
+memory = "512Mi"
+timeout = "120s"
+min_instances = 0
+max_instances = 3
+concurrency = 40
+allow_unauthenticated = true
+
+[env]
+ENVIRONMENT = "test"
+NODE_ENV = "production"
+NEXT_PUBLIC_COOKIE_DOMAIN = ".margaystudio.io"
+
+[build_args]
+NEXT_PUBLIC_ENVIRONMENT = "test"
+NEXT_PUBLIC_API_URL = "https://api.process-test.margaystudio.io"
+NEXT_PUBLIC_HUB_URL = "https://hub.margaystudio.io"
+NEXT_PUBLIC_SITE_URL = "https://process-test.margaystudio.io"
+NEXT_PUBLIC_SUPABASE_URL = "REEMPLAZAR_URL_SUPABASE_TEST"
+# anon key del Supabase de TEST (público). Obtenerlo del dashboard del proyecto test.
+NEXT_PUBLIC_SUPABASE_ANON_KEY = "REEMPLAZAR_ANON_KEY_SUPABASE_TEST"
+NEXT_PUBLIC_COOKIE_DOMAIN = ".margaystudio.io"

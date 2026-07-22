@@ -1,0 +1,55 @@
+# Config de deploy — process-ai API TEST (margay-platform-test).
+# Versionada: sin secretos (viven en Secret Manager del proyecto test).
+# TODO(Santi): completar los valores marcados REEMPLAZAR_* antes del primer deploy a test.
+
+[gcp]
+project = "margay-platform-test"
+region = "europe-west1"
+artifact_repo = "margay-services"   # registry propio del proyecto test (release.py lo crea si no existe)
+
+[image]
+name = "margay-process-ai-api-test"
+context = "."
+dockerfile = "Dockerfile.api"
+
+[runtime]
+type = "service"
+name = "margay-process-ai-api-test"
+service_account = "process-ai-api-sa@margay-platform-test.iam.gserviceaccount.com"
+
+[service]
+cpu = "1"
+memory = "1Gi"
+timeout = "300s"
+min_instances = 0
+max_instances = 3
+concurrency = 10
+allow_unauthenticated = true
+
+[env]
+ENVIRONMENT = "test"
+LOG_LEVEL = "INFO"
+# Modo degradado en test: no falla al arrancar si el Supabase de test todavía no
+# tiene pgvector/pg_trgm/columna vector. Poné "false" cuando la infra semántica esté lista.
+SEMANTIC_ALLOW_DEGRADED = "true"
+# Workspace de test (ya corre en margay-platform-test).
+WORKSPACE_URL = "REEMPLAZAR_URL_WORKSPACE_TEST"   # ej. https://margay-workspace-<NUM-TEST>.europe-west1.run.app
+PROCESS_AI_APP_KEY = "process_ai"
+DATABASE_SCHEMA = "process_ai"
+API_BASE_URL = "https://api.process-test.margaystudio.io"
+CORS_ORIGINS = "https://process-test.margaystudio.io,https://hub.margaystudio.io"
+# Supabase de TEST (dedicado).
+SUPABASE_URL = "REEMPLAZAR_URL_SUPABASE_TEST"   # https://<ref-test>.supabase.co
+STORAGE_BACKEND = "supabase"
+SUPABASE_STORAGE_BUCKET = "process-ai-artifacts"
+OPENAI_MODEL_TEXT = "gpt-4.1-mini"
+OPENAI_MODEL_TRANSCRIBE = "gpt-4o-mini-transcribe"
+OPENAI_MODEL_TRANSCRIBE_TIMESTAMPS = "whisper-1"
+ARTIFACT_URL_TTL_SECONDS = "900"
+
+[secrets]
+# Secret Manager de margay-platform-test (crear estos secrets antes del deploy).
+DATABASE_URL = "process-ai-database-url:latest"
+OPENAI_API_KEY = "process-ai-openai-api-key:latest"
+ARTIFACT_SIGNING_SECRET = "process-ai-artifact-signing-secret:latest"
+SUPABASE_SERVICE_ROLE_KEY = "process-ai-supabase-service-role-key:latest"

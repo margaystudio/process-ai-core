@@ -40,6 +40,7 @@ ui/node_modules/
 # test y locales NO: son entornos personales.
 ops/**/*.config.toml
 !ops/**/prod*.config.toml
+!ops/**/test*.config.toml
 
 # Backups locales previos al cutover de infra (no versionar)
 *.pre-cutover.bak

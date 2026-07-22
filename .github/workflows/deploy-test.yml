@@ -1,0 +1,57 @@
+# Deploy a TEST — build + deploy en un solo paso (monorepo: elegí componente).
+#
+# Modelo: cada entorno buildea SU imagen en SU registry (no se comparten imágenes
+# entre proyectos). Test es autocontenido: buildea con los build_args de test en
+# margay-platform-test y deploya ahí. Prod queda intacto.
+#
+# Por qué build+deploy junto (y no release/deploy separado como prod): test es para
+# validar, no un artefacto auditado. Buildea el código actual con config de test.
+#
+# Requisitos:
+# - Bootstrap WIF en el proyecto de test: ops/bootstrap-github-wif.sh margay-platform-test <org> <repo>
+# - Variables del repo (Actions -> Variables): GCP_WIF_PROVIDER_TEST + GCP_DEPLOY_SA_TEST
+# - ops/<component>/test.config.toml con los valores de test.
+#
+# Para repos de 1 solo deployable: borrá el input 'component' y las líneas que lo usan.
+
+name: deploy-test
+
+on:
+  workflow_dispatch:
+    inputs:
+      component:
+        description: "Componente a deployar a test"
+        type: choice
+        options:
+          - api
+          - ui
+        default: api
+        required: true
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy-test:
+    runs-on: ubuntu-latest
+    environment: test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Auth GCP TEST (Workload Identity Federation)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER_TEST }}
+          service_account: ${{ vars.GCP_DEPLOY_SA_TEST }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Build + deploy a test
+        run: |
+          C="${{ inputs.component }}"
+          # release.py --env test permite sha-<shortsha> (no exige tag); buildea en el registry de test.
+          python ops/release.py --env test --component "$C"
+          python ops/deploy.py  --env test --component "$C"
