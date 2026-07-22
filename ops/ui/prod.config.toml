@@ -2,7 +2,7 @@
 
 [gcp]
 project = "margay-platform-prod"
-region = "us-central1"
+region = "europe-west1"
 artifact_repo = "margay-services"
 
 [image]
@@ -36,8 +36,8 @@ NEXT_PUBLIC_ENVIRONMENT = "production"
 NEXT_PUBLIC_API_URL = "https://api.process.margaystudio.io"
 NEXT_PUBLIC_HUB_URL = "https://hub.margaystudio.io"
 NEXT_PUBLIC_SITE_URL = "https://process.margaystudio.io"
-NEXT_PUBLIC_SUPABASE_URL = "https://mqldatizgvmjqisuqabv.supabase.co"
-NEXT_PUBLIC_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1xbGRhdGl6Z3ZtanFpc3VxYWJ2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAzOTYyODIsImV4cCI6MjA5NTk3MjI4Mn0.DOKZcp6S-vKj_rbocRcjQ0IETXl4TtlnDziLsB9Dszs"
+NEXT_PUBLIC_SUPABASE_URL = "https://sjujhroqaoggwbwiviqu.supabase.co"
+NEXT_PUBLIC_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNqdWpocm9xYW9nZ3did2l2aXF1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ2NTE5OTMsImV4cCI6MjEwMDIyNzk5M30.pkksNsY9FFJEUb2nE82BmdQYyjlGieTxC3kBmI10zBI"
 NEXT_PUBLIC_COOKIE_DOMAIN = ".margaystudio.io"
 
 [secrets]

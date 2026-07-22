@@ -2,7 +2,7 @@
 
 [gcp]
 project = "margay-platform-prod"
-region = "us-central1"
+region = "europe-west1"
 artifact_repo = "margay-services"
 
 [image]
@@ -36,7 +36,7 @@ LOG_LEVEL = "WARNING"
 SEMANTIC_ALLOW_DEGRADED = "false"
 
 # Control plane margay-workspace (prod)
-WORKSPACE_URL = "https://margay-workspace-513594124246.us-central1.run.app"
+WORKSPACE_URL = "https://margay-workspace-513594124246.europe-west1.run.app"
 PROCESS_AI_APP_KEY = "process_ai"
 
 # Schema Postgres dedicado en el mismo Supabase prod (mqld) que workspace
@@ -49,7 +49,7 @@ API_BASE_URL = "https://api.process.margaystudio.io"
 CORS_ORIGINS = "https://process.margaystudio.io,https://hub.margaystudio.io"
 
 # Supabase PROD (mqld)
-SUPABASE_URL = "https://mqldatizgvmjqisuqabv.supabase.co"
+SUPABASE_URL = "https://sjujhroqaoggwbwiviqu.supabase.co"
 
 # Almacenamiento de artefactos en Supabase Storage (bucket privado).
 # Sin esto el backend usaría el disco efímero del contenedor.
