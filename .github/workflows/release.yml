@@ -17,6 +17,7 @@
 #     GCP_DEPLOY_SA     github-deployer@<PROJECT_ID>.iam.gserviceaccount.com
 
 name: release
+run-name: release ${{ github.ref_name }}
 
 on:
   push:
