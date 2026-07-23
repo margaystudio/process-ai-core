@@ -260,3 +260,33 @@ class SemanticPipelineRun(Base):
     __table_args__ = (
         Index("ix_semantic_pipeline_runs_doc_started", "document_id", "started_at"),
     )
+
+
+class TytoQueryLog(Base):
+    """Registro de cada consulta a Tyto (spec Tyto §1 "Segura" — logging, ADR-011).
+
+    Una fila por pregunta: qué se preguntó, si se respondió o se rechazó, y qué
+    fuentes se usaron. Alimenta el futuro dashboard de "preguntas sin respuesta"
+    y la detección de brechas documentales. Tabla de auditoría desacoplada (sin
+    FKs duras: el rastro sobrevive aunque se borren documentos o usuarios).
+    """
+
+    __tablename__ = "tyto_query_log"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    workspace_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
+    user_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+
+    question: Mapped[str] = mapped_column(Text, nullable=False)
+    answered: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    refusal_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # JSON: [{source_id, document_id, document_version_id, tier, cited}] — las
+    # fuentes recuperadas y cuáles citó efectivamente la respuesta.
+    sources_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index("ix_tyto_query_log_ws_created", "workspace_id", "created_at"),
+    )
