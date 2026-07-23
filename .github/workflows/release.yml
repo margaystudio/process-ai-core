@@ -77,7 +77,7 @@ jobs:
           git fetch origin main
           git checkout main
           git add "${{ steps.release.outputs.release_file }}"
-          git diff --cached --quiet || git commit -m "release: ${GITHUB_REF_NAME} [skip ci]"
+          git diff --cached --quiet || git commit -m "release: ${GITHUB_REF_NAME}"
           git push origin main
 
       - name: GitHub Release
