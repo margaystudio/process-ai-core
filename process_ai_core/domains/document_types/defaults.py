@@ -19,12 +19,16 @@ from datetime import datetime
 from typing import Any
 
 # Allowlist de comportamientos (MVP). La API valida contra esta lista.
+# `es_referencia`: el tipo es material externo/de referencia (manual de fabricante,
+# etc.). Tyto degrada las respuestas respaldadas por estas fuentes al nivel de
+# confianza 🟡 "referencia" (spec Tyto §2). Default false → todo lo aprobado es 🟢.
 BEHAVIOR_KEYS: tuple[str, ...] = (
     "versionado",
     "aprobacion",
     "tyto",
     "relaciones",
     "metadatos",
+    "es_referencia",
 )
 
 
@@ -77,7 +81,7 @@ DEFAULT_DOCUMENT_TYPES: list[dict[str, Any]] = [
         "key": "manual_externo",
         "label": "Manual externo",
         "prompt_text": "Tipo documental: manual externo. Documento de proveedor o fabricante; es referencia, no procedimiento interno.",
-        "behaviors": _behaviors("tyto", "metadatos"),
+        "behaviors": _behaviors("tyto", "metadatos", "es_referencia"),
         "sort_order": 40,
         "icon": "BookMarked",
         "color": "#64748B",
