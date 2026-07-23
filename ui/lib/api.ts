@@ -2081,3 +2081,104 @@ export async function getWorkspaceLimits(
 
   return response.json();
 }
+
+// ─── Tyto (Fase B — streaming) ──────────────────────────────────────────────
+// Contrato: api/routes/tyto.py · POST /api/v1/tyto/query/stream (SSE por POST,
+// por eso no usamos EventSource: leemos el body a mano con getReader()).
+
+/** Nivel de confianza de una fuente/segmento citado por Tyto. */
+export type TytoTier = 'aprobado' | 'referencia' | 'inferido';
+
+export interface TytoSegment {
+  text: string;
+  source_ids: string[];
+  tier: string;
+}
+
+export interface TytoSource {
+  source_id: string;
+  document_id: string;
+  document_name: string;
+  version: number | null;
+  approved_at: string | null;
+  tier: string;
+}
+
+export interface TytoQueryResult {
+  answered: boolean;
+  answer: string;
+  segments: TytoSegment[];
+  sources: TytoSource[];
+  refusal_reason?: string | null;
+}
+
+export type TytoStreamEvent =
+  | { type: 'token'; text: string }
+  | { type: 'result'; data: TytoQueryResult }
+  | { type: 'error'; detail: string };
+
+/** Parsea un bloque SSE (`event: <tipo>\ndata: <json>`) al contrato de Tyto. */
+function parseTytoSseBlock(block: string): TytoStreamEvent | null {
+  let eventName = 'message';
+  const dataLines: string[] = [];
+
+  for (const line of block.split('\n')) {
+    if (line.startsWith('event:')) {
+      eventName = line.slice('event:'.length).trim();
+    } else if (line.startsWith('data:')) {
+      dataLines.push(line.slice('data:'.length).trim());
+    }
+  }
+  if (!dataLines.length) return null;
+
+  const data = JSON.parse(dataLines.join('\n'));
+  if (eventName === 'token') return { type: 'token', text: data.text };
+  if (eventName === 'result') return { type: 'result', data };
+  if (eventName === 'error') return { type: 'error', detail: data.detail };
+  return null;
+}
+
+/**
+ * Consulta a Tyto vía streaming SSE. Emite eventos incrementales por `onEvent`
+ * a medida que llegan: el streaming es solo percepción de velocidad — los
+ * niveles de confianza (tier) y las fuentes SOLO llegan en el evento `result`
+ * final, nunca en los `token` (ver api/routes/tyto.py).
+ */
+export async function streamTytoQuery(
+  question: string,
+  onEvent: (event: TytoStreamEvent) => void,
+  signal?: AbortSignal
+): Promise<void> {
+  const { getAuthHeaders } = await import('@/lib/api-auth');
+  const headers = await getAuthHeaders({ 'Content-Type': 'application/json' });
+
+  const response = await fetch(`${API_URL}/api/v1/tyto/query/stream`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ question }),
+    signal,
+  });
+
+  if (!response.ok || !response.body) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
+    throw new Error(formatApiErrorDetail(error.detail, `HTTP ${response.status}`));
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    let separatorIndex: number;
+    while ((separatorIndex = buffer.indexOf('\n\n')) !== -1) {
+      const rawEvent = buffer.slice(0, separatorIndex);
+      buffer = buffer.slice(separatorIndex + 2);
+      const parsed = parseTytoSseBlock(rawEvent);
+      if (parsed) onEvent(parsed);
+    }
+  }
+}

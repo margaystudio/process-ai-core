@@ -10,7 +10,7 @@ import {
   Folder,
   List,
   Users,
-  Circle,
+  MessageCircle,
 } from 'lucide-react'
 import { AppShell, Topbar, Sidebar, type NavGroup, type TopbarTenant } from '@/shared/ui/components'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
@@ -153,14 +153,16 @@ export default function ChromeShell({ children }: { children: React.ReactNode })
       ],
     },
     {
+      // Tyto es para cualquier staff autenticado del workspace (mismo gate que
+      // el backend: sync_workspace_access), no un permiso de administración —
+      // por eso este grupo NO usa canAdminister, a diferencia de "Administración".
       label: 'Asistente',
       items: [
         {
           label: 'Tyto',
-          icon: <Circle />,
-          // placeholder — pantalla aún no implementada
-          active: false,
-          onClick: undefined,
+          icon: <MessageCircle />,
+          active: active('/tyto'),
+          onClick: go('/tyto'),
         },
       ],
     },

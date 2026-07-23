@@ -104,6 +104,31 @@ class OpenAIProvider:
             )
         return completion.choices[0].message.content or "{}"
 
+    def stream_text(self, *, system: str, user: str, temperature: float = 0.2):
+        """Genera texto en streaming: yield de deltas de contenido (str).
+
+        A diferencia de `complete_json`, la salida es texto plano (prosa). Los
+        errores del SDK — incluidos los que ocurren a MITAD del stream — se
+        traducen a AIProviderError, para que el caller pueda emitir un error
+        explícito en vez de una respuesta truncada silenciosa.
+        """
+        with _openai_call("chat.completions (stream_text)"):
+            stream = self.client.chat.completions.create(
+                model=self._model_text,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                temperature=temperature,
+                stream=True,
+            )
+            for chunk in stream:
+                if not chunk.choices:
+                    continue
+                delta = chunk.choices[0].delta
+                if delta and delta.content:
+                    yield delta.content
+
     # ------------------------------------------------------------------
     # EmbeddingProvider
     # ------------------------------------------------------------------
