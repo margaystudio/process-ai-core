@@ -145,6 +145,13 @@ class Settings:
     # humana"). Es un opt-in operativo explícito; no altera el default de gobernanza.
     relation_autoconfirm_threshold: float | None = None
 
+    # ── Tyto (capa de respuesta) ────────────────────────────────────────────
+    # Umbral de relevancia del retrieval: si NINGÚN chunk recuperado alcanza este
+    # score, Tyto rechaza la pregunta SIN llamar al LLM (spec Tyto §1 "camino de
+    # rechazo"). El score es similitud coseno (con embeddings) u overlap léxico
+    # (fallback), ambos en 0–1. Primer corte conservador; ajustar con uso real.
+    tyto_relevance_threshold: float = 0.15
+
 
 def _env_bool(name: str, *, default: bool) -> bool:
     """Lee un booleano de entorno. Acepta 1/true/yes/on (y sus negativos)."""
@@ -237,5 +244,10 @@ def get_settings() -> Settings:
         ),
         relation_autoconfirm_threshold=_env_float_optional(
             "RELATION_AUTOCONFIRM_THRESHOLD"
+        ),
+
+        # Tyto: umbral de relevancia para el camino de rechazo.
+        tyto_relevance_threshold=float(
+            os.getenv("TYTO_RELEVANCE_THRESHOLD", "0.15")
         ),
     )
