@@ -17,6 +17,7 @@
 #     GCP_DEPLOY_SA     github-deployer@<PROJECT_ID>.iam.gserviceaccount.com
 
 name: release
+run-name: release ${{ github.ref_name }}
 
 on:
   push:
@@ -70,15 +71,16 @@ jobs:
           fi
           python ops/release.py "${ARGS[@]}"
 
-      - name: Commit release file a main
+      - name: Commit release file a la rama default
         run: |
+          BR="${{ github.event.repository.default_branch }}"
           git config user.name "margay-release-bot"
           git config user.email "sdalto@margaystudio.io"
-          git fetch origin main
-          git checkout main
+          git fetch origin "$BR"
+          git checkout "$BR"
           git add "${{ steps.release.outputs.release_file }}"
-          git diff --cached --quiet || git commit -m "release: ${GITHUB_REF_NAME} [skip ci]"
-          git push origin main
+          git diff --cached --quiet || git commit -m "release: ${GITHUB_REF_NAME}"
+          git push origin "$BR"
 
       - name: GitHub Release
         uses: softprops/action-gh-release@v2

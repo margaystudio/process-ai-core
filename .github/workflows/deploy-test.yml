@@ -15,6 +15,7 @@
 # Para repos de 1 solo deployable: borrá el input 'component' y las líneas que lo usan.
 
 name: deploy-test
+run-name: deploy-test ${{ inputs.component }}
 
 on:
   workflow_dispatch:

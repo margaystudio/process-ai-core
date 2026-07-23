@@ -17,6 +17,7 @@
 # Si test y prod son el MISMO proyecto GCP, dejá las _TEST sin definir: caen a las de prod.
 
 name: deploy
+run-name: "deploy ${{ inputs.env }} / ${{ inputs.component }} · ${{ inputs.version != '' && inputs.version || 'última' }}"
 
 on:
   workflow_dispatch:
