@@ -128,6 +128,9 @@ class Settings:
     tesseract_cmd: str = ""
     # Idiomas Tesseract (formato +, ej. spa+eng)
     ocr_languages: str = "spa+eng"
+    # Umbral heurístico para detectar un PDF escaneado: si el promedio de
+    # caracteres por página que devuelve pypdf cae por debajo, se cae al OCR.
+    ocr_pdf_min_chars_per_page: int = 20
 
     # ── Capa semántica ──────────────────────────────────────────────────────
     # Modo degradado. Si es False (estricto; default en prod), el preflight de
@@ -228,6 +231,7 @@ def get_settings() -> Settings:
         # OCR local (Tesseract)
         tesseract_cmd=os.getenv("TESSERACT_CMD", ""),
         ocr_languages=os.getenv("OCR_LANGUAGES", "spa+eng"),
+        ocr_pdf_min_chars_per_page=int(os.getenv("OCR_PDF_MIN_CHARS_PER_PAGE", "20")),
 
         # Capa semántica: estricto en prod (default false), degradado en dev/test.
         semantic_allow_degraded=_env_bool(
