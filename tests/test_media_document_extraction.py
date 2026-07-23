@@ -1,9 +1,12 @@
 from pathlib import Path
+import logging
 import sys
 import types
 
 import pytest
 
+import process_ai_core.ai.factory as ai_factory
+from process_ai_core.ai.ocr_provider import TesseractNotAvailableError
 from process_ai_core.media import _extract_text_from_document
 
 
@@ -65,3 +68,91 @@ def test_extract_text_from_doc_raises_clear_error(tmp_path: Path):
 
     with pytest.raises(ValueError, match=".doc"):
         _extract_text_from_document(legacy_doc)
+
+
+def test_extract_text_from_real_text_pdf_uses_pypdf_not_ocr(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """PDF con capa de texto real: pypdf alcanza, el OCR NO debe invocarse."""
+    fitz = pytest.importorskip("fitz")
+
+    pdf_path = tmp_path / "con_texto.pdf"
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text(
+        (72, 72),
+        "Procedimiento de apertura de estacion.\n"
+        "Paso 1: encender el sistema.\n"
+        "Paso 2: verificar surtidores.",
+    )
+    doc.save(str(pdf_path))
+    doc.close()
+
+    # Si por algún motivo se cae al OCR, que el test falle en vez de degradar.
+    def _fail_ocr():
+        raise AssertionError("no debería instanciarse el OCR para un PDF con texto")
+
+    monkeypatch.setattr(ai_factory, "get_ocr_provider", _fail_ocr)
+
+    extracted = _extract_text_from_document(pdf_path)
+    assert "Paso 1" in extracted
+    assert "surtidores" in extracted
+
+
+def test_scanned_pdf_falls_back_to_ocr_with_mocked_provider(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """PDF escaneado (pypdf devuelve vacío) → se usa el OCR provider mockeado."""
+    pdf = tmp_path / "escaneado.pdf"
+    pdf.write_bytes(b"%PDF-1.4 scanned-image-only")
+
+    class _EmptyPage:
+        def extract_text(self):
+            return ""
+
+    class _Reader:
+        def __init__(self, _path):
+            self.pages = [_EmptyPage(), _EmptyPage()]
+
+    monkeypatch.setitem(sys.modules, "pypdf", types.SimpleNamespace(PdfReader=_Reader))
+
+    class _FakeOCR:
+        def extract_text(self, data, *, content_type=None):
+            assert data == b"%PDF-1.4 scanned-image-only"
+            assert content_type == "application/pdf"
+            return "TEXTO RECUPERADO POR OCR"
+
+    monkeypatch.setattr(ai_factory, "get_ocr_provider", lambda: _FakeOCR())
+
+    extracted = _extract_text_from_document(pdf)
+    assert extracted == "TEXTO RECUPERADO POR OCR"
+
+
+def test_scanned_pdf_without_ocr_degrades_to_pypdf_text(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+):
+    """Sin OCR disponible: devuelve el texto de pypdf (vacío) y loguea warning, no rompe."""
+    pdf = tmp_path / "escaneado.pdf"
+    pdf.write_bytes(b"%PDF-1.4 scanned-image-only")
+
+    class _EmptyPage:
+        def extract_text(self):
+            return ""
+
+    class _Reader:
+        def __init__(self, _path):
+            self.pages = [_EmptyPage()]
+
+    monkeypatch.setitem(sys.modules, "pypdf", types.SimpleNamespace(PdfReader=_Reader))
+
+    class _UnavailableOCR:
+        def extract_text(self, data, *, content_type=None):
+            raise TesseractNotAvailableError("Tesseract no instalado")
+
+    monkeypatch.setattr(ai_factory, "get_ocr_provider", lambda: _UnavailableOCR())
+
+    with caplog.at_level(logging.WARNING):
+        extracted = _extract_text_from_document(pdf)
+
+    assert extracted == ""  # texto de pypdf (vacío), sin romper el import
+    assert any("OCR" in rec.message for rec in caplog.records)

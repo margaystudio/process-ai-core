@@ -30,6 +30,7 @@ La función principal `enrich_assets` devuelve **tres estructuras**:
    List[dict] → imágenes sueltas aportadas por el usuario (evidencia visual).
 """
 
+import logging
 import shutil
 import subprocess
 from pathlib import Path
@@ -43,6 +44,8 @@ from .llm_client import (
     transcribe_audio_with_timestamps,
 )
 from .domain_models import EnrichedAsset, RawAsset
+
+logger = logging.getLogger(__name__)
 
 
 # ============================================================
@@ -147,7 +150,17 @@ def _extract_text_from_document(path: Path) -> str:
             text = page.extract_text()
             if text:
                 parts.append(text)
-        return "\n\n".join(parts)
+        pypdf_text = "\n\n".join(parts)
+
+        # PDF escaneado: pypdf no lee texto de imágenes. Si el promedio de
+        # caracteres por página es muy bajo, intentamos OCR sobre las páginas
+        # rasterizadas. Si el OCR no está disponible, degradamos devolviendo el
+        # texto de pypdf (aunque sea vacío): nunca rompemos la importación.
+        num_pages = len(reader.pages) or 1
+        avg_chars_per_page = len(pypdf_text.strip()) / num_pages
+        if avg_chars_per_page < get_settings().ocr_pdf_min_chars_per_page:
+            return _ocr_pdf_fallback(path, pypdf_text)
+        return pypdf_text
     if ext == ".docx":
         from docx import Document as DocxDocument
         doc = DocxDocument(path)
@@ -161,6 +174,49 @@ def _extract_text_from_document(path: Path) -> str:
     raise ValueError(
         f"Extensión de documento no soportada para extracción de texto: {ext or '(sin extensión)'}"
     )
+
+
+def _ocr_pdf_fallback(path: Path, pypdf_text: str) -> str:
+    """
+    Intenta OCR sobre un PDF (presuntamente escaneado) usando el OCR provider
+    del repo, que rasteriza las páginas con PyMuPDF y las pasa por Tesseract.
+
+    Degradación: si no hay OCR disponible (binario de Tesseract ausente, sin
+    configurar, o cualquier fallo), loguea un warning y devuelve el texto de
+    pypdf (aunque sea vacío). Nunca lanza: el import no debe romperse por OCR.
+
+    Args:
+        path: Ruta al PDF.
+        pypdf_text: Texto ya extraído por pypdf (fallback si el OCR falla).
+
+    Returns:
+        Texto del OCR si tuvo éxito; si no, el texto de pypdf.
+    """
+    try:
+        from .ai.factory import get_ocr_provider
+
+        provider = get_ocr_provider()
+        ocr_text = provider.extract_text(path.read_bytes(), content_type="application/pdf")
+        if ocr_text and ocr_text.strip():
+            logger.info(
+                "PDF escaneado '%s': OCR extrajo %d caracteres.",
+                path.name,
+                len(ocr_text),
+            )
+            return ocr_text
+        logger.warning(
+            "PDF escaneado '%s': el OCR no devolvió texto; se usa el texto de pypdf.",
+            path.name,
+        )
+        return pypdf_text
+    except Exception as exc:  # noqa: BLE001 — OCR es best-effort, jamás rompe el import
+        logger.warning(
+            "PDF escaneado '%s': OCR no disponible (%s); se usa el texto de pypdf "
+            "(puede estar vacío).",
+            path.name,
+            exc,
+        )
+        return pypdf_text
 
 
 def _ffmpeg_frame_at_time(video_path: Path, t_s: float, out_img: Path) -> None:
