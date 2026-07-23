@@ -190,6 +190,10 @@ def deploy_job(
     timeout = str(job_cfg.get("timeout", "3600s"))
     max_retries = str(job_cfg.get("max_retries", 0))
     tasks = str(job_cfg.get("tasks", 1))
+    # Override de entrypoint (para reusar una imagen con otro comando, ej. un runner
+    # que comparte la imagen de la API). command = ENTRYPOINT, args = CMD (CSV).
+    command = str(job_cfg.get("command", ""))
+    args_csv = str(job_cfg.get("args", ""))
 
     # Detectar si el job existe
     if exists(
@@ -231,6 +235,12 @@ def deploy_job(
         "--tasks",
         tasks,
     ]
+
+    # Override de entrypoint/args si la config lo define (ej. runner que reusa la imagen API)
+    if command:
+        cmd += ["--command", command]
+    if args_csv:
+        cmd += ["--args", args_csv]
 
     # env vars: siempre con update (gcloud maneja merge)
     if env_csv:
