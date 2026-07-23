@@ -73,6 +73,40 @@ def _folder_metadata(folder: Folder) -> dict:
     return metadata if isinstance(metadata, dict) else {}
 
 
+def _resolve_effective_folder_permissions(
+    session: Session,
+    folder: Folder,
+) -> tuple[list[str], Folder | None]:
+    """Devuelve los roles efectivos y la carpeta que los define."""
+    current = folder
+    visited: set[str] = set()
+
+    while current:
+        if current.id in visited:
+            # Una jerarquia corrupta no debe provocar un loop infinito.
+            return [], None
+        visited.add(current.id)
+
+        if not getattr(current, "inherits_permissions", True):
+            rows = (
+                session.query(FolderPermission.operational_role_id)
+                .filter_by(folder_id=current.id)
+                .all()
+            )
+            return [row[0] for row in rows], current
+
+        if not current.parent_id:
+            return [], None
+
+        current = (
+            session.query(Folder)
+            .filter_by(id=current.parent_id, workspace_id=folder.workspace_id)
+            .first()
+        )
+
+    return [], None
+
+
 def resolve_inherited(folder: Folder, attr: str) -> tuple[object, str, str | None]:
     value = getattr(folder, attr)
     if value is not None:
@@ -266,15 +300,29 @@ async def get_folder_permissions(
             raise HTTPException(status_code=403, detail="Se requiere rol owner o admin")
 
     inherits = getattr(folder, "inherits_permissions", True)
-    perms = session.query(FolderPermission).filter_by(folder_id=folder_id).all()
-    role_ids = [p.operational_role_id for p in perms]
-    roles = session.query(OperationalRole).filter(OperationalRole.id.in_(role_ids)).all() if role_ids else []
-    role_list = [{"id": r.id, "name": r.name, "slug": r.slug} for r in roles]
+    role_ids, source_folder = _resolve_effective_folder_permissions(session, folder)
+    roles_by_id = {
+        role.id: role
+        for role in (
+            session.query(OperationalRole)
+            .filter(OperationalRole.id.in_(role_ids))
+            .all()
+            if role_ids
+            else []
+        )
+    }
+    role_list = [
+        {"id": roles_by_id[rid].id, "name": roles_by_id[rid].name, "slug": roles_by_id[rid].slug}
+        for rid in role_ids
+        if rid in roles_by_id
+    ]
     return {
         "folder_id": folder_id,
         "inherits_permissions": inherits,
         "operational_role_ids": role_ids,
         "operational_roles": role_list,
+        "origin": "heredado" if inherits else "personalizado",
+        "from": source_folder.name if inherits and source_folder else None,
     }
 
 
@@ -297,12 +345,31 @@ async def update_folder_permissions(
     role = get_user_role(session, user_id, folder.workspace_id)
     if not role or role.name not in ("owner", "admin", "superadmin"):
         raise HTTPException(status_code=403, detail="Se requiere rol owner o admin")
+    was_inheriting = getattr(folder, "inherits_permissions", True)
+    will_inherit = request.inherits_permissions if request.inherits_permissions is not None else was_inheriting
+    requested_role_ids = (
+        list(dict.fromkeys(request.operational_role_ids))
+        if request.operational_role_ids is not None
+        else None
+    )
+
+    if will_inherit and requested_role_ids is not None:
+        raise HTTPException(
+            status_code=400,
+            detail="operational_role_ids solo se puede definir cuando inherits_permissions es false",
+        )
+
+    # Al cortar la herencia sin una lista explicita, se conserva el acceso efectivo
+    # actual materializando los permisos del ancestro en esta carpeta.
+    if was_inheriting and not will_inherit and requested_role_ids is None:
+        requested_role_ids, _ = _resolve_effective_folder_permissions(session, folder)
+
     if request.inherits_permissions is not None:
         folder.inherits_permissions = request.inherits_permissions
-    if request.operational_role_ids is not None:
+
+    if not will_inherit and requested_role_ids is not None:
         # Validar todos los roles de una (batch, no N+1) ANTES de reescribir permisos,
         # así un id inválido no deja los permisos borrados a medias.
-        requested_role_ids = list(request.operational_role_ids)
         if requested_role_ids:
             valid_ids = {
                 row[0]

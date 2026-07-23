@@ -1,4 +1,5 @@
 import type { WorkspaceResponse } from '@/lib/api'
+import { canAdministerWorkspace } from '@/lib/adminGating'
 
 export const WORKSPACE_PROFILE_BANNER_MESSAGE =
   'Completá el perfil del espacio de trabajo para obtener mejores documentos generados por IA.'
@@ -15,8 +16,7 @@ export function shouldPromptWorkspaceProfile(
   role: string | null,
   platformRoles: string[] = []
 ): boolean {
-  if (platformRoles.includes('superadmin')) return true
-  return role === 'admin' || role === 'owner' || role === 'creator'
+  return canAdministerWorkspace({ platformRoles, workspaceRole: role })
 }
 
 export function workspaceSettingsGeneralUrl(workspaceId: string): string {

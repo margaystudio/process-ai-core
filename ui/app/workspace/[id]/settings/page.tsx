@@ -23,6 +23,7 @@ import { useLoading } from '@/contexts/LoadingContext'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
 import { useCanEditWorkspace, useCanManageUsers } from '@/hooks/useHasPermission'
 import { useUserRole } from '@/hooks/useUserRole'
+import { canAdministerWorkspace } from '@/lib/adminGating'
 import { extractBrandingColors } from '@/lib/extractBrandingColors'
 import GeneralSettingsTab from '@/components/workspace/GeneralSettingsTab'
 import UsersSettingsTab from '@/components/workspace/UsersSettingsTab'
@@ -69,16 +70,19 @@ export default function WorkspaceSettingsPage() {
   const { role, loading: loadingRole } = useUserRole()
   const currentWorkspace = workspaces.find((ws) => ws.id === workspaceId) || null
   const workspaceRole = currentWorkspace?.role ?? role
+  // Históricamente creator solo accede a branding, salvo que tenga workspace.edit.
+  const generalAccessRole = workspaceRole === 'creator' ? null : workspaceRole
 
-  const isSuperadmin = platformRoles.includes('superadmin')
-
-  const hasAccess = isSuperadmin || canEditWorkspace || workspaceRole === 'owner' || workspaceRole === 'admin'
+  const hasAccess = canAdministerWorkspace({
+    platformRoles,
+    workspaceRole: generalAccessRole,
+    canEditWorkspace,
+  })
   const canManageBranding = workspaceRole === 'owner' || workspaceRole === 'creator'
-  const canEditGeneralSettings =
-    isSuperadmin ||
-    workspaceRole === 'owner' ||
-    workspaceRole === 'creator' ||
-    workspaceRole === 'admin'
+  const canEditGeneralSettings = canAdministerWorkspace({
+    platformRoles,
+    workspaceRole,
+  })
   const hubUrl = process.env.NEXT_PUBLIC_HUB_URL
 
   const [activeTab, setActiveTab] = useState<ActiveTab>('general')
@@ -86,10 +90,10 @@ export default function WorkspaceSettingsPage() {
   useEffect(() => {
     if (typeof window === 'undefined') return
     const tab = new URLSearchParams(window.location.search).get('tab')
-    if (tab === 'general' && (isSuperadmin || canEditWorkspace || workspaceRole === 'owner' || workspaceRole === 'admin')) {
+    if (tab === 'general' && hasAccess) {
       setActiveTab('general')
     }
-  }, [isSuperadmin, canEditWorkspace, workspaceRole])
+  }, [hasAccess])
 
   const [error, setError] = useState<string | null>(null)
 

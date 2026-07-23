@@ -16,6 +16,6 @@ export default defineConfig({
     // Los tests de lógica pura (lib/**) corren igual bajo jsdom.
     environment: 'jsdom',
     setupFiles: ['./vitest.setup.ts'],
-    include: ['lib/**/*.test.ts', 'shared/ui/**/*.test.tsx'],
+    include: ['lib/**/*.test.ts', 'lib/**/*.test.tsx', 'shared/ui/**/*.test.tsx'],
   },
 })

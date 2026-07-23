@@ -8,6 +8,7 @@ import { listDocuments, getDocumentTypes, Document, Folder, CatalogOption } from
 import { useUserRole } from '@/hooks/useUserRole'
 import { useCanEditWorkspace } from '@/hooks/useHasPermission'
 import { useWorkspaceProfileIncomplete } from '@/hooks/useWorkspaceProfileIncomplete'
+import { canAdministerWorkspace } from '@/lib/adminGating'
 import WorkspaceProfileBanner from '@/components/workspace/WorkspaceProfileBanner'
 import FileImportModal from '@/components/processes/FileImportModal'
 import { usePdfViewer } from '@/hooks/usePdfViewer'
@@ -312,6 +313,7 @@ export default function WorkspacePage() {
   const { selectedWorkspaceId, selectedWorkspace, activeTenantId, platformRoles } = useWorkspace()
   const { role, loading: roleLoading } = useUserRole()
   const workspaceRole = selectedWorkspace?.role ?? role
+  const canAdminister = canAdministerWorkspace({ platformRoles, workspaceRole })
   const { incomplete: profileIncomplete, loading: profileCheckLoading } =
     useWorkspaceProfileIncomplete(selectedWorkspace, workspaceRole, platformRoles)
 
@@ -451,12 +453,7 @@ export default function WorkspacePage() {
         {!profileCheckLoading && profileIncomplete && (
           <WorkspaceProfileBanner
             workspaceId={selectedWorkspaceId}
-            canEditSettings={
-              platformRoles.includes('superadmin') ||
-              workspaceRole === 'owner' ||
-              workspaceRole === 'creator' ||
-              workspaceRole === 'admin'
-            }
+            canEditSettings={canAdminister}
             className="mb-6"
           />
         )}

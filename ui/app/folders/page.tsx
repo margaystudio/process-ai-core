@@ -5,15 +5,20 @@ import { ChevronRight, Folder as FolderIcon, Plus } from 'lucide-react'
 import {
   getDocumentTypes,
   getFolderGovernance,
+  getFolderPermissions,
   getFolderStats,
   listDocuments,
   listFolders,
+  listOperationalRoles,
+  updateFolderPermissions,
   type Document,
   type DocumentType,
   type Folder,
   type FolderGovernance,
   type FolderGovernanceOrigin,
+  type FolderPermissionsResponse,
   type FolderStats,
+  type OperationalRoleResponse,
 } from '@/lib/api'
 import { useAsync } from '@/hooks/useAsync'
 import { useFolderCrud } from '@/hooks/useFolderCrud'
@@ -665,6 +670,245 @@ function TytoTab({
   )
 }
 
+type FolderPermissionsData = {
+  permissions: FolderPermissionsResponse
+  roles: OperationalRoleResponse[]
+}
+
+function PermissionsTab({ workspaceId, folder }: { workspaceId: string; folder: Folder }) {
+  const { status, data, error, reload } = useAsync<FolderPermissionsData>(async () => {
+    if (!workspaceId || !folder.id) return undefined
+    const [permissions, roles] = await Promise.all([
+      getFolderPermissions(folder.id),
+      listOperationalRoles(workspaceId),
+    ])
+    return { permissions, roles }
+  }, [workspaceId, folder.id])
+
+  const [inheritsPermissions, setInheritsPermissions] = useState(true)
+  const [selectedRoleIds, setSelectedRoleIds] = useState<string[]>([])
+  const [saving, setSaving] = useState(false)
+  const [mutationError, setMutationError] = useState<string | null>(null)
+  const [saved, setSaved] = useState(false)
+
+  useEffect(() => {
+    if (!data) return
+    setInheritsPermissions(data.permissions.inherits_permissions)
+    setSelectedRoleIds(data.permissions.operational_role_ids)
+    setMutationError(null)
+  }, [data])
+
+  useEffect(() => {
+    setSaved(false)
+    setMutationError(null)
+  }, [folder.id])
+
+  async function handleInheritanceChange(checked: boolean) {
+    const previousValue = inheritsPermissions
+    setInheritsPermissions(checked)
+    setSaving(true)
+    setMutationError(null)
+    setSaved(false)
+    try {
+      await updateFolderPermissions(folder.id, { inherits_permissions: checked })
+      reload()
+    } catch (err) {
+      setInheritsPermissions(previousValue)
+      setMutationError(err instanceof Error ? err.message : 'Error al actualizar la herencia')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  function toggleRole(roleId: string) {
+    setSaved(false)
+    setSelectedRoleIds((current) =>
+      current.includes(roleId)
+        ? current.filter((id) => id !== roleId)
+        : [...current, roleId],
+    )
+  }
+
+  async function saveRoleAccess() {
+    setSaving(true)
+    setMutationError(null)
+    setSaved(false)
+    try {
+      await updateFolderPermissions(folder.id, {
+        inherits_permissions: false,
+        operational_role_ids: selectedRoleIds,
+      })
+      setSaved(true)
+      reload()
+    } catch (err) {
+      setMutationError(err instanceof Error ? err.message : 'Error al guardar los permisos')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if ((status === 'idle' || status === 'loading') && !data) {
+    return (
+      <div className="mt-6 max-w-[760px] space-y-3.5">
+        <div className="h-[92px] animate-pulse rounded-[13px] border border-line bg-surface" />
+        <div className="h-[220px] animate-pulse rounded-[13px] border border-line bg-surface" />
+      </div>
+    )
+  }
+
+  if (status === 'error' && !data) {
+    return (
+      <div className="mt-6 max-w-[760px] rounded-[13px] border border-danger-bd bg-danger-bg px-5 py-4">
+        <p className="text-[12.5px] font-semibold text-danger">{error}</p>
+        <button type="button" onClick={reload} className="mt-2 text-[12px] font-bold text-ink-700 underline">
+          Reintentar permisos
+        </button>
+      </div>
+    )
+  }
+
+  if (!data) return null
+
+  const { permissions, roles } = data
+  const effectiveRoles = permissions.operational_role_ids.map((roleId) => {
+    const fullRole = roles.find((role) => role.id === roleId)
+    const responseRole = permissions.operational_roles.find((role) => role.id === roleId)
+    return {
+      id: roleId,
+      name: fullRole?.name ?? responseRole?.name ?? roleId,
+      description: fullRole?.description ?? '',
+    }
+  })
+  const persistedIds = [...permissions.operational_role_ids].sort()
+  const selectedIds = [...selectedRoleIds].sort()
+  const hasRoleChanges = persistedIds.join('|') !== selectedIds.join('|')
+
+  return (
+    <div className="mt-6 max-w-[760px] space-y-3.5">
+      {mutationError || (status === 'error' && error) ? (
+        <div className="rounded-[10px] border border-danger-bd bg-danger-bg px-3 py-2 text-[12.5px] font-semibold text-danger">
+          {mutationError || error}
+        </div>
+      ) : null}
+
+      <div className="rounded-[13px] border border-line bg-surface px-5 py-4 shadow-card">
+        <div className="flex items-center justify-between gap-5">
+          <div>
+            <div className="text-[13px] font-extrabold text-ink-900">Heredar permisos de la carpeta padre</div>
+            <div className="mt-1 text-[12.5px] leading-relaxed text-ink-400">
+              Usa automáticamente los roles operativos con acceso definidos en la jerarquía.
+            </div>
+          </div>
+          <Switch
+            checked={inheritsPermissions}
+            onCheckedChange={(checked) => void handleInheritanceChange(checked)}
+            disabled={saving}
+            aria-label="Heredar permisos de la carpeta padre"
+          />
+        </div>
+      </div>
+
+      <div className="overflow-hidden rounded-[13px] border border-line bg-surface shadow-card">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line-soft bg-surface-hover px-5 py-3.5">
+          <div>
+            <h2 className="text-[13px] font-extrabold text-ink-900">Roles operativos con acceso</h2>
+            <p className="mt-0.5 text-[11.5px] text-ink-400">
+              {inheritsPermissions ? 'Acceso efectivo en modo lectura.' : 'Seleccioná los roles que pueden acceder a esta carpeta.'}
+            </p>
+          </div>
+          <InheritancePill
+            kind={inheritsPermissions ? 'inherited' : 'custom'}
+            from={inheritsPermissions ? permissions.from ?? undefined : undefined}
+          />
+        </div>
+
+        {inheritsPermissions ? (
+          effectiveRoles.length > 0 ? (
+            <div className="divide-y divide-line-softer">
+              {effectiveRoles.map((role) => (
+                <div key={role.id} className="flex items-center gap-3 px-5 py-3.5">
+                  <input
+                    type="checkbox"
+                    checked
+                    disabled
+                    readOnly
+                    aria-label={`Acceso del rol ${role.name}`}
+                    className="h-[18px] w-[18px] rounded border-line-input accent-indigo"
+                  />
+                  <span className="grid h-8 w-8 flex-shrink-0 place-items-center rounded-full bg-indigo-tint text-[11px] font-extrabold uppercase text-indigo">
+                    {role.name.slice(0, 2)}
+                  </span>
+                  <div className="min-w-0">
+                    <div className="text-[13px] font-bold text-ink-800">{role.name}</div>
+                    {role.description ? (
+                      <div className="mt-0.5 truncate text-[11.5px] text-ink-400">{role.description}</div>
+                    ) : null}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="px-5 py-7 text-center text-[12.5px] text-ink-400">
+              No hay una restricción por rol operativo heredada.
+            </div>
+          )
+        ) : roles.length > 0 ? (
+          <div className="divide-y divide-line-softer">
+            {roles.map((role) => {
+              const checked = selectedRoleIds.includes(role.id)
+              return (
+                <label
+                  key={role.id}
+                  className="flex cursor-pointer items-center gap-3 px-5 py-3.5 transition-colors hover:bg-surface-hover"
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => toggleRole(role.id)}
+                    disabled={saving}
+                    aria-label={`Acceso del rol ${role.name}`}
+                    className="h-[18px] w-[18px] rounded border-line-input accent-indigo"
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[13px] font-bold text-ink-800">{role.name}</span>
+                    {role.description ? (
+                      <span className="mt-0.5 block truncate text-[11.5px] text-ink-400">{role.description}</span>
+                    ) : null}
+                  </span>
+                  <span className="text-[11px] font-semibold text-ink-300">{checked ? 'Con acceso' : 'Sin acceso'}</span>
+                </label>
+              )
+            })}
+          </div>
+        ) : (
+          <div className="px-5 py-7 text-center text-[12.5px] text-ink-400">
+            Todavía no hay roles operativos configurados en el workspace.
+          </div>
+        )}
+
+        {!inheritsPermissions ? (
+          <div className="flex items-center justify-between gap-3 border-t border-line-soft px-5 py-3.5">
+            <span className="text-[11.5px] font-semibold text-success-fg">{saved ? 'Permisos guardados.' : ''}</span>
+            <button
+              type="button"
+              onClick={() => void saveRoleAccess()}
+              disabled={saving || !hasRoleChanges}
+              className="h-[40px] rounded-[10px] bg-ink-800 px-4 text-[13px] font-bold text-white disabled:opacity-60"
+            >
+              {saving ? 'Guardando...' : 'Guardar permisos'}
+            </button>
+          </div>
+        ) : null}
+      </div>
+
+      <div className="rounded-[12px] border border-indigo-border bg-indigo-tint px-4 py-3 text-[12.5px] leading-relaxed text-indigo">
+        Las capacidades de ver, crear, editar o aprobar dependen del rol de aplicación de cada usuario. En esta carpeta
+        solo se define el acceso por rol operativo.
+      </div>
+    </div>
+  )
+}
+
 function FolderTreeRow({
   node,
   depth,
@@ -1069,7 +1313,10 @@ export default function FoldersPage() {
                   onSave={handleSaveGovernance}
                 />
               </TabsContent>
-              {FOLDER_TABS.filter((tab) => !['resumen', 'general', 'gobierno', 'tyto'].includes(tab.value)).map((tab) => (
+              <TabsContent id="folders-detail" value="permisos" current={activeTab}>
+                <PermissionsTab workspaceId={workspaceId} folder={selected} />
+              </TabsContent>
+              {FOLDER_TABS.filter((tab) => !['resumen', 'general', 'gobierno', 'tyto', 'permisos'].includes(tab.value)).map((tab) => (
                 <TabsContent key={tab.value} id="folders-detail" value={tab.value} current={activeTab}>
                   <div className="mt-6 rounded-[13px] border border-dashed border-line-input bg-surface-hover px-6 py-10 text-center text-[13px] text-ink-400">
                     Contenido de {tab.label} se conectara en los siguientes tickets.
