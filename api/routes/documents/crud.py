@@ -8,12 +8,13 @@ import json
 import logging
 from typing import Any, Optional, List
 
-from fastapi import APIRouter, Depends, HTTPException, Query, File, UploadFile, Form
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, File, UploadFile, Form
 
 from process_ai_core.db.database import get_db_session
 from process_ai_core.db.models import Document, DocumentVersion, Process, Recipe, Run
 from process_ai_core.db.helpers import delete_document
 from process_ai_core.db.permissions import has_permission, can_view_folder, can_create_in_folder
+from process_ai_core.semantic.pipeline import trigger_semantic_pipeline_for_version
 
 from api.models.requests import DocumentResponse, DocumentUpdateRequest
 from api.dependencies import get_current_user_id
@@ -278,6 +279,7 @@ async def list_documents(
 
 @router.post("/import", response_model=list[DocumentResponse])
 async def import_documents(
+    background_tasks: BackgroundTasks,
     folder_id: str = Form(...),
     requires_approval: str = Form("true"),
     files: List[UploadFile] = File(...),
@@ -317,6 +319,7 @@ async def import_documents(
             raise HTTPException(status_code=403, detail=storage_error)
 
         created: list[DocumentResponse] = []
+        approved_version_ids: list[str] = []
 
         try:
             for upload in files:
@@ -325,7 +328,7 @@ async def import_documents(
                 if not file_bytes:
                     raise HTTPException(status_code=400, detail=f"Archivo vacío: {filename}")
 
-                process, _version = create_imported_document(
+                process, version = create_imported_document(
                     session=session,
                     workspace_id=workspace_id,
                     folder_id=folder_id,
@@ -334,12 +337,20 @@ async def import_documents(
                     requires_approval=approval_required,
                     user_id=user_id,
                 )
+                # Documentos importados sin aprobación quedan APPROVED de inmediato:
+                # deben entrar a la capa semántica igual que al aprobarse por el flujo normal.
+                if not approval_required:
+                    approved_version_ids.append(version.id)
                 created.append(
                     _to_document_response(session, process)
                 )
 
             update_workspace_storage_usage(session, workspace_id)
             session.commit()
+
+            # Hook capa semántica (background, best-effort).
+            for version_id in approved_version_ids:
+                background_tasks.add_task(trigger_semantic_pipeline_for_version, version_id)
         except ValueError as exc:
             session.rollback()
             raise HTTPException(status_code=400, detail=str(exc)) from exc
