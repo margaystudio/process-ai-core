@@ -152,21 +152,20 @@ export default function ChromeShell({ children }: { children: React.ReactNode })
         },
       ],
     },
-    ...(canAdminister
-      ? [
-          {
-            label: 'Asistente',
-            items: [
-              {
-                label: 'Tyto',
-                icon: <MessageCircle />,
-                active: active('/tyto'),
-                onClick: go('/tyto'),
-              },
-            ],
-          },
-        ]
-      : []),
+    {
+      // Tyto es para cualquier staff autenticado del workspace (mismo gate que
+      // el backend: sync_workspace_access), no un permiso de administración —
+      // por eso este grupo NO usa canAdminister, a diferencia de "Administración".
+      label: 'Asistente',
+      items: [
+        {
+          label: 'Tyto',
+          icon: <MessageCircle />,
+          active: active('/tyto'),
+          onClick: go('/tyto'),
+        },
+      ],
+    },
   ]
 
   return (

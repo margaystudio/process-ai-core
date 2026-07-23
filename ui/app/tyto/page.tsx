@@ -2,8 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { streamTytoQuery, type TytoQueryResult, type TytoStreamEvent } from '@/lib/api'
-import { useWorkspace } from '@/contexts/WorkspaceContext'
-import { canAdministerWorkspace } from '@/lib/adminGating'
 import { TytoUserBubble, TytoAssistantBubble } from '@/components/tyto/TytoMessageBubble'
 import { TytoSourcesPanel } from '@/components/tyto/TytoSourcesPanel'
 import { TytoComposer } from '@/components/tyto/TytoComposer'
@@ -38,12 +36,6 @@ function TytoEmptyState() {
 }
 
 export default function TytoPage() {
-  const { selectedWorkspace, platformRoles } = useWorkspace()
-  const canAdminister = canAdministerWorkspace({
-    platformRoles,
-    workspaceRole: selectedWorkspace?.role,
-  })
-
   const [messages, setMessages] = useState<TytoMessage[]>([])
   const [sending, setSending] = useState(false)
   const idRef = useRef(0)
@@ -129,14 +121,6 @@ export default function TytoPage() {
       setSending(false)
       abortRef.current = null
     }
-  }
-
-  if (!canAdminister) {
-    return (
-      <div className="flex min-h-full items-center justify-center p-8">
-        <p className="text-[13px] text-ink-500">No tenés permisos para acceder a Tyto.</p>
-      </div>
-    )
   }
 
   return (

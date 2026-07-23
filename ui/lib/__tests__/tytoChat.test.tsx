@@ -4,12 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import TytoPage from '@/app/tyto/page'
 
-vi.mock('@/contexts/WorkspaceContext', () => ({
-  useWorkspace: () => ({
-    selectedWorkspace: { id: 'ws-1', role: 'owner' },
-    platformRoles: [],
-  }),
-}))
+// La página no gatea por rol (Tyto es para cualquier staff del workspace, igual
+// que el backend): no hace falta mockear WorkspaceContext acá.
 
 // Aísla la autenticación: el foco del test es el parseo del stream SSE, no el
 // armado de headers (eso ya lo cubre api-auth por su cuenta).
