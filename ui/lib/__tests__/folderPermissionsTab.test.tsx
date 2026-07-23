@@ -120,10 +120,14 @@ describe('PermissionsTab', () => {
 
     await renderPermissionsTab()
 
+    // El nombre del rol viene de listOperationalRoles y puede pintarse antes de que
+    // resuelva getFolderPermissions (que define el pill y el estado del checkbox).
+    // Por eso cada assert espera su propio elemento en vez de un getBy síncrono.
     expect(await screen.findByText('Gerente')).toBeInTheDocument()
-    expect(screen.getByText('Heredado de RRHH')).toBeInTheDocument()
-    expect(screen.getByRole('checkbox', { name: 'Acceso del rol Gerente' })).toBeChecked()
-    expect(screen.getByRole('checkbox', { name: 'Acceso del rol Gerente' })).toBeDisabled()
+    expect(await screen.findByText('Heredado de RRHH')).toBeInTheDocument()
+    const checkbox = await screen.findByRole('checkbox', { name: 'Acceso del rol Gerente' })
+    expect(checkbox).toBeChecked()
+    expect(checkbox).toBeDisabled()
   })
 
   it('guarda la lista de roles marcada cuando no hereda', async () => {
