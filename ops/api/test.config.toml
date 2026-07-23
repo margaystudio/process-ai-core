@@ -37,7 +37,7 @@ PROCESS_AI_APP_KEY = "process_ai"
 DATABASE_SCHEMA = "process_ai"
 # API de test por run.app (URL determinística; no lleva dominio propio en test).
 API_BASE_URL = "https://margay-process-ai-api-test-1062202104268.europe-west1.run.app"
-CORS_ORIGINS = "https://process.test.margaystudio.io,https://hub.margaystudio.io"
+CORS_ORIGINS = "https://process.test.margaystudio.io,https://hub.test.margaystudio.io"
 # Supabase de TEST (dedicado).
 SUPABASE_URL = "https://zgujorkqulkdsnmjdxtj.supabase.co"
 STORAGE_BACKEND = "supabase"

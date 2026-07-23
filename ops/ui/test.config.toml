@@ -30,15 +30,17 @@ allow_unauthenticated = true
 [env]
 ENVIRONMENT = "test"
 NODE_ENV = "production"
-NEXT_PUBLIC_COOKIE_DOMAIN = ".margaystudio.io"
+# Cookie domain de TEST: el hub de test setea la sesión en .test.margaystudio.io.
+NEXT_PUBLIC_COOKIE_DOMAIN = ".test.margaystudio.io"
 
 [build_args]
 NEXT_PUBLIC_ENVIRONMENT = "test"
 # API de test por run.app (no depende de cookies; la UI le pega con Bearer JWT).
 NEXT_PUBLIC_API_URL = "https://margay-process-ai-api-test-1062202104268.europe-west1.run.app"
-NEXT_PUBLIC_HUB_URL = "https://hub.margaystudio.io"
+# Hub de TEST (no el de prod): ahí se hace el login y se comparte la cookie de sesión.
+NEXT_PUBLIC_HUB_URL = "https://hub.test.margaystudio.io"
 NEXT_PUBLIC_SITE_URL = "https://process.test.margaystudio.io"
 NEXT_PUBLIC_SUPABASE_URL = "https://zgujorkqulkdsnmjdxtj.supabase.co"
 # anon key del Supabase de TEST (público). Obtenerlo del dashboard del proyecto test.
 NEXT_PUBLIC_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpndWpvcmtxdWxrZHNubWpkeHRqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQyMTMzODksImV4cCI6MjA5OTc4OTM4OX0.1IRgQHaNze7d4VsasZ3lcJHT-N54SBuVwtLR55d5ozs"
-NEXT_PUBLIC_COOKIE_DOMAIN = ".margaystudio.io"
+NEXT_PUBLIC_COOKIE_DOMAIN = ".test.margaystudio.io"
