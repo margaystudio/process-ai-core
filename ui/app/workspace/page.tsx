@@ -385,10 +385,12 @@ export default function WorkspacePage() {
       .catch(() => setTipoOptions([]))
   }, [])
 
-  // Early return para viewers
-  if (!roleLoading && role === 'viewer') return null
-
   // ---- Set de IDs de carpeta seleccionada + descendientes ----
+  // Nota: estos tres useMemo van ANTES de los early return de abajo (viewers /
+  // sin workspace) a propósito — los hooks de React no pueden llamarse
+  // condicionalmente. El cómputo es puro y su resultado se descarta en esos
+  // casos (el componente igual retorna null / el mensaje de "sin workspace"),
+  // así que esto no cambia qué se renderiza en ningún caso.
   const folderIdSet = useMemo<Set<string> | null>(() => {
     if (selectedFolderId === null) return null
     return getDescendantIds(selectedFolderId, allFolders)
@@ -422,6 +424,9 @@ export default function WorkspacePage() {
     pen: filtered.filter((d) => toEstado(d.status) === 'Pendiente').length,
     bor: filtered.filter((d) => toEstado(d.status) === 'Borrador').length,
   }), [filtered])
+
+  // Early return para viewers
+  if (!roleLoading && role === 'viewer') return null
 
   // ---- Sin workspace seleccionado ----
   if (!selectedWorkspaceId) {

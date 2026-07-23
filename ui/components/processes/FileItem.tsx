@@ -24,6 +24,7 @@ export default function FileItem({ item, onRemove }: FileItemProps) {
   const meta = TYPE_META[item.type]
 
   const preview = item.type === 'image' ? (
+    // eslint-disable-next-line @next/next/no-img-element -- preview dinámico desde un blob: URL (archivo recién seleccionado, sin dimensiones conocidas).
     <img
       src={URL.createObjectURL(item.file)}
       alt={item.description || item.file.name}

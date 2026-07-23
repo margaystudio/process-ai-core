@@ -138,6 +138,10 @@ export default function WorkspaceSettingsPage() {
     if (workspaceId && (activeTab === 'users' || activeTab === 'roles' || activeTab === 'folders')) {
       void loadOperationalRolesAndMembers()
     }
+    // Solo debe recargar cuando cambia `workspaceId`/`activeTab` — la función
+    // no está memoizada (se recrea cada render) y agregarla dispararía un
+    // refetch en cada render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspaceId, activeTab])
 
   useEffect(() => {

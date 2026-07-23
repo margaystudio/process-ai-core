@@ -12,6 +12,9 @@ export default function LoadingOverlay() {
       <div className="bg-white rounded-lg p-8 shadow-xl flex flex-col items-center space-y-4">
         {/* Logo del margay girando */}
         <div className="relative">
+          {/* eslint-disable-next-line @next/next/no-img-element -- onError manipula el DOM
+              (nextElementSibling) para mostrar el fallback SVG; next/image cambia esa
+              estructura y el mecanismo de onError, riesgo de romper el fallback. */}
           <img
             src="/margay-spiner.png"
             alt="Loading..."

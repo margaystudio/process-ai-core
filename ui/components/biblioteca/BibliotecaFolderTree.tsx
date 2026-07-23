@@ -195,7 +195,9 @@ export default function BibliotecaFolderTree({
         onFoldersLoaded?.([])
       })
       .finally(() => setLoading(false))
-  }, [workspaceId, activeTenantId])
+    // onFoldersLoaded: en el único caller (app/workspace/page.tsx) es un setState
+    // (setAllFolders) — identidad estable, agregarla no cambia cuándo corre esto.
+  }, [workspaceId, activeTenantId, onFoldersLoaded])
 
   const tree = buildTree(folders, allDocuments)
 

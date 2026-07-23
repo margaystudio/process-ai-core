@@ -1040,8 +1040,11 @@ export default function FoldersPage() {
     return { folders, documents }
   }, [workspaceId])
 
-  const folders = data?.folders ?? []
-  const documents = data?.documents ?? []
+  // folders/documents memoizados por `data` (no por su propio valor): así el
+  // fallback `?? []` no genera un array nuevo en cada render mientras `data`
+  // no cambió, sin alterar qué se computa.
+  const folders = useMemo(() => data?.folders ?? [], [data])
+  const documents = useMemo(() => data?.documents ?? [], [data])
   const tree = useMemo(() => buildTree(folders, countDocumentsByFolder(documents)), [folders, documents])
   const allNodes = useMemo(() => flatten(tree), [tree])
 

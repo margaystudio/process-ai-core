@@ -473,6 +473,10 @@ export default function FolderTree({
       setDocuments([])
     }
     loadFolders()
+    // Debe recargar solo cuando cambia workspace/tenant: `loadFolders` no está
+    // memoizada (se recrea cada render) y `allDocuments` ya se sincroniza aparte
+    // en el efecto de abajo — agregarlos acá dispararía refetchs de más.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspaceId, activeTenantId])
 
   useEffect(() => {

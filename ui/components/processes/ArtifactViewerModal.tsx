@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
+import Image from 'next/image'
 import { X } from 'lucide-react'
 import { getVersionPreviewPdfUrl } from '@/lib/api'
 import { getAuthHeaders } from '@/lib/api-auth'
@@ -134,7 +135,10 @@ export default function ArtifactViewerModal({
         blobUrlRef.current = null
       }
     }
-  }, [isOpen, runId, filename, type, versionPreviewPdf?.documentId, versionPreviewPdf?.versionId])
+    // artifactUrl es un prop primitivo (string) y versionPreviewPdf viene de
+    // useState en usePdfViewer (referencia estable salvo que cambie de verdad):
+    // agregarlos no altera cuándo corre este efecto en la práctica.
+  }, [isOpen, runId, filename, type, artifactUrl, versionPreviewPdf, versionPreviewPdf?.documentId, versionPreviewPdf?.versionId])
 
   useEffect(() => {
     if (error) {
@@ -193,9 +197,11 @@ export default function ArtifactViewerModal({
             {showPdfLoadingState ? (
               <div className="flex h-full min-h-[24rem] items-center justify-center rounded-lg border border-ink-200 bg-white">
                 <div className="flex flex-col items-center gap-4">
-                  <img
+                  <Image
                     src="/margay-spiner.png"
                     alt="Cargando PDF"
+                    width={64}
+                    height={64}
                     className="h-16 w-16 object-contain animate-spin"
                   />
                   <p className="text-sm font-medium text-ink-600">Cargando PDF...</p>
@@ -237,9 +243,11 @@ export default function ArtifactViewerModal({
                 {pdfFrameLoading && (
                   <div className="absolute inset-0 z-10 flex items-center justify-center bg-white">
                     <div className="flex flex-col items-center gap-4">
-                      <img
+                      <Image
                         src="/margay-spiner.png"
                         alt="Cargando PDF"
+                        width={64}
+                        height={64}
                         className="h-16 w-16 object-contain animate-spin"
                       />
                       <p className="text-sm font-medium text-ink-600">Cargando PDF...</p>

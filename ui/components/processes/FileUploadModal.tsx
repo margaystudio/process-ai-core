@@ -167,7 +167,11 @@ export default function FileUploadModal({ isOpen, onClose, onAdd }: FileUploadMo
     setIsRecording(false)
   }, [])
 
-  const useRecording = useCallback(() => {
+  // Nota: NO es un hook de React (no llama a ningún hook adentro) — es un
+  // callback memoizado. Se renombra para no matchear la convención `use*`
+  // (el linter de rules-of-hooks lo tomaba, por nombre, como un hook llamado
+  // condicionalmente dentro de handleSubmit).
+  const applyRecording = useCallback(() => {
     if (!recordedBlob) return
     // Derivar extensión del mime real del blob (consistente con lo negociado en startRecording)
     const ext = recordedBlob.type.startsWith('audio/ogg') ? '.ogg' : '.webm'
@@ -269,7 +273,7 @@ export default function FileUploadModal({ isOpen, onClose, onAdd }: FileUploadMo
     e.preventDefault()
     if (!canSubmit) return
     if (type === 'audio' && audioSource === 'record' && recordedBlob) {
-      useRecording()
+      applyRecording()
       setDescription('')
       setType('audio')
       return
@@ -432,7 +436,7 @@ export default function FileUploadModal({ isOpen, onClose, onAdd }: FileUploadMo
                         <audio controls src={recordedBlobUrl} className="w-full" />
                       )}
                       <div className="flex gap-2">
-                        <Button type="button" className="flex-1" onClick={useRecording}>
+                        <Button type="button" className="flex-1" onClick={applyRecording}>
                           Usar grabación
                         </Button>
                         <Button type="button" variant="secondary" className="flex-1" onClick={discardRecording}>

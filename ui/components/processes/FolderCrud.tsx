@@ -350,7 +350,7 @@ export default function FolderCrud({ workspaceId, folders, onFoldersChange, pare
 
       {filteredFolders.length === 0 && !isCreating && parentId === null && (
         <p className="text-sm text-ink-500 text-center py-4">
-          No hay carpetas {parentId ? 'en esta carpeta' : 'en la raíz'}. Hacé clic en "+ Nueva Carpeta" para crear la primera.
+          No hay carpetas {parentId ? 'en esta carpeta' : 'en la raíz'}. Hacé clic en &ldquo;+ Nueva Carpeta&rdquo; para crear la primera.
         </p>
       )}
     </div>

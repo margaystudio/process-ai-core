@@ -1,6 +1,7 @@
 'use client'
 
 import { ChangeEvent } from 'react'
+import Image from 'next/image'
 
 type BrandingSettingsTabProps = {
   brandingIconUrl: string | null
@@ -41,6 +42,7 @@ export default function BrandingSettingsTab({
           <div className="flex items-center gap-3">
             <div className="flex h-16 w-16 items-center justify-center rounded-lg border border-ink-200 bg-white overflow-hidden">
               {brandingIconUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element -- URL dinámica (firmada, dominio de storage no allowlisteado en next.config.js)
                 <img src={brandingIconUrl} alt="Icono del cliente" className="h-14 w-14 object-contain" />
               ) : (
                 <span className="text-xs text-ink-400 text-center px-2">Sin icono</span>
@@ -48,7 +50,7 @@ export default function BrandingSettingsTab({
             </div>
             <div className="flex items-center gap-3">
               <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-white border border-ink-200">
-                <img src="/margay-logo.png" alt="Logo de Process AI" className="h-10 w-10 object-contain" />
+                <Image src="/margay-logo.png" alt="Logo de Process AI" width={40} height={40} className="h-10 w-10 object-contain" />
               </div>
               <span
                 className="text-xl font-bold"
