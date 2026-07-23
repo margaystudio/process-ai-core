@@ -291,6 +291,11 @@ def main() -> None:
         print(f"==> Creating and pushing git tag {tag_prefix}{version}")
         create_and_push_tag(version, tag_prefix)
 
+    # UIs (Next.js): hornear la versión releaseada para exponerla en /version.
+    # Solo cuando ya hay build_args (señal de que es una UI, no una API).
+    if build_args:
+        build_args["NEXT_PUBLIC_APP_VERSION"] = version
+
     ar_host = f"{region}-docker.pkg.dev"
     tagged_ref = f"{ar_host}/{project}/{repo}/{image_name}:{version}"
 
