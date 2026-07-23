@@ -21,3 +21,4 @@ export {
   type InheritancePillDerived,
   type InheritancePillProps,
 } from "./InheritancePill";
+export { TierBadge, TierDot, tierMeta, type TytoTier } from "./TierBadge";

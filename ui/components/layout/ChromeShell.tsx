@@ -10,7 +10,7 @@ import {
   Folder,
   List,
   Users,
-  Circle,
+  MessageCircle,
 } from 'lucide-react'
 import { AppShell, Topbar, Sidebar, type NavGroup, type TopbarTenant } from '@/shared/ui/components'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
@@ -152,18 +152,21 @@ export default function ChromeShell({ children }: { children: React.ReactNode })
         },
       ],
     },
-    {
-      label: 'Asistente',
-      items: [
-        {
-          label: 'Tyto',
-          icon: <Circle />,
-          // placeholder — pantalla aún no implementada
-          active: false,
-          onClick: undefined,
-        },
-      ],
-    },
+    ...(canAdminister
+      ? [
+          {
+            label: 'Asistente',
+            items: [
+              {
+                label: 'Tyto',
+                icon: <MessageCircle />,
+                active: active('/tyto'),
+                onClick: go('/tyto'),
+              },
+            ],
+          },
+        ]
+      : []),
   ]
 
   return (

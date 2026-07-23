@@ -89,6 +89,16 @@ gpu=pulso · insights=ojo/lente. También como SVG en `brand/modules/<mod>.svg` 
   Helper `ESTADO_LABEL` para mapear status API → etiqueta. Tipo `DocumentEstado`.
 - `<VersionPill estado label>` — pastilla inline de versión/estado para densidad alta.
 - `<Chip active onClick>` — filtro pill. Activo = tint indigo. Usado en Biblioteca.
+- `<TierBadge tier>` / `<TierDot tier>` / `tierMeta(tier)` — nivel de confianza de
+  una fuente citada por Tyto (`"aprobado" | "referencia" | "inferido"`, mapea 1:1 a
+  los tokens `success`/`warning`/`danger`). Copy fijo — **nunca** usar la palabra
+  "verificado": Tyto no valida documentos, solo cita la red aprobada y marca
+  honestamente lo que no lo está.
+  - `aprobado` → "Fuente aprobada" (verde/success).
+  - `referencia` → "Referencia no validada" (ámbar/warning).
+  - `inferido` → "Inferido" (rojo/danger).
+  Usado en `app/tyto/page.tsx` (panel "De qué piezas se arma esta respuesta" +
+  leyenda de niveles + citas inline `[Sn]` una vez resueltas).
 
 ### Tokens nuevos (portados del prototipo Process AI)
 Agregados en `tokens.css` y expuestos en `tailwind-preset.ts`:
