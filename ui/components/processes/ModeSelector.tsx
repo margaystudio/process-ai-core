@@ -32,6 +32,10 @@ export default function ModeSelector({ value, onChange }: ModeSelectorProps) {
     }
 
     loadCatalog()
+    // Carga el catálogo una sola vez al montar. `value`/`onChange` se leen
+    // adentro solo para setear un default inicial; agregarlos re-dispararía
+    // el fetch del catálogo en cada cambio de modo.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Fallback a valores hardcodeados si no hay catálogo

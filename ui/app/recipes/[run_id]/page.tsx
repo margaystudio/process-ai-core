@@ -28,6 +28,9 @@ export default function RecipeResultPage() {
     if (runId) {
       loadRun()
     }
+    // Solo debe recargar cuando cambia `runId` — `loadRun` se recrea en cada
+    // render (no está memoizada) y agregarla dispararía un refetch en loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runId])
 
   const loadRun = async () => {

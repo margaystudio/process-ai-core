@@ -33,6 +33,7 @@ function FlagImage({ iso, className }: { iso: string; className?: string }) {
   if (!iso || iso.length !== 2) return null
   const code = iso.toLowerCase()
   return (
+    // eslint-disable-next-line @next/next/no-img-element -- CDN externo (flagcdn.com); next/image exigiría agregar el dominio a next.config.js.
     <img
       src={`${FLAG_CDN}/w40/${code}.png`}
       srcSet={`${FLAG_CDN}/w80/${code}.png 2x`}

@@ -42,6 +42,11 @@ export default function SubscriptionSettingsTab({ workspaceId }: SubscriptionSet
       })
     }
     void load()
+    // `withLoading` (LoadingContext) no está memoizada: se recrea en cada
+    // render del provider, incluido cada vez que ella misma llama a
+    // setLoading — agregarla al array dispararía un loop. Debe recargar
+    // solo cuando cambia `workspaceId`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspaceId])
 
   if (loading) {

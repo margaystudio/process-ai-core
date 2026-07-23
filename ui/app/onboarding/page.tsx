@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import Image from 'next/image'
 import { Card, CardBody, Input, Field, Button } from '@/shared/ui/components'
 import { createWorkspace, WorkspaceCreateRequest, addUserToWorkspace } from '@/lib/api'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
@@ -81,7 +82,7 @@ export default function OnboardingPage() {
     <div className="min-h-screen bg-ink-50 px-4 py-12 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-2xl">
         <div className="mb-6 flex items-center gap-3">
-          <img src="/brand/margay-icon-48.png" alt="" className="h-9 w-9 rounded-md" />
+          <Image src="/brand/margay-icon-48.png" alt="" width={36} height={36} className="h-9 w-9 rounded-md" />
           <span className="text-sm font-semibold text-ink-600">Process AI · Plataforma Margay</span>
         </div>
         <Card>

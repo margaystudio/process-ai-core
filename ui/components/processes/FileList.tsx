@@ -11,7 +11,7 @@ export default function FileList({ files, onRemove }: FileListProps) {
     return (
       <div className="py-8 text-center text-ink-500">
         <p>No hay archivos agregados</p>
-        <p className="mt-1 text-sm">Hacé clic en "Agregar archivo" para comenzar</p>
+        <p className="mt-1 text-sm">Hacé clic en &ldquo;Agregar archivo&rdquo; para comenzar</p>
       </div>
     )
   }

@@ -214,7 +214,7 @@ export function Step1NuevoDocumento({
                 No hay evidencias agregadas
               </div>
               <div className="text-[12.5px] text-ink-300">
-                Hacé clic en "Agregar evidencia" para comenzar
+                Hacé clic en &ldquo;Agregar evidencia&rdquo; para comenzar
               </div>
             </div>
           ) : (
