@@ -2182,3 +2182,268 @@ export async function streamTytoQuery(
     }
   }
 }
+
+// ============================================================================
+// Relaciones semánticas y objetos de conocimiento
+// ============================================================================
+
+export type RelationStatus = 'candidate' | 'confirmed' | 'rejected' | 'obsolete'
+
+export type RelationType =
+  | 'usa'
+  | 'requiere'
+  | 'genera'
+  | 'relacionado_con'
+  | 'describe'
+  | 'aplica_a'
+  | 'depende_de'
+  | 'reemplaza_a'
+  | 'ejecutado_por'
+  | 'aprobado_por'
+  | 'ubicado_en'
+
+export type KnowledgeObjectType =
+  | 'sistema'
+  | 'rol'
+  | 'area'
+  | 'equipo'
+  | 'formulario'
+  | 'proceso'
+  | 'ubicacion'
+  | 'normativa'
+
+export interface RelationTarget {
+  id: string
+  type: string
+  name: string
+}
+
+export interface DocumentRelationItem {
+  id: string
+  target: RelationTarget
+  confidence: number | null
+  status: RelationStatus
+  evidence_text: string | null
+  created_by_ai: boolean
+  confirmed_by: string | null
+  confirmed_at: string | null
+  possible_duplicate_of: RelationTarget | null
+}
+
+export interface DocumentRelationGroup {
+  relation_type: RelationType | string
+  items: DocumentRelationItem[]
+}
+
+export interface DocumentRelationsResponse {
+  document_id: string
+  groups: DocumentRelationGroup[]
+}
+
+export interface WorkspaceRelationDocument {
+  id: string
+  name: string
+  folder_id: string
+  folder_name: string
+}
+
+export interface WorkspaceRelationItem extends DocumentRelationItem {
+  document: WorkspaceRelationDocument
+  relation_type: RelationType | string
+}
+
+export interface WorkspaceRelationsResponse {
+  items: WorkspaceRelationItem[]
+  total: number
+  page: number
+  page_size: number
+  total_pages: number
+}
+
+export interface WorkspaceRelationsParams {
+  status?: RelationStatus
+  type?: RelationType | string
+  folder_id?: string
+  page?: number
+  page_size?: number
+}
+
+export interface SuggestDocumentRelationsResponse {
+  document_id: string
+  version_id: string
+  candidates_created: number
+  chunks_indexed: number
+}
+
+export interface RelationPatch {
+  relation_type?: RelationType
+  target_type?: string
+  target_id?: string
+}
+
+export interface KnowledgeObject {
+  id: string
+  type: KnowledgeObjectType | string
+  canonical_name: string
+  normalized_name: string
+  description: string | null
+  aliases: string[]
+}
+
+export interface KnowledgeObjectCreateRequest {
+  type: KnowledgeObjectType
+  canonical_name: string
+  description?: string
+}
+
+export interface KnowledgeObjectSearchParams {
+  type?: KnowledgeObjectType | string
+  q?: string
+}
+
+export interface DocumentImpactItem {
+  id: string
+  name: string
+}
+
+export interface DocumentImpactDocument extends DocumentImpactItem {
+  status: string
+  document_type: string
+}
+
+export interface DocumentImpactEntity extends DocumentImpactItem {
+  type: string
+}
+
+export interface DocumentImpactResponse {
+  document_id: string
+  affected_documents: DocumentImpactDocument[]
+  affected_entities: DocumentImpactEntity[]
+}
+
+async function semanticRequest<T>(
+  path: string,
+  init: RequestInit = {}
+): Promise<T> {
+  const { getAuthHeaders } = await import('@/lib/api-auth')
+  const headers = await getAuthHeaders(
+    Object.fromEntries(new Headers(init.headers).entries())
+  )
+  const response = await fetch(`${API_URL}/api/v1${path}`, {
+    ...init,
+    headers,
+  })
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }))
+    throw new Error(formatApiErrorDetail(error.detail, `HTTP ${response.status}`))
+  }
+
+  return response.json()
+}
+
+/**
+ * El backend devuelve candidate + confirmed por defecto. Como semantic.py no
+ * expone un query param status, el filtro opcional se aplica sobre la respuesta.
+ */
+export async function getDocumentRelations(
+  documentId: string,
+  status?: Extract<RelationStatus, 'candidate' | 'confirmed'>
+): Promise<DocumentRelationsResponse> {
+  const result = await semanticRequest<DocumentRelationsResponse>(
+    `/documents/${encodeURIComponent(documentId)}/relations`
+  )
+  if (!status) return result
+
+  return {
+    ...result,
+    groups: result.groups
+      .map((group) => ({
+        ...group,
+        items: group.items.filter((item) => item.status === status),
+      }))
+      .filter((group) => group.items.length > 0),
+  }
+}
+
+export function getWorkspaceRelations(
+  params: WorkspaceRelationsParams = {}
+): Promise<WorkspaceRelationsResponse> {
+  const query = new URLSearchParams({
+    status: params.status ?? 'candidate',
+    page: String(params.page ?? 1),
+    page_size: String(params.page_size ?? 25),
+  })
+  if (params.type) query.set('type', params.type)
+  if (params.folder_id) query.set('folder_id', params.folder_id)
+  return semanticRequest(`/relations?${query.toString()}`)
+}
+
+export function suggestDocumentRelations(
+  documentId: string
+): Promise<SuggestDocumentRelationsResponse> {
+  return semanticRequest(`/documents/${encodeURIComponent(documentId)}/relations/suggest`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  })
+}
+
+export function confirmRelation(relationId: string): Promise<DocumentRelationItem> {
+  return semanticRequest(`/relations/${encodeURIComponent(relationId)}/confirm`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  })
+}
+
+export function rejectRelation(relationId: string): Promise<DocumentRelationItem> {
+  return semanticRequest(`/relations/${encodeURIComponent(relationId)}/reject`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  })
+}
+
+export function editRelation(
+  relationId: string,
+  patch: RelationPatch
+): Promise<DocumentRelationItem> {
+  return semanticRequest(`/relations/${encodeURIComponent(relationId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(patch),
+  })
+}
+
+export function searchKnowledgeObjects(
+  params: KnowledgeObjectSearchParams = {}
+): Promise<KnowledgeObject[]> {
+  const query = new URLSearchParams()
+  if (params.type) query.set('type', params.type)
+  if (params.q?.trim()) query.set('q', params.q.trim())
+  const suffix = query.size > 0 ? `?${query.toString()}` : ''
+  return semanticRequest(`/knowledge-objects${suffix}`)
+}
+
+export function createKnowledgeObject(
+  body: KnowledgeObjectCreateRequest
+): Promise<KnowledgeObject> {
+  return semanticRequest('/knowledge-objects', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+}
+
+export function mergeKnowledgeObject(
+  knowledgeObjectId: string,
+  body: { into_id: string }
+): Promise<KnowledgeObject> {
+  return semanticRequest(
+    `/knowledge-objects/${encodeURIComponent(knowledgeObjectId)}/merge`,
+    {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }
+  )
+}
+
+export function getDocumentImpact(documentId: string): Promise<DocumentImpactResponse> {
+  return semanticRequest(`/documents/${encodeURIComponent(documentId)}/impact`)
+}

@@ -23,15 +23,17 @@ import json
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from process_ai_core.db.models import Document, DocumentVersion
+from process_ai_core.db.models import Document, DocumentVersion, Folder
 from process_ai_core.db.models_semantic import (
     DocumentRelation,
     KnowledgeObject,
     KNOWLEDGE_OBJECT_TYPES,
+    RELATION_STATUSES,
+    RELATION_TYPES,
 )
 from process_ai_core.db.permissions import has_permission
 from process_ai_core.semantic import RelationService, normalize_name
@@ -84,6 +86,26 @@ class RelationGroupResponse(BaseModel):
 class DocumentRelationsResponse(BaseModel):
     document_id: str
     groups: list[RelationGroupResponse]
+
+
+class WorkspaceRelationDocumentResponse(BaseModel):
+    id: str
+    name: str
+    folder_id: str
+    folder_name: str
+
+
+class WorkspaceRelationItemResponse(RelationItemResponse):
+    document: WorkspaceRelationDocumentResponse
+    relation_type: str
+
+
+class WorkspaceRelationsResponse(BaseModel):
+    items: list[WorkspaceRelationItemResponse]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
 
 
 class SuggestResponse(BaseModel):
@@ -150,10 +172,18 @@ def _get_knowledge_object_or_404(session: Session, ko_id: str, workspace_id: str
 
 def _target_response(session: Session, relation: DocumentRelation) -> RelationTargetResponse:
     if relation.target_type == "document":
-        doc = session.query(Document).filter_by(id=relation.target_id).first()
+        doc = (
+            session.query(Document)
+            .filter_by(id=relation.target_id, workspace_id=relation.workspace_id)
+            .first()
+        )
         name = doc.name if doc else "(documento eliminado)"
         return RelationTargetResponse(id=relation.target_id, type="documento", name=name)
-    ko = session.query(KnowledgeObject).filter_by(id=relation.target_id).first()
+    ko = (
+        session.query(KnowledgeObject)
+        .filter_by(id=relation.target_id, workspace_id=relation.workspace_id)
+        .first()
+    )
     name = ko.canonical_name if ko else "(entidad eliminada)"
     return RelationTargetResponse(id=relation.target_id, type=relation.target_type, name=name)
 
@@ -176,6 +206,125 @@ def _ko_response(ko: KnowledgeObject) -> KnowledgeObjectResponse:
 # ============================================================
 # Relaciones
 # ============================================================
+
+@router.get("/relations", response_model=WorkspaceRelationsResponse)
+async def get_workspace_relations(
+    status: str = Query("candidate"),
+    relation_type: Optional[str] = Query(None, alias="type"),
+    folder_id: Optional[str] = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(25, ge=1, le=100),
+    user_id: str = Depends(get_current_user_id),
+    session: Session = Depends(get_db),
+    ctx: WorkspaceSessionContext = Depends(get_workspace_context),
+):
+    """Bandeja paginada de relaciones del workspace activo.
+
+    La doble condición por workspace sobre la relación y el documento origen es
+    deliberada: evita exponer datos si una referencia queda corrupta o fue
+    creada con IDs pertenecientes a tenants diferentes.
+    """
+    workspace_id = resolve_tenant_workspace_id(ctx)
+    is_superadmin = "superadmin" in ctx.platform_roles
+    if not has_permission(
+        session,
+        user_id,
+        workspace_id,
+        "workspaces.edit",
+        platform_is_superadmin=is_superadmin,
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="No tiene permisos para administrar relaciones del workspace",
+        )
+
+    if status not in RELATION_STATUSES:
+        raise HTTPException(status_code=400, detail=f"Estado de relación inválido: {status}")
+    if relation_type and relation_type not in RELATION_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Tipo de relación inválido: {relation_type}",
+        )
+
+    query = (
+        session.query(DocumentRelation, Document, Folder)
+        .join(Document, Document.id == DocumentRelation.document_id)
+        .join(Folder, Folder.id == Document.folder_id)
+        .filter(
+            DocumentRelation.workspace_id == workspace_id,
+            Document.workspace_id == workspace_id,
+            Folder.workspace_id == workspace_id,
+            DocumentRelation.status == status,
+        )
+    )
+    if relation_type:
+        query = query.filter(DocumentRelation.relation_type == relation_type)
+    if folder_id:
+        query = query.filter(Document.folder_id == folder_id)
+
+    total = query.count()
+    rows = (
+        query.order_by(
+            DocumentRelation.confidence.is_(None),
+            DocumentRelation.confidence.desc(),
+            DocumentRelation.created_at.asc(),
+            DocumentRelation.id.asc(),
+        )
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+
+    service = RelationService()
+    items: list[WorkspaceRelationItemResponse] = []
+    for relation, document, folder in rows:
+        possible_duplicate = None
+        if relation.status == "candidate" and relation.target_type != "document":
+            target = (
+                session.query(KnowledgeObject)
+                .filter_by(id=relation.target_id, workspace_id=workspace_id)
+                .first()
+            )
+            if target is not None:
+                duplicate = service.find_possible_duplicate(session, target)
+                if duplicate is not None:
+                    possible_duplicate = RelationTargetResponse(
+                        id=duplicate.id,
+                        type=duplicate.type,
+                        name=duplicate.canonical_name,
+                    )
+
+        items.append(
+            WorkspaceRelationItemResponse(
+                id=relation.id,
+                document=WorkspaceRelationDocumentResponse(
+                    id=document.id,
+                    name=document.name,
+                    folder_id=folder.id,
+                    folder_name=folder.name,
+                ),
+                relation_type=relation.relation_type,
+                target=_target_response(session, relation),
+                confidence=relation.confidence,
+                status=relation.status,
+                evidence_text=relation.evidence_text,
+                created_by_ai=relation.created_by_ai,
+                confirmed_by=relation.confirmed_by,
+                confirmed_at=(
+                    relation.confirmed_at.isoformat() if relation.confirmed_at else None
+                ),
+                possible_duplicate_of=possible_duplicate,
+            )
+        )
+
+    return WorkspaceRelationsResponse(
+        items=items,
+        total=total,
+        page=page,
+        page_size=page_size,
+        total_pages=(total + page_size - 1) // page_size,
+    )
+
 
 @router.get("/documents/{document_id}/relations", response_model=DocumentRelationsResponse)
 async def get_document_relations(

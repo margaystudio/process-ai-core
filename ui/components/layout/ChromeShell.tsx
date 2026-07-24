@@ -11,6 +11,7 @@ import {
   List,
   Users,
   MessageCircle,
+  Network,
 } from 'lucide-react'
 import { AppShell, Topbar, Sidebar, type NavGroup, type TopbarTenant } from '@/shared/ui/components'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
@@ -141,6 +142,16 @@ export default function ChromeShell({ children }: { children: React.ReactNode })
                 icon: <List />,
                 active: active('/document-types'),
                 onClick: go('/document-types'),
+              },
+            ]
+          : []),
+        ...(canAdminister
+          ? [
+              {
+                label: 'Relaciones',
+                icon: <Network />,
+                active: active('/relations'),
+                onClick: go('/relations'),
               },
             ]
           : []),
