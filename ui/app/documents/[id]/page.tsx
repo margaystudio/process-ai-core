@@ -171,14 +171,14 @@ export default function DocumentDetailPage() {
 
       if (doc.domain === 'process') {
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
-        const { getAccessToken } = await import('@/lib/api-auth')
+        const { getAccessToken, authFetch } = await import('@/lib/api-auth')
         const authToken = await getAccessToken()
         const authHeaders: HeadersInit = {}
         if (authToken) authHeaders['Authorization'] = `Bearer ${authToken}`
         const [audienceOpts, detailOpts, processDocResponse] = await Promise.all([
           getCatalogOptions('audience').catch(() => []),
           getCatalogOptions('detail_level').catch(() => []),
-          fetch(`${apiUrl}/api/v1/documents/${documentId}/process`, { headers: authHeaders })
+          authFetch(`${apiUrl}/api/v1/documents/${documentId}/process`, { headers: authHeaders })
             .then((r) => (r.ok ? r.json() : null))
             .catch(() => null),
         ])
@@ -284,11 +284,11 @@ export default function DocumentDetailPage() {
     let objectUrl: string | null = null
     ;(async () => {
       try {
-        const { getAccessToken } = await import('@/lib/api-auth')
+        const { getAccessToken, authFetch } = await import('@/lib/api-auth')
         const token = await getAccessToken()
         const headers: HeadersInit = {}
         if (token) headers['Authorization'] = `Bearer ${token}`
-        const res = await fetch(getVersionPreviewPdfUrl(documentId, version.id), {
+        const res = await authFetch(getVersionPreviewPdfUrl(documentId, version.id), {
           headers,
           cache: 'no-store',
         })

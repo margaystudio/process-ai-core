@@ -6,6 +6,7 @@ vi.mock('@/lib/api-auth', () => ({
     Authorization: 'Bearer test-token',
     'X-Active-Tenant-Id': 'tenant-1',
   }),
+  authFetch: vi.fn((input: RequestInfo | URL, init?: RequestInit) => fetch(input, init)),
 }))
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
