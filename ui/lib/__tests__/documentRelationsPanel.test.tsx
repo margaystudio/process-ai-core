@@ -173,6 +173,11 @@ describe('DocumentRelationsPanel', () => {
         target_id: 'ko-sap-erp',
       })
     )
+    // Esperar a que el diálogo cierre (los reload() de runAction quedan pendientes
+    // y un re-render a mitad del tipeo del paso siguiente deja referencias stale).
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: 'Editar relación' })).not.toBeInTheDocument()
+    )
 
     await user.click(screen.getByRole('button', { name: 'Unir' }))
     const mergeDialog = screen.getByRole('dialog', { name: 'Unir entidades duplicadas' })
@@ -180,9 +185,18 @@ describe('DocumentRelationsPanel', () => {
     expect(apiMocks.mergeKnowledgeObject).toHaveBeenCalledWith('ko-sap', {
       into_id: 'ko-sap-erp',
     })
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('dialog', { name: 'Unir entidades duplicadas' })
+      ).not.toBeInTheDocument()
+    )
 
     await user.click(screen.getByRole('button', { name: 'Crear entidad' }))
     const createDialog = screen.getByRole('dialog', { name: 'Crear entidad' })
+    // El Dialog mueve el foco a su primer focusable vía requestAnimationFrame;
+    // esperarlo antes de tipear, o roba el foco a mitad del type y el espacio
+    // de "Nuevo sistema" activa el botón X (cierra el diálogo).
+    await waitFor(() => expect(createDialog.contains(document.activeElement)).toBe(true))
     await user.type(within(createDialog).getByLabelText('Nombre'), 'Nuevo sistema')
     await user.type(within(createDialog).getByLabelText('Descripción opcional'), 'Descripción')
     await user.click(within(createDialog).getByRole('button', { name: 'Crear entidad' }))
