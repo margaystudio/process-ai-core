@@ -14,7 +14,7 @@ Guía para levantar process-ai en local, integrado con el hub de Margay (SSO rea
 | Servicio | URL local |
 |---|---|
 | Hub | https://hub.local.margaystudio.io:3001 |
-| Process-ai (frontend) | https://process.local.margaystudio.io:3000 |
+| Process-ai (frontend) | https://process.local.margaystudio.io:3240 |
 | Process-ai (backend) | https://api.local.margaystudio.io:8000 |
 
 ## Setup (una sola vez por máquina)
@@ -52,7 +52,7 @@ WORKSPACE_URL=https://margay-workspace-...   # o el workspace local
 SUPABASE_JWKS_URL=https://nbigcpjmckewuhrqjzrt.supabase.co/auth/v1/.well-known/jwks.json
 PROCESS_AI_APP_KEY=process_ai
 ARTIFACT_SIGNING_SECRET=<cualquier-string-en-local>
-CORS_ORIGINS=https://process.local.margaystudio.io:3000,https://hub.local.margaystudio.io:3001
+CORS_ORIGINS=https://process.local.margaystudio.io:3240,https://hub.local.margaystudio.io:3001
 ```
 
 ## Levantar el entorno
@@ -67,7 +67,7 @@ python run_api.py local        # detecta los certs de ui/.certs y levanta con HT
 
 **Frontend** (desde `ui/`):
 ```bash
-npm run dev                     # https://process.local.margaystudio.io:3000
+npm run dev                     # https://process.local.margaystudio.io:3240
 ```
 
 **Hub** (en el repo margay-hub, ver su propio README.dev.md):
@@ -77,7 +77,7 @@ npm run dev                     # https://hub.local.margaystudio.io:3001
 
 ## Probar
 
-1. Abrí **https://process.local.margaystudio.io:3000**
+1. Abrí **https://process.local.margaystudio.io:3240**
 2. Sin sesión → te redirige al login del hub.
 3. Logueás con Google → volvés a process-ai ya autenticado.
 
