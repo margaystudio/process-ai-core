@@ -19,7 +19,7 @@ service_account = "process-ai-api-sa@margay-platform-prod.iam.gserviceaccount.co
 cpu = "2"
 memory = "2Gi"
 timeout = "900s"
-min_instances = 0
+min_instances = 1
 max_instances = 10
 concurrency = 10
 # Público a nivel Cloud Run: la UI la llama desde el navegador con JWT Bearer.
