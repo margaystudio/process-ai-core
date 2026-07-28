@@ -54,6 +54,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# GZip: los listados JSON (documents, folders, versions) se comprimen ~5-10x.
+# minimum_size evita comprimir respuestas chicas donde el overhead no paga.
+from starlette.middleware.gzip import GZipMiddleware
+
+app.add_middleware(GZipMiddleware, minimum_size=1024)
+
 # Registrar rutas
 app.include_router(catalog.router)
 app.include_router(document_types.router)
