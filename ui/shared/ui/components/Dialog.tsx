@@ -74,10 +74,17 @@ export function Dialog({
   React.useEffect(() => {
     if (open) {
       previousFocusRef.current = document.activeElement as HTMLElement;
-      // Mover el foco al panel en el próximo frame (tras render)
+      // Mover el foco al panel en el próximo frame (tras render).
+      // Si el foco YA está dentro del panel (p. ej. el usuario clickeó un input
+      // apenas abrió el diálogo), NO robarlo: el rAF llegaba tarde y movía el
+      // foco al botón X a mitad del tipeo (causa del test flaky y de UX rara).
       requestAnimationFrame(() => {
-        const first = panelRef.current?.querySelector<HTMLElement>(FOCUSABLE);
-        first ? first.focus() : panelRef.current?.focus();
+        const panel = panelRef.current;
+        if (!panel) return;
+        const active = document.activeElement;
+        if (active instanceof HTMLElement && panel.contains(active)) return;
+        const first = panel.querySelector<HTMLElement>(FOCUSABLE);
+        first ? first.focus() : panel.focus();
       });
       // Bloquear scroll
       document.body.style.overflow = "hidden";
