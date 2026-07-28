@@ -25,6 +25,7 @@ from process_ai_core.db.permissions import (
     can_view_folder,
     can_create_in_folder,
     has_permission,
+    build_permission_context,
 )
 
 from api.workspace_client import (
@@ -250,10 +251,9 @@ def list_folders(
     _require_workspace_member(session, user_id, workspace_id)
 
     folders = get_folders_by_workspace(session, workspace_id)
-    visible_folders = [
-        f for f in folders
-        if can_view_folder(session, user_id, workspace_id, f.id)
-    ]
+    # Contexto precargado: evaluación en memoria, sin N+1 (ver PermissionContext).
+    perm_ctx = build_permission_context(session, user_id, workspace_id)
+    visible_folders = [f for f in folders if perm_ctx.can_view_folder(f.id)]
     return [
         FolderResponse(
             id=f.id,
