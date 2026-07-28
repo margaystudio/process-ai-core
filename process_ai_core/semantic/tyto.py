@@ -88,6 +88,22 @@ class TytoQueryService:
             .all()
         )
 
+    def has_approved_current_versions(self, session: Session, workspace_id: str) -> bool:
+        """EXISTS liviano del universo gobernado: no carga los content_* (que pueden
+        ser cientos de KB por versión). approved_current_versions() traía el corpus
+        completo del workspace en CADA consulta, aunque el camino SQL no lo use."""
+        return (
+            session.query(DocumentVersion.id)
+            .join(Document, Document.id == DocumentVersion.document_id)
+            .filter(
+                Document.workspace_id == workspace_id,
+                DocumentVersion.version_status == "APPROVED",
+                DocumentVersion.is_current.is_(True),
+            )
+            .first()
+            is not None
+        )
+
     def confirmed_relations(
         self, session: Session, workspace_id: str, document_ids: list[str]
     ) -> list[DocumentRelation]:
@@ -121,8 +137,7 @@ class TytoQueryService:
         (workspace + APPROVED vigente + LIMIT top_k, sin N+1). En SQLite u otro
         dialecto, o si no hay vector de query, cae al camino Python portable.
         """
-        versions = self.approved_current_versions(session, workspace_id)
-        if not versions:
+        if not self.has_approved_current_versions(session, workspace_id):
             return TytoContext()
 
         query_vector = self._embed_query(query)
@@ -141,7 +156,9 @@ class TytoQueryService:
                 scored = None
         # Fallback Python: mismo universo gobernado, ranking en memoria. Se usa
         # también cuando el SQL no trae hits (p.ej. no hay embeddings → léxico).
+        # Recién acá se carga el corpus completo (único camino que lo necesita).
         if not scored:
+            versions = self.approved_current_versions(session, workspace_id)
             scored = self._retrieve_python(session, query, query_vector, versions, top_k)
 
         citations: list[TytoCitation] = []
