@@ -276,23 +276,43 @@ def get_workspace_relations(
     )
 
     service = RelationService()
+    # Precarga: targets candidatos en una query IN + duplicados en bulk
+    # (antes: 1 query por fila para el target + tabla completa de KOs por fila).
+    candidate_target_ids = [
+        r.target_id
+        for r, _d, _f in rows
+        if r.status == "candidate" and r.target_type != "document" and r.target_id
+    ]
+    targets_by_id: dict[str, KnowledgeObject] = {}
+    if candidate_target_ids:
+        targets_by_id = {
+            ko.id: ko
+            for ko in session.query(KnowledgeObject)
+            .filter(
+                KnowledgeObject.id.in_(candidate_target_ids),
+                KnowledgeObject.workspace_id == workspace_id,
+            )
+            .all()
+        }
+    duplicates_by_target = service.find_possible_duplicates_bulk(
+        session, list(targets_by_id.values())
+    )
+
     items: list[WorkspaceRelationItemResponse] = []
     for relation, document, folder in rows:
         possible_duplicate = None
         if relation.status == "candidate" and relation.target_type != "document":
-            target = (
-                session.query(KnowledgeObject)
-                .filter_by(id=relation.target_id, workspace_id=workspace_id)
-                .first()
+            duplicate = (
+                duplicates_by_target.get(relation.target_id)
+                if relation.target_id in targets_by_id
+                else None
             )
-            if target is not None:
-                duplicate = service.find_possible_duplicate(session, target)
-                if duplicate is not None:
-                    possible_duplicate = RelationTargetResponse(
-                        id=duplicate.id,
-                        type=duplicate.type,
-                        name=duplicate.canonical_name,
-                    )
+            if duplicate is not None:
+                possible_duplicate = RelationTargetResponse(
+                    id=duplicate.id,
+                    type=duplicate.type,
+                    name=duplicate.canonical_name,
+                )
 
         items.append(
             WorkspaceRelationItemResponse(
@@ -347,17 +367,31 @@ def get_document_relations(
     relations = query.order_by(DocumentRelation.created_at).all()
 
     service = RelationService()
+    # Precarga de targets candidatos + duplicados en bulk (sin N+1 por relación).
+    candidate_ko_ids = [
+        r.target_id
+        for r in relations
+        if r.status == "candidate" and r.target_type != "document" and r.target_id
+    ]
+    kos_by_id: dict[str, KnowledgeObject] = {}
+    if candidate_ko_ids:
+        kos_by_id = {
+            ko.id: ko
+            for ko in session.query(KnowledgeObject)
+            .filter(KnowledgeObject.id.in_(candidate_ko_ids))
+            .all()
+        }
+    dups_by_ko = service.find_possible_duplicates_bulk(session, list(kos_by_id.values()))
+
     groups: dict[str, list[RelationItemResponse]] = {}
     for rel in relations:
         possible_duplicate = None
         if rel.status == "candidate" and rel.target_type != "document":
-            ko = session.query(KnowledgeObject).filter_by(id=rel.target_id).first()
-            if ko is not None:
-                dup = service.find_possible_duplicate(session, ko)
-                if dup is not None:
-                    possible_duplicate = RelationTargetResponse(
-                        id=dup.id, type=dup.type, name=dup.canonical_name
-                    )
+            dup = dups_by_ko.get(rel.target_id) if rel.target_id in kos_by_id else None
+            if dup is not None:
+                possible_duplicate = RelationTargetResponse(
+                    id=dup.id, type=dup.type, name=dup.canonical_name
+                )
         groups.setdefault(rel.relation_type, []).append(
             RelationItemResponse(
                 id=rel.id,
