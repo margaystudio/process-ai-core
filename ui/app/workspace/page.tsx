@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef, memo } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Search, Plus, Upload, ChevronDown, X } from 'lucide-react'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
@@ -12,6 +13,7 @@ import { canAdministerWorkspace } from '@/lib/adminGating'
 import WorkspaceProfileBanner from '@/components/workspace/WorkspaceProfileBanner'
 import FileImportModal from '@/components/processes/FileImportModal'
 import { usePdfViewer } from '@/hooks/usePdfViewer'
+import ArtifactViewerModal from '@/components/processes/ArtifactViewerModal'
 import BibliotecaFolderTree from '@/components/biblioteca/BibliotecaFolderTree'
 import { StatusBadge, VersionPill, ESTADO_LABEL, Chip } from '@/shared/ui/components'
 import type { DocumentEstado } from '@/shared/ui/components'
@@ -287,13 +289,13 @@ function EmptyState({ canCreate, onImport }: { canCreate: boolean; onImport: () 
       </div>
       {canCreate && (
         <div className="flex items-center justify-center gap-2.5">
-          <a
+          <Link
             href="/documents/new"
             className="inline-flex h-[42px] items-center gap-2 rounded-[10px] bg-ink-800 px-[18px] text-[13.5px] font-bold text-white hover:bg-ink-900"
           >
             <SvgIcon d={ICON.plus} size={16} />
             Crear documento
-          </a>
+          </Link>
           <button
             type="button"
             onClick={onImport}
@@ -309,6 +311,90 @@ function EmptyState({ canCreate, onImport }: { canCreate: boolean; onImport: () 
 }
 
 // ---- Pantalla principal ----
+/**
+ * Fila de documento de la Biblioteca, memoizada: sin memo, cada keystroke del
+ * buscador (setQuery) re-renderizaba TODAS las filas de la lista.
+ */
+const DocumentRow = memo(function DocumentRow({
+  doc,
+  isMenuOpen,
+  onOpen,
+  onToggleMenu,
+}: {
+  doc: Document
+  isMenuOpen: boolean
+  onOpen: (docId: string) => void
+  onToggleMenu: (docId: string | null) => void
+}) {
+  const estado = toEstado(doc.status)
+  const vlabel = versionLabel(doc.status, doc.version_number)
+
+  return (
+    <div className="relative flex items-center gap-[15px] rounded-[13px] border border-line bg-surface px-[18px] py-3.5">
+      {/* Ícono del documento */}
+      <span
+        className="grid h-10 w-10 flex-shrink-0 place-items-center rounded-[10px] bg-indigo-tint text-indigo"
+        aria-hidden="true"
+      >
+        <SvgIcon d={ICON.doc} size={19} />
+      </span>
+
+      {/* Cuerpo */}
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <span className="truncate text-sm font-bold text-ink-900">{doc.name}</span>
+          {estado !== 'Archivado' && (
+            <span
+              className="inline-flex flex-shrink-0 items-center gap-[3px] rounded-[5px] border border-indigo-border bg-indigo-tint px-1.5 py-px text-[9.5px] font-extrabold text-indigo"
+              title="Disponible para consultas inteligentes"
+            >
+              <SvgIcon d={ICON.ia} size={9} />
+              IA
+            </span>
+          )}
+        </div>
+        <div className="mt-1.5">
+          <VersionPill estado={estado} label={vlabel} />
+        </div>
+        <div className="mt-1.5 text-[11px] text-ink-300">
+          {relDate(doc.created_at)}
+        </div>
+      </div>
+
+      {/* Badge de estado */}
+      <StatusBadge estado={estado} />
+
+      {/* Botón Abrir */}
+      <button
+        type="button"
+        onClick={() => onOpen(doc.id)}
+        className="inline-flex h-[34px] flex-shrink-0 items-center gap-[7px] rounded-[9px] border border-line bg-surface px-4 text-[12.5px] font-bold text-ink-700 hover:bg-surface-hover"
+      >
+        Abrir
+      </button>
+
+      {/* Menú contextual */}
+      <button
+        type="button"
+        aria-label="Más opciones"
+        aria-expanded={isMenuOpen}
+        onClick={() => onToggleMenu(isMenuOpen ? null : doc.id)}
+        className="grid h-[34px] w-[34px] flex-shrink-0 place-items-center rounded-[9px] border border-line bg-surface text-ink-500 hover:bg-surface-hover"
+      >
+        <SvgIcon d={ICON.dots} size={16} strokeWidth={2.4} />
+      </button>
+
+      {isMenuOpen && (
+        <RowMenu
+          status={doc.status}
+          onClose={() => onToggleMenu(null)}
+          onOpen={() => onOpen(doc.id)}
+        />
+      )}
+    </div>
+  )
+})
+
 export default function WorkspacePage() {
   const { selectedWorkspaceId, selectedWorkspace, activeTenantId, platformRoles } = useWorkspace()
   const { role, loading: roleLoading } = useUserRole()
@@ -319,7 +405,7 @@ export default function WorkspacePage() {
 
   const router = useRouter()
   const { hasPermission: canCreateDocuments } = useCanEditWorkspace()
-  const { ModalComponent } = usePdfViewer()
+  const { modalProps } = usePdfViewer()
 
   const [documents, setDocuments] = useState<Document[]>([])
   const [loading, setLoading] = useState(true)
@@ -335,6 +421,10 @@ export default function WorkspacePage() {
   const [tab, setTab] = useState<TabView>('lista')
   const [tipoFilter, setTipoFilter] = useState<string | null>(null)
   const [menuId, setMenuId] = useState<string | null>(null)
+  // Callback estable para las filas memoizadas (navegación SPA, sin recarga).
+  const handleOpenDoc = useCallback((docId: string) => {
+    router.push(`/documents/${docId}`)
+  }, [router])
   const [importOpen, setImportOpen] = useState(false)
 
   // Opciones de tipo documental
@@ -485,13 +575,13 @@ export default function WorkspacePage() {
                   <Upload size={15} aria-hidden="true" />
                   Importar
                 </button>
-                <a
+                <Link
                   href="/documents/new"
                   className="inline-flex h-[38px] items-center gap-2 rounded-[10px] bg-ink-800 px-4 text-[13px] font-bold text-white hover:bg-ink-900"
                 >
                   <Plus size={15} aria-hidden="true" />
                   Nuevo
-                </a>
+                </Link>
               </div>
             )}
           </div>
@@ -575,85 +665,20 @@ export default function WorkspacePage() {
           <EmptyState canCreate={canCreateDocuments} onImport={() => setImportOpen(true)} />
         ) : (
           <div className="flex flex-col gap-[9px]">
-            {filtered.map((doc) => {
-              const estado = toEstado(doc.status)
-              const vlabel = versionLabel(doc.status, doc.version_number)
-              const isMenuOpen = menuId === doc.id
-              const handleOpen = () => { window.location.href = `/documents/${doc.id}` }
-
-              return (
-                <div
-                  key={doc.id}
-                  className="relative flex items-center gap-[15px] rounded-[13px] border border-line bg-surface px-[18px] py-3.5"
-                >
-                  {/* Ícono del documento */}
-                  <span
-                    className="grid h-10 w-10 flex-shrink-0 place-items-center rounded-[10px] bg-indigo-tint text-indigo"
-                    aria-hidden="true"
-                  >
-                    <SvgIcon d={ICON.doc} size={19} />
-                  </span>
-
-                  {/* Cuerpo */}
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="truncate text-sm font-bold text-ink-900">{doc.name}</span>
-                      {estado !== 'Archivado' && (
-                        <span
-                          className="inline-flex flex-shrink-0 items-center gap-[3px] rounded-[5px] border border-indigo-border bg-indigo-tint px-1.5 py-px text-[9.5px] font-extrabold text-indigo"
-                          title="Disponible para consultas inteligentes"
-                        >
-                          <SvgIcon d={ICON.ia} size={9} />
-                          IA
-                        </span>
-                      )}
-                    </div>
-                    <div className="mt-1.5">
-                      <VersionPill estado={estado} label={vlabel} />
-                    </div>
-                    <div className="mt-1.5 text-[11px] text-ink-300">
-                      {relDate(doc.created_at)}
-                    </div>
-                  </div>
-
-                  {/* Badge de estado */}
-                  <StatusBadge estado={estado} />
-
-                  {/* Botón Abrir */}
-                  <button
-                    type="button"
-                    onClick={handleOpen}
-                    className="inline-flex h-[34px] flex-shrink-0 items-center gap-[7px] rounded-[9px] border border-line bg-surface px-4 text-[12.5px] font-bold text-ink-700 hover:bg-surface-hover"
-                  >
-                    Abrir
-                  </button>
-
-                  {/* Menú contextual */}
-                  <button
-                    type="button"
-                    aria-label="Más opciones"
-                    aria-expanded={isMenuOpen}
-                    onClick={() => setMenuId(isMenuOpen ? null : doc.id)}
-                    className="grid h-[34px] w-[34px] flex-shrink-0 place-items-center rounded-[9px] border border-line bg-surface text-ink-500 hover:bg-surface-hover"
-                  >
-                    <SvgIcon d={ICON.dots} size={16} strokeWidth={2.4} />
-                  </button>
-
-                  {isMenuOpen && (
-                    <RowMenu
-                      status={doc.status}
-                      onClose={() => setMenuId(null)}
-                      onOpen={handleOpen}
-                    />
-                  )}
-                </div>
-              )
-            })}
+            {filtered.map((doc) => (
+              <DocumentRow
+                key={doc.id}
+                doc={doc}
+                isMenuOpen={menuId === doc.id}
+                onOpen={handleOpenDoc}
+                onToggleMenu={setMenuId}
+              />
+            ))}
           </div>
         )}
       </div>
 
-      <ModalComponent />
+      <ArtifactViewerModal {...modalProps} />
 
       {selectedWorkspaceId && (
         <FileImportModal

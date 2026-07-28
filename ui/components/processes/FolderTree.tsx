@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { Folder as FolderIcon, FileText, Plus, Pencil, Trash2, ChevronDown, ChevronRight, Check } from 'lucide-react'
 import { listFolders, listDocuments, type Folder, type Document as DocumentType } from '@/lib/api'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
@@ -485,6 +485,10 @@ export default function FolderTree({
     }
   }, [allDocuments])
 
+  // useMemo: evita rearmar el árbol en cada render. Debe ir ANTES de los
+  // early returns (regla de hooks: mismo orden en todos los renders).
+  const tree = useMemo(() => (folders.length > 0 ? buildTree(folders) : []), [folders])
+
   if (!workspaceId) {
     return (
       <div className="p-4 bg-ink-50 rounded-lg border border-ink-200">
@@ -508,8 +512,6 @@ export default function FolderTree({
       </div>
     )
   }
-
-  const tree = folders.length > 0 ? buildTree(folders) : []
 
   return (
     <div className="bg-white rounded-lg border border-ink-200 p-4">

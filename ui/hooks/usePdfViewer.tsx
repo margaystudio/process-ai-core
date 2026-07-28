@@ -1,12 +1,20 @@
 'use client'
 
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { Document, getDocumentRuns, getDocumentVersions } from '@/lib/api'
-import ArtifactViewerModal from '@/components/processes/ArtifactViewerModal'
 
 interface ViewerModalState {
   isOpen: boolean
   /** URL ya firmada del artifact (viene del backend). */
+  artifactUrl: string
+  type: 'json' | 'markdown' | 'pdf'
+  versionPreviewPdf: { documentId: string; versionId: string } | null
+}
+
+/** Props para pasar con spread a <ArtifactViewerModal {...modalProps} />. */
+export interface PdfViewerModalProps {
+  isOpen: boolean
+  onClose: () => void
   artifactUrl: string
   type: 'json' | 'markdown' | 'pdf'
   versionPreviewPdf: { documentId: string; versionId: string } | null
@@ -22,7 +30,15 @@ interface UsePdfViewerReturn {
   /** Abre el PDF del borrador actual (incluye edición manual). Usa el mismo modal; la petición va con cookies. */
   openVersionPreviewPdf: (documentId: string, versionId: string) => void
   closeModal: () => void
-  ModalComponent: () => JSX.Element
+  /**
+   * Props para <ArtifactViewerModal {...modalProps} />.
+   *
+   * Antes el hook devolvía un componente (ModalComponent) definido adentro:
+   * al ser una función NUEVA en cada render del consumidor, React lo trataba
+   * como un tipo distinto y desmontaba/remontaba el modal entero en cada
+   * render del padre (p. ej. cada tecla del buscador re-descargaba el PDF).
+   */
+  modalProps: PdfViewerModalProps
 }
 
 /**
@@ -132,9 +148,9 @@ export function usePdfViewer(): UsePdfViewerReturn {
     }
   }
 
-  const closeModal = () => {
+  const closeModal = useCallback(() => {
     setViewerModal((prev) => ({ ...prev, isOpen: false }))
-  }
+  }, [])
 
   /**
    * Abre un artifact directamente desde su URL firmada (viene del backend).
@@ -161,26 +177,22 @@ export function usePdfViewer(): UsePdfViewerReturn {
     })
   }
 
-  const ModalComponent = () => {
-    return (
-      <ArtifactViewerModal
-        isOpen={viewerModal.isOpen}
-        onClose={closeModal}
-        artifactUrl={viewerModal.artifactUrl}
-        type={viewerModal.type}
-        versionPreviewPdf={viewerModal.versionPreviewPdf}
-      />
-    )
+  const modalProps: PdfViewerModalProps = {
+    isOpen: viewerModal.isOpen,
+    onClose: closeModal,
+    artifactUrl: viewerModal.artifactUrl,
+    type: viewerModal.type,
+    versionPreviewPdf: viewerModal.versionPreviewPdf,
   }
 
-  return { 
+  return {
     openPdf,
     openLatestPdf,
     openArtifact,
     openArtifactFromRun,
     openVersionPreviewPdf,
     closeModal,
-    ModalComponent 
+    modalProps,
   }
 }
 

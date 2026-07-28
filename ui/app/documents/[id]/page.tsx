@@ -31,6 +31,7 @@ import { useWorkspace } from '@/contexts/WorkspaceContext'
 import { useLoading } from '@/contexts/LoadingContext'
 import { FileType } from '@/components/processes/FileUploadModal'
 import { usePdfViewer } from '@/hooks/usePdfViewer'
+import ArtifactViewerModal from '@/components/processes/ArtifactViewerModal'
 import { FileItemData } from '@/components/processes/FileItem'
 import { formatDateTime } from '@/utils/dateFormat'
 import { useCanApproveDocuments, useCanRejectDocuments, useHasPermission } from '@/hooks/useHasPermission'
@@ -141,7 +142,7 @@ export default function DocumentDetailPage() {
   const [newVersionFiles, setNewVersionFiles] = useState<FileItemData[]>([])
 
   // PDF viewer
-  const { openArtifactFromRun, openVersionPreviewPdf, ModalComponent } = usePdfViewer()
+  const { openArtifactFromRun, openVersionPreviewPdf, modalProps } = usePdfViewer()
 
   // ── Carga inicial ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -879,7 +880,7 @@ export default function DocumentDetailPage() {
       )}
 
       {/* ── Modal PDF ────────────────────────────────────────────────────── */}
-      <ModalComponent />
+      <ArtifactViewerModal {...modalProps} />
 
       {/* ── Modales de confirmación ─────────────────────────────────────── */}
 

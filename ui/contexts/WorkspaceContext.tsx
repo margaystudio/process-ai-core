@@ -1,6 +1,6 @@
 'use client'
 
-import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react'
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, ReactNode } from 'react'
 import { getCurrentUser, invalidateCurrentUserCache, WorkspaceResponse } from '@/lib/api'
 import { getActiveTenantId, setActiveTenantId as persistActiveTenantId } from '@/lib/api-auth'
 
@@ -90,21 +90,37 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   const selectedWorkspace = workspaces.find((ws) => ws.id === selectedWorkspaceId) || null
 
+  // useMemo: sin esto el value es un objeto nuevo en cada render del provider
+  // y TODOS los consumidores del contexto re-renderizan aunque nada cambie.
+  const value = useMemo(
+    () => ({
+      workspaces,
+      selectedWorkspace,
+      selectedWorkspaceId,
+      activeTenantId,
+      platformRoles,
+      tenantRoles,
+      currentUser,
+      setActiveTenantId,
+      loading,
+      refreshWorkspaces,
+    }),
+    [
+      workspaces,
+      selectedWorkspace,
+      selectedWorkspaceId,
+      activeTenantId,
+      platformRoles,
+      tenantRoles,
+      currentUser,
+      setActiveTenantId,
+      loading,
+      refreshWorkspaces,
+    ]
+  )
+
   return (
-    <WorkspaceContext.Provider
-      value={{
-        workspaces,
-        selectedWorkspace,
-        selectedWorkspaceId,
-        activeTenantId,
-        platformRoles,
-        tenantRoles,
-        currentUser,
-        setActiveTenantId,
-        loading,
-        refreshWorkspaces,
-      }}
-    >
+    <WorkspaceContext.Provider value={value}>
       {children}
     </WorkspaceContext.Provider>
   )

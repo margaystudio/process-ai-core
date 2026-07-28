@@ -5,11 +5,14 @@
 // tiene documentación aprobada suficiente — estilo neutro, nunca rojo.
 'use client'
 
+import { memo } from 'react'
 import { AlertCircle, Info } from 'lucide-react'
 import { TytoAnswerText } from './TytoAnswerText'
 import type { TytoAssistantMessage, TytoUserMessage } from './types'
 
-export function TytoUserBubble({ message }: { message: TytoUserMessage }) {
+// memo: durante el streaming, cada flush de tokens re-renderiza la página del
+// chat; sin memo TODAS las burbujas anteriores se re-renderizaban con cada uno.
+export const TytoUserBubble = memo(function TytoUserBubble({ message }: { message: TytoUserMessage }) {
   return (
     <div className="mb-4 flex justify-end">
       <div className="max-w-[75%] rounded-[14px_14px_4px_14px] bg-ink-800 px-4 py-[11px] text-sm font-semibold leading-normal text-white">
@@ -17,9 +20,9 @@ export function TytoUserBubble({ message }: { message: TytoUserMessage }) {
       </div>
     </div>
   )
-}
+})
 
-export function TytoAssistantBubble({
+export const TytoAssistantBubble = memo(function TytoAssistantBubble({
   message,
   onRetry,
 }: {
@@ -80,7 +83,7 @@ export function TytoAssistantBubble({
       )}
     </div>
   )
-}
+})
 
 function TytoThinkingIndicator() {
   return (

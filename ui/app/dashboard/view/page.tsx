@@ -12,6 +12,7 @@ import {
 import DocumentCard from '@/components/documents/DocumentCard'
 import FolderTree from '@/components/processes/FolderTree'
 import { usePdfViewer } from '@/hooks/usePdfViewer'
+import ArtifactViewerModal from '@/components/processes/ArtifactViewerModal'
 import { useDocumentFilter } from '@/hooks/useDocumentFilter'
 
 export default function ViewPage() {
@@ -24,7 +25,7 @@ export default function ViewPage() {
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null)
 
   // Hook para manejar visualización de PDFs
-  const { openLatestPdf, ModalComponent } = usePdfViewer()
+  const { openLatestPdf, modalProps } = usePdfViewer()
 
   useEffect(() => {
     async function loadDocuments() {
@@ -180,7 +181,7 @@ export default function ViewPage() {
         </div>
       </div>
 
-      <ModalComponent />
+      <ArtifactViewerModal {...modalProps} />
     </div>
   )
 }

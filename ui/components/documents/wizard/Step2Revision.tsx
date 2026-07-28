@@ -6,10 +6,23 @@ import {
   getEditableContent,
   saveEditableContent,
 } from "@/lib/api";
-import ManualEditorTiptap, {
-  type ManualEditorTiptapRef,
-} from "@/components/documents/ManualEditorTiptap";
+import dynamic from "next/dynamic";
+import type { ManualEditorTiptapRef } from "@/components/documents/ManualEditorTiptap";
+
+// Code-splitting: Tiptap solo se descarga cuando el wizard llega a este paso.
+const ManualEditorTiptap = dynamic(
+  () => import("@/components/documents/ManualEditorTiptap"),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex h-40 items-center justify-center text-[13px] text-ink-400">
+        Cargando editor…
+      </div>
+    ),
+  }
+);
 import { usePdfViewer } from "@/hooks/usePdfViewer";
+import ArtifactViewerModal from "@/components/processes/ArtifactViewerModal";
 import { type Evidence, type EvidenceTipo } from "./data";
 import { EvidenceCardCompact } from "./EvidenceCard";
 import { WizardIcon } from "./WizardIcon";
@@ -104,7 +117,7 @@ export function Step2Revision({
   const draftStats = useMemo(() => parseDraftStats(html), [html]);
 
   const editorRef = useRef<ManualEditorTiptapRef | null>(null);
-  const { openVersionPreviewPdf, ModalComponent } = usePdfViewer();
+  const { openVersionPreviewPdf, modalProps } = usePdfViewer();
 
   const loadDraft = useCallback(async () => {
     if (!documentId) return;
@@ -414,7 +427,7 @@ export function Step2Revision({
         )}
       </div>
 
-      <ModalComponent />
+      <ArtifactViewerModal {...modalProps} />
 
       <style jsx global>{`
         .wizard-draft-html p {
