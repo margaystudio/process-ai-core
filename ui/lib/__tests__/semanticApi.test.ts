@@ -24,6 +24,37 @@ describe('semantic API client', () => {
     global.fetch = vi.fn()
   })
 
+  it('uploads evidence as multipart while preserving auth and tenant headers', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse({
+        status: 'done',
+        extracted_text: 'Contenido del proceso',
+        metadata: { language: 'es' },
+        error: null,
+      })
+    )
+
+    const { processEvidenceFile } = await import('../api')
+    const file = new File(['Contenido del proceso'], 'proceso.txt', {
+      type: 'text/plain',
+    })
+
+    await processEvidenceFile(file, 'text')
+
+    expect(fetch).toHaveBeenCalledTimes(1)
+    const [, request] = vi.mocked(fetch).mock.calls[0]
+    const headers = new Headers(request?.headers)
+    const formData = request?.body as FormData
+
+    expect(request?.method).toBe('POST')
+    expect(headers.get('Content-Type')).toBeNull()
+    expect(headers.get('Authorization')).toBe('Bearer test-token')
+    expect(headers.get('X-Active-Tenant-Id')).toBe('tenant-1')
+    expect(formData).toBeInstanceOf(FormData)
+    expect(formData.get('kind')).toBe('text')
+    expect((formData.get('file') as File).name).toBe('proceso.txt')
+  })
+
   it('loads relations from the real semantic.py route and filters status locally', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       jsonResponse({

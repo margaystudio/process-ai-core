@@ -296,7 +296,11 @@ export async function processEvidenceFile(
   formData.append('file', file);
   formData.append('kind', kind);
 
-  const headers = await getAuthHeaders();
+  const headers = new Headers(await getAuthHeaders());
+  // FormData necesita que el navegador genere el Content-Type junto con su
+  // boundary. getAuthHeaders usa application/json por defecto para el resto
+  // del cliente, así que lo quitamos únicamente para este upload.
+  headers.delete('Content-Type');
   const response = await authFetch(`${API_URL}/api/v1/evidence/process`, {
     method: 'POST',
     headers,
