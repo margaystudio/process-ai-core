@@ -25,8 +25,19 @@ from process_ai_core.db.helpers import (
     check_workspace_limit,
 )
 from process_ai_core.db.models import Workspace, SubscriptionPlan
+from process_ai_core.db.permissions import get_user_role
 
 router = APIRouter(prefix="/api/v1", tags=["subscriptions"])
+
+
+def _require_workspace_member(session: Session, user_id: str, workspace_id: str) -> None:
+    """Lanza 403 si el usuario no es miembro del workspace (mismo patrón que folders)."""
+    role = get_user_role(session, user_id, workspace_id)
+    if not role:
+        raise HTTPException(
+            status_code=403,
+            detail="No es miembro de este workspace",
+        )
 
 
 # ============================================================================
@@ -113,6 +124,7 @@ def list_plans(
 def get_workspace_subscription(
     workspace_id: str,
     session: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
 ):
     """
     Obtiene la suscripción actual de un workspace.
@@ -121,6 +133,7 @@ def get_workspace_subscription(
     workspace = session.query(Workspace).filter_by(id=workspace_id).first()
     if not workspace:
         raise HTTPException(status_code=404, detail="Workspace no encontrado")
+    _require_workspace_member(session, user_id, workspace_id)
 
     subscription = get_subscription(session, workspace_id)
     if not subscription:
@@ -213,16 +226,18 @@ def create_or_update_subscription(
 def get_workspace_limits(
     workspace_id: str,
     session: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
 ):
     """
     Obtiene los límites y uso actual de un workspace.
-    
+
     Para workspaces de tipo "system" (superadmins), devuelve límites ilimitados.
     """
     # Verificar si es un workspace de tipo "system"
     workspace = session.query(Workspace).filter_by(id=workspace_id).first()
     if not workspace:
         raise HTTPException(status_code=404, detail="Workspace no encontrado")
+    _require_workspace_member(session, user_id, workspace_id)
     
     # Workspaces de tipo "system" no requieren suscripción y tienen límites ilimitados
     if workspace.workspace_type == "system":
