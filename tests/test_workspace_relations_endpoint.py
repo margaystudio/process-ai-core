@@ -1,6 +1,5 @@
 """Contrato y aislamiento de la bandeja global de relaciones."""
 
-import asyncio
 import uuid
 
 import pytest
@@ -111,7 +110,7 @@ def test_workspace_relations_are_isolated_sorted_filtered_and_paginated(session,
 
     monkeypatch.setattr(semantic, "has_permission", allow_admin)
 
-    first_page = asyncio.run(
+    first_page = (
         semantic.get_workspace_relations(
             status="candidate",
             relation_type=None,
@@ -132,7 +131,7 @@ def test_workspace_relations_are_isolated_sorted_filtered_and_paginated(session,
     assert relations_b[0].id not in {item.id for item in first_page.items}
     assert permission_checks == [("workspace-a", "workspaces.edit")]
 
-    filtered = asyncio.run(
+    filtered = (
         semantic.get_workspace_relations(
             status="candidate",
             relation_type="usa",
@@ -163,7 +162,7 @@ def test_workspace_relations_requires_workspace_administration_permission(
     monkeypatch.setattr(semantic, "has_permission", lambda *_args, **_kwargs: False)
 
     with pytest.raises(HTTPException) as error:
-        asyncio.run(
+        (
             semantic.get_workspace_relations(
                 status="candidate",
                 relation_type=None,

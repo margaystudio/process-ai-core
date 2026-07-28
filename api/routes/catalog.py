@@ -29,7 +29,7 @@ class CreateCatalogOptionRequest(BaseModel):
 
 
 @router.get("/{domain}")
-async def get_catalog_options(domain: str):
+def get_catalog_options(domain: str):
     """
     Obtiene todas las opciones activas para un dominio del catálogo.
 
@@ -61,7 +61,7 @@ async def get_catalog_options(domain: str):
 
 
 @router.get("")
-async def list_domains():
+def list_domains():
     """
     Lista todos los dominios disponibles en el catálogo.
 
@@ -77,7 +77,7 @@ async def list_domains():
 
 
 @router.post("", response_model=dict)
-async def create_catalog_option(
+def create_catalog_option(
     request: CreateCatalogOptionRequest,
     user_id: str = Depends(get_current_user_id),
     session: Session = Depends(get_db),

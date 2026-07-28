@@ -215,7 +215,7 @@ def _log_context(ctx: WorkspaceSessionContext) -> None:
 
 # ── Dependencias FastAPI ─────────────────────────────────────────────────────
 
-async def get_workspace_context(
+def get_workspace_context(
     authorization: Optional[str] = Header(None, alias="Authorization"),
     active_tenant_id: Optional[str] = Header(None, alias="X-Active-Tenant-Id"),
 ) -> WorkspaceSessionContext:
@@ -282,7 +282,7 @@ def resolve_tenant_workspace_id(ctx: "WorkspaceSessionContext") -> str:
             # la segunda pasada lo encontrará vía SELECT.
 
 
-async def sync_workspace_access(
+def sync_workspace_access(
     authorization: Optional[str] = Header(None, alias="Authorization"),
     active_tenant_id: Optional[str] = Header(None, alias="X-Active-Tenant-Id"),
 ) -> None:
@@ -401,7 +401,7 @@ def _get_required_app_key() -> str:
     return os.getenv("PROCESS_AI_APP_KEY", "process_ai")
 
 
-async def require_process_ai_access(
+def require_process_ai_access(
     ctx: WorkspaceSessionContext = Depends(get_workspace_context),
 ) -> WorkspaceSessionContext:
     """

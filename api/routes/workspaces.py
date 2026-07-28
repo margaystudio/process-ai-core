@@ -169,7 +169,7 @@ def _validate_hex_color(color: str, field_name: str) -> str:
 
 
 @router.get("", response_model=list[WorkspaceResponse])
-async def list_workspaces():
+def list_workspaces():
     """
     Lista todos los workspaces (clientes/organizaciones).
 
@@ -182,7 +182,7 @@ async def list_workspaces():
 
 
 @router.get("/{workspace_id}/members")
-async def get_workspace_members(
+def get_workspace_members(
     workspace_id: str,
     user_id: str = Depends(get_current_user_id),
     session: Session = Depends(get_db),
@@ -247,7 +247,7 @@ async def get_workspace_members(
 
 
 @router.patch("/{workspace_id}/settings", response_model=WorkspaceResponse)
-async def update_workspace_settings(
+def update_workspace_settings(
     workspace_id: str,
     request: WorkspaceSettingsUpdateRequest,
     user_id: str = Depends(get_current_user_id),
@@ -299,7 +299,7 @@ async def update_workspace_settings(
 
 
 @router.get("/{workspace_id}", response_model=WorkspaceResponse)
-async def get_workspace(workspace_id: str):
+def get_workspace(workspace_id: str):
     """
     Obtiene un workspace por su ID.
 
@@ -381,7 +381,7 @@ async def upload_workspace_branding_icon(
 
 
 @router.delete("/{workspace_id}/branding/icon")
-async def delete_workspace_branding_icon(
+def delete_workspace_branding_icon(
     workspace_id: str,
     user_id: str = Depends(get_current_user_id),
     session: Session = Depends(get_db),
@@ -415,7 +415,7 @@ async def delete_workspace_branding_icon(
 
 
 @router.put("/{workspace_id}/branding")
-async def update_workspace_branding(
+def update_workspace_branding(
     workspace_id: str,
     request: WorkspaceBrandingUpdateRequest,
     user_id: str = Depends(get_current_user_id),
@@ -447,7 +447,7 @@ async def update_workspace_branding(
 
 
 @router.get("/{workspace_id}/branding/icon/{filename}")
-async def get_workspace_branding_icon(workspace_id: str, filename: str):
+def get_workspace_branding_icon(workspace_id: str, filename: str):
     """
     Sirve el icono personalizado del workspace.
     """

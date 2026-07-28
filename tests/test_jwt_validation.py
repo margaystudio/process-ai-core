@@ -1,6 +1,5 @@
 """Tests de validación JWT con JWKS (api.dependencies)."""
 
-import asyncio
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
@@ -66,7 +65,7 @@ def test_get_current_user_id_rejects_forged_jwt():
 
     with patch("api.dependencies._get_jwks_client", return_value=mock_client):
         with pytest.raises(HTTPException) as exc_info:
-            asyncio.run(get_current_user_id(authorization=f"Bearer {token}"))
+            (get_current_user_id(authorization=f"Bearer {token}"))
 
     assert exc_info.value.status_code == 401
 

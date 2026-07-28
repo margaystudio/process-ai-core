@@ -7,7 +7,6 @@ Cubre los dos pendientes del review de Config·Carpetas (GDD-39/41):
   filtrar su existencia).
 """
 
-import asyncio
 import uuid
 from types import SimpleNamespace
 
@@ -57,7 +56,7 @@ def _permitir_escritura(monkeypatch, workspace_id: str) -> None:
 
 
 def _put(session, folder_id: str, request: FolderUpdateRequest):
-    return asyncio.run(
+    return (
         folders_route.update_folder_endpoint(
             folder_id=folder_id,
             request=request,

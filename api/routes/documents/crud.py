@@ -114,7 +114,7 @@ def _to_document_response(session, doc, *, include_metadata: bool = False) -> Do
 
 
 @router.get("/pending-approval", response_model=list[DocumentResponse])
-async def list_documents_pending_approval(
+def list_documents_pending_approval(
     user_id: str = Depends(get_current_user_id),
     ctx: WorkspaceSessionContext = Depends(get_workspace_context),
 ):
@@ -174,7 +174,7 @@ async def list_documents_pending_approval(
 
 
 @router.get("/to-review", response_model=list[DocumentResponse])
-async def list_documents_to_review(
+def list_documents_to_review(
     user_id: str = Depends(get_current_user_id),
     ctx: WorkspaceSessionContext = Depends(get_workspace_context),
 ):
@@ -214,7 +214,7 @@ async def list_documents_to_review(
 
 
 @router.get("", response_model=list[DocumentResponse])
-async def list_documents(
+def list_documents(
     folder_id: Optional[str] = Query(None, description="ID de la carpeta (opcional)"),
     domain: str = Query("process", description="Tipo de documento"),
     status: Optional[str] = Query(None, description="Filtrar por estado (draft|pending_validation|approved|rejected|archived)"),
@@ -366,7 +366,7 @@ async def import_documents(
 
 
 @router.get("/{document_id}", response_model=DocumentResponse)
-async def get_document(
+def get_document(
     document_id: str,
     user_id: str = Depends(get_current_user_id),
     ctx: WorkspaceSessionContext = Depends(get_workspace_context),
@@ -433,7 +433,7 @@ async def get_document(
 
 
 @router.put("/{document_id}", response_model=DocumentResponse)
-async def update_document(
+def update_document(
     document_id: str,
     request: DocumentUpdateRequest,
     user_id: str = Depends(get_current_user_id),
@@ -554,7 +554,7 @@ async def update_document(
 
 
 @router.delete("/{document_id}")
-async def delete_document_endpoint(
+def delete_document_endpoint(
     document_id: str,
     user_id: str = Depends(get_current_user_id),
     ctx: WorkspaceSessionContext = Depends(get_workspace_context),
@@ -665,7 +665,7 @@ async def delete_document_endpoint(
 
 
 @router.get("/{document_id}/process")
-async def get_process_details(
+def get_process_details(
     document_id: str,
     user_id: str = Depends(get_current_user_id),
     ctx: WorkspaceSessionContext = Depends(get_workspace_context),

@@ -208,7 +208,7 @@ def _ko_response(ko: KnowledgeObject) -> KnowledgeObjectResponse:
 # ============================================================
 
 @router.get("/relations", response_model=WorkspaceRelationsResponse)
-async def get_workspace_relations(
+def get_workspace_relations(
     status: str = Query("candidate"),
     relation_type: Optional[str] = Query(None, alias="type"),
     folder_id: Optional[str] = Query(None),
@@ -327,7 +327,7 @@ async def get_workspace_relations(
 
 
 @router.get("/documents/{document_id}/relations", response_model=DocumentRelationsResponse)
-async def get_document_relations(
+def get_document_relations(
     document_id: str,
     include_all: bool = False,
     session: Session = Depends(get_db),
@@ -382,7 +382,7 @@ async def get_document_relations(
 
 
 @router.post("/documents/{document_id}/relations/suggest", response_model=SuggestResponse)
-async def suggest_document_relations(
+def suggest_document_relations(
     document_id: str,
     user_id: str = Depends(get_current_user_id),
     session: Session = Depends(get_db),
@@ -431,7 +431,7 @@ async def suggest_document_relations(
 
 
 @router.post("/relations/{relation_id}/confirm", response_model=RelationItemResponse)
-async def confirm_relation(
+def confirm_relation(
     relation_id: str,
     request: RelationDecisionRequest = Body(default=RelationDecisionRequest()),
     user_id: str = Depends(get_current_user_id),
@@ -468,7 +468,7 @@ async def confirm_relation(
 
 
 @router.post("/relations/{relation_id}/reject", response_model=RelationItemResponse)
-async def reject_relation(
+def reject_relation(
     relation_id: str,
     request: RelationDecisionRequest = Body(default=RelationDecisionRequest()),
     user_id: str = Depends(get_current_user_id),
@@ -505,7 +505,7 @@ async def reject_relation(
 
 
 @router.patch("/relations/{relation_id}", response_model=RelationItemResponse)
-async def edit_relation(
+def edit_relation(
     relation_id: str,
     request: RelationPatchRequest = Body(...),
     user_id: str = Depends(get_current_user_id),
@@ -549,7 +549,7 @@ async def edit_relation(
 # ============================================================
 
 @router.post("/knowledge-objects", response_model=KnowledgeObjectResponse)
-async def create_knowledge_object(
+def create_knowledge_object(
     request: KnowledgeObjectCreateRequest = Body(...),
     user_id: str = Depends(get_current_user_id),
     session: Session = Depends(get_db),
@@ -595,7 +595,7 @@ async def create_knowledge_object(
 
 
 @router.get("/knowledge-objects", response_model=list[KnowledgeObjectResponse])
-async def search_knowledge_objects(
+def search_knowledge_objects(
     type: Optional[str] = None,
     q: Optional[str] = None,
     limit: int = 20,
@@ -611,7 +611,7 @@ async def search_knowledge_objects(
 
 
 @router.post("/knowledge-objects/{ko_id}/merge", response_model=KnowledgeObjectResponse)
-async def merge_knowledge_object(
+def merge_knowledge_object(
     ko_id: str,
     request: MergeRequest = Body(...),
     user_id: str = Depends(get_current_user_id),
@@ -641,7 +641,7 @@ async def merge_knowledge_object(
 # ============================================================
 
 @router.get("/documents/{document_id}/impact")
-async def get_document_impact(
+def get_document_impact(
     document_id: str,
     session: Session = Depends(get_db),
     ctx: WorkspaceSessionContext = Depends(get_workspace_context),

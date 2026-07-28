@@ -92,7 +92,7 @@ class CreateSubscriptionRequest(BaseModel):
 # ============================================================================
 
 @router.get("/subscription-plans", response_model=list[SubscriptionPlanResponse])
-async def list_plans(
+def list_plans(
     plan_type: Optional[str] = None,  # "b2b" | "b2c"
     session: Session = Depends(get_db),
 ):
@@ -110,7 +110,7 @@ async def list_plans(
     "/workspaces/{workspace_id}/subscription",
     response_model=WorkspaceSubscriptionResponse | None,
 )
-async def get_workspace_subscription(
+def get_workspace_subscription(
     workspace_id: str,
     session: Session = Depends(get_db),
 ):
@@ -142,7 +142,7 @@ async def get_workspace_subscription(
 
 
 @router.post("/workspaces/{workspace_id}/subscription", response_model=WorkspaceSubscriptionResponse)
-async def create_or_update_subscription(
+def create_or_update_subscription(
     workspace_id: str,
     request: CreateSubscriptionRequest,
     user_id: str = Depends(get_current_user_id),
@@ -210,7 +210,7 @@ async def create_or_update_subscription(
 
 
 @router.get("/workspaces/{workspace_id}/limits", response_model=WorkspaceLimitsResponse)
-async def get_workspace_limits(
+def get_workspace_limits(
     workspace_id: str,
     session: Session = Depends(get_db),
 ):

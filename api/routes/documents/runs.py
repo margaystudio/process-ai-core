@@ -42,7 +42,7 @@ router = APIRouter()
 
 
 @router.get("/{document_id}/runs")
-async def get_document_runs(
+def get_document_runs(
     document_id: str,
     user_id: str = Depends(get_current_user_id),
     ctx: WorkspaceSessionContext = Depends(get_workspace_context),

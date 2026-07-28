@@ -457,7 +457,7 @@ async def create_process_run(
 
 
 @router.get("/{run_id}", response_model=ProcessRunResponse)
-async def get_process_run(
+def get_process_run(
     run_id: str,
     user_id: str = Depends(get_current_user_id),
     ctx: WorkspaceSessionContext = Depends(get_workspace_context),
@@ -525,7 +525,7 @@ async def get_process_run(
 
 
 @router.post("/{run_id}/generate-pdf")
-async def generate_pdf_from_run(run_id: str):
+def generate_pdf_from_run(run_id: str):
     """
     Genera un PDF desde un run existente (sin ejecutar el pipeline completo).
 
