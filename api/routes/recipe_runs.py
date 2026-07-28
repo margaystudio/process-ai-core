@@ -177,7 +177,7 @@ async def create_recipe_run(
 
 
 @router.get("/{run_id}", response_model=RecipeRunResponse)
-async def get_recipe_run(run_id: str):
+def get_recipe_run(run_id: str):
     """
     Obtiene el estado y resultados de una corrida.
 
@@ -233,7 +233,7 @@ async def get_recipe_run(run_id: str):
 
 
 @router.post("/{run_id}/generate-pdf")
-async def generate_pdf_from_run(run_id: str):
+def generate_pdf_from_run(run_id: str):
     """
     Genera un PDF desde un run existente (sin ejecutar el pipeline completo).
 

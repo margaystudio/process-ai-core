@@ -1,4 +1,4 @@
-import { ACTIVE_TENANT_STORAGE_KEY } from '@/lib/api-auth'
+import { ACTIVE_TENANT_STORAGE_KEY, clearAccessTokenCache } from '@/lib/api-auth'
 
 const PROD_COOKIE_DOMAIN = '.margaystudio.io'
 
@@ -54,6 +54,7 @@ export function clearSupabaseAuthCookies(): void {
 
 /** Limpia cookies Supabase y claves locales de sesión/workspace. */
 export function clearLocalAuthState(): void {
+  clearAccessTokenCache()
   clearSupabaseAuthCookies()
   if (typeof localStorage === 'undefined') return
   localStorage.removeItem('local_user_id')

@@ -25,7 +25,9 @@ export function TytoAnswerText({
   sources?: TytoSource[] | null
   className?: string
 }) {
-  const parts = text.split(CITATION_RE)
+  // useMemo: durante el streaming el split corría sobre el texto acumulado
+  // completo en cada render (O(n²) en el largo de la respuesta).
+  const parts = React.useMemo(() => text.split(CITATION_RE), [text])
   const resolved = Boolean(sources)
 
   return (

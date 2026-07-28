@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { ChevronRight, BookOpen } from 'lucide-react'
 import { listFolders, Folder, Document as DocType } from '@/lib/api'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
@@ -199,7 +199,9 @@ export default function BibliotecaFolderTree({
     // (setAllFolders) — identidad estable, agregarla no cambia cuándo corre esto.
   }, [workspaceId, activeTenantId, onFoldersLoaded])
 
-  const tree = buildTree(folders, allDocuments)
+  // useMemo: buildTree arma Map + árbol + sort recursivo; sin memo se
+  // recalculaba en CADA render (p. ej. cada keystroke del buscador del padre).
+  const tree = useMemo(() => buildTree(folders, allDocuments), [folders, allDocuments])
 
   return (
     <div className="sticky top-0 max-h-screen w-[228px] flex-shrink-0 self-start overflow-y-auto border-r border-line bg-surface p-3 pt-[22px]">

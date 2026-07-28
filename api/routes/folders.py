@@ -25,6 +25,7 @@ from process_ai_core.db.permissions import (
     can_view_folder,
     can_create_in_folder,
     has_permission,
+    build_permission_context,
 )
 
 from api.workspace_client import (
@@ -125,7 +126,7 @@ def resolve_inherited(folder: Folder, attr: str) -> tuple[object, str, str | Non
 
 
 @router.post("", response_model=FolderResponse)
-async def create_folder_endpoint(
+def create_folder_endpoint(
     request: FolderCreateRequest,
     user_id: str = Depends(get_current_user_id),
     session: Session = Depends(get_db),
@@ -235,7 +236,7 @@ async def create_folder_endpoint(
 
 
 @router.get("", response_model=list[FolderResponse])
-async def list_folders(
+def list_folders(
     user_id: str = Depends(get_current_user_id),
     session: Session = Depends(get_db),
     ctx: WorkspaceSessionContext = Depends(get_workspace_context),
@@ -250,10 +251,9 @@ async def list_folders(
     _require_workspace_member(session, user_id, workspace_id)
 
     folders = get_folders_by_workspace(session, workspace_id)
-    visible_folders = [
-        f for f in folders
-        if can_view_folder(session, user_id, workspace_id, f.id)
-    ]
+    # Contexto precargado: evaluación en memoria, sin N+1 (ver PermissionContext).
+    perm_ctx = build_permission_context(session, user_id, workspace_id)
+    visible_folders = [f for f in folders if perm_ctx.can_view_folder(f.id)]
     return [
         FolderResponse(
             id=f.id,
@@ -276,7 +276,7 @@ async def list_folders(
 
 
 @router.get("/{folder_id}/permissions")
-async def get_folder_permissions(
+def get_folder_permissions(
     folder_id: str,
     user_id: str = Depends(get_current_user_id),
     session: Session = Depends(get_db),
@@ -327,7 +327,7 @@ async def get_folder_permissions(
 
 
 @router.put("/{folder_id}/permissions")
-async def update_folder_permissions(
+def update_folder_permissions(
     folder_id: str,
     request: FolderPermissionsUpdateRequest,
     user_id: str = Depends(get_current_user_id),
@@ -400,7 +400,7 @@ async def update_folder_permissions(
 
 
 @router.get("/{folder_id}/stats")
-async def get_folder_stats(
+def get_folder_stats(
     folder_id: str,
     user_id: str = Depends(get_current_user_id),
     session: Session = Depends(get_db),
@@ -476,7 +476,7 @@ async def get_folder_stats(
 
 
 @router.get("/{folder_id}/governance")
-async def get_folder_governance(
+def get_folder_governance(
     folder_id: str,
     user_id: str = Depends(get_current_user_id),
     session: Session = Depends(get_db),
@@ -525,7 +525,7 @@ async def get_folder_governance(
 
 
 @router.get("/{folder_id}", response_model=FolderResponse)
-async def get_folder(
+def get_folder(
     folder_id: str,
     user_id: str = Depends(get_current_user_id),
     session: Session = Depends(get_db),
@@ -577,7 +577,7 @@ async def get_folder(
 
 
 @router.put("/{folder_id}", response_model=FolderResponse)
-async def update_folder_endpoint(
+def update_folder_endpoint(
     folder_id: str,
     request: FolderUpdateRequest,
     user_id: str = Depends(get_current_user_id),
@@ -716,7 +716,7 @@ async def update_folder_endpoint(
 
 
 @router.delete("/{folder_id}")
-async def delete_folder_endpoint(
+def delete_folder_endpoint(
     folder_id: str,
     move_documents_to: str = None,
     user_id: str = Depends(get_current_user_id),

@@ -13,7 +13,12 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, F
 from process_ai_core.db.database import get_db_session
 from process_ai_core.db.models import Document, DocumentVersion, Process, Recipe, Run
 from process_ai_core.db.helpers import delete_document
-from process_ai_core.db.permissions import has_permission, can_view_folder, can_create_in_folder
+from process_ai_core.db.permissions import (
+    has_permission,
+    can_view_folder,
+    can_create_in_folder,
+    build_permission_context,
+)
 from process_ai_core.semantic.pipeline import trigger_semantic_pipeline_for_version
 
 from api.models.requests import DocumentResponse, DocumentUpdateRequest
@@ -96,15 +101,52 @@ def _version_number(session, doc) -> Optional[int]:
     return row[0] if row else None
 
 
-def _to_document_response(session, doc, *, include_metadata: bool = False) -> DocumentResponse:
-    """Serializa un Document (o subclase) a DocumentResponse. Fuente ÚNICA."""
+def _approved_version_numbers(session, docs) -> dict[str, int]:
+    """
+    Versión batch de _version_number: una sola query IN para todos los
+    approved_version_id del listado. Devuelve {version_id: version_number}.
+    """
+    ids = [
+        doc.approved_version_id
+        for doc in docs
+        if getattr(doc, "approved_version_id", None)
+    ]
+    if not ids:
+        return {}
+    rows = (
+        session.query(DocumentVersion.id, DocumentVersion.version_number)
+        .filter(DocumentVersion.id.in_(ids))
+        .all()
+    )
+    return {row[0]: row[1] for row in rows}
+
+
+def _to_document_response(
+    session,
+    doc,
+    *,
+    include_metadata: bool = False,
+    version_numbers: Optional[dict[str, int]] = None,
+) -> DocumentResponse:
+    """
+    Serializa un Document (o subclase) a DocumentResponse. Fuente ÚNICA.
+
+    version_numbers: mapa {approved_version_id: version_number} precargado con
+    _approved_version_numbers para listados (evita 1 query por documento).
+    Si es None, se consulta por documento (comportamiento original).
+    """
+    if version_numbers is not None:
+        approved_id = getattr(doc, "approved_version_id", None)
+        version_number = version_numbers.get(approved_id) if approved_id else None
+    else:
+        version_number = _version_number(session, doc)
     return DocumentResponse(
         id=doc.id,
         workspace_id=doc.workspace_id,
         folder_id=doc.folder_id,
         domain=getattr(doc, "domain", "process"),
         document_type=getattr(doc, "document_type", "procedimiento"),
-        version_number=_version_number(session, doc),
+        version_number=version_number,
         name=doc.name,
         description=doc.description,
         status=doc.status,
@@ -114,7 +156,7 @@ def _to_document_response(session, doc, *, include_metadata: bool = False) -> Do
 
 
 @router.get("/pending-approval", response_model=list[DocumentResponse])
-async def list_documents_pending_approval(
+def list_documents_pending_approval(
     user_id: str = Depends(get_current_user_id),
     ctx: WorkspaceSessionContext = Depends(get_workspace_context),
 ):
@@ -164,17 +206,19 @@ async def list_documents_pending_approval(
             .all()
         )
         # Solo documentos en carpetas donde el usuario puede aprobar (roles operativos)
-        from process_ai_core.db.permissions import can_approve_in_folder
-        documents = [d for d in documents if can_approve_in_folder(session, user_id, workspace_id, d.folder_id)]
+        # Contexto precargado: evaluación en memoria, sin N+1 (ver PermissionContext).
+        perm_ctx = build_permission_context(session, user_id, workspace_id)
+        documents = [d for d in documents if perm_ctx.can_approve_in_folder(d.folder_id)]
 
+        version_numbers = _approved_version_numbers(session, documents)
         return [
-            _to_document_response(session, doc)
+            _to_document_response(session, doc, version_numbers=version_numbers)
             for doc in documents
         ]
 
 
 @router.get("/to-review", response_model=list[DocumentResponse])
-async def list_documents_to_review(
+def list_documents_to_review(
     user_id: str = Depends(get_current_user_id),
     ctx: WorkspaceSessionContext = Depends(get_workspace_context),
 ):
@@ -205,16 +249,19 @@ async def list_documents_to_review(
             workspace_id=workspace_id,
             status="rejected",
         ).order_by(Document.created_at.desc()).all()
-        documents = [d for d in documents if can_view_folder(session, user_id, workspace_id, d.folder_id)]
+        # Contexto precargado: evaluación en memoria, sin N+1 (ver PermissionContext).
+        perm_ctx = build_permission_context(session, user_id, workspace_id)
+        documents = [d for d in documents if perm_ctx.can_view_folder(d.folder_id)]
 
+        version_numbers = _approved_version_numbers(session, documents)
         return [
-            _to_document_response(session, doc)
+            _to_document_response(session, doc, version_numbers=version_numbers)
             for doc in documents
         ]
 
 
 @router.get("", response_model=list[DocumentResponse])
-async def list_documents(
+def list_documents(
     folder_id: Optional[str] = Query(None, description="ID de la carpeta (opcional)"),
     domain: str = Query("process", description="Tipo de documento"),
     status: Optional[str] = Query(None, description="Filtrar por estado (draft|pending_validation|approved|rejected|archived)"),
@@ -269,10 +316,13 @@ async def list_documents(
 
         documents = query.order_by(Document.created_at.desc()).all()
         # Filtrar por acceso a carpeta (roles operativos)
-        documents = [d for d in documents if can_view_folder(session, user_id, workspace_id, d.folder_id)]
+        # Contexto precargado: evaluación en memoria, sin N+1 (ver PermissionContext).
+        perm_ctx = build_permission_context(session, user_id, workspace_id)
+        documents = [d for d in documents if perm_ctx.can_view_folder(d.folder_id)]
 
+        version_numbers = _approved_version_numbers(session, documents)
         return [
-            _to_document_response(session, doc)
+            _to_document_response(session, doc, version_numbers=version_numbers)
             for doc in documents
         ]
 
@@ -366,7 +416,7 @@ async def import_documents(
 
 
 @router.get("/{document_id}", response_model=DocumentResponse)
-async def get_document(
+def get_document(
     document_id: str,
     user_id: str = Depends(get_current_user_id),
     ctx: WorkspaceSessionContext = Depends(get_workspace_context),
@@ -433,7 +483,7 @@ async def get_document(
 
 
 @router.put("/{document_id}", response_model=DocumentResponse)
-async def update_document(
+def update_document(
     document_id: str,
     request: DocumentUpdateRequest,
     user_id: str = Depends(get_current_user_id),
@@ -554,7 +604,7 @@ async def update_document(
 
 
 @router.delete("/{document_id}")
-async def delete_document_endpoint(
+def delete_document_endpoint(
     document_id: str,
     user_id: str = Depends(get_current_user_id),
     ctx: WorkspaceSessionContext = Depends(get_workspace_context),
@@ -665,7 +715,7 @@ async def delete_document_endpoint(
 
 
 @router.get("/{document_id}/process")
-async def get_process_details(
+def get_process_details(
     document_id: str,
     user_id: str = Depends(get_current_user_id),
     ctx: WorkspaceSessionContext = Depends(get_workspace_context),

@@ -78,7 +78,7 @@ class ValidationResponse(BaseModel):
 # ============================================================
 
 @router.post("/documents/{document_id}/validate", response_model=ValidationResponse)
-async def create_document_validation(
+def create_document_validation(
     document_id: str,
     request: ValidationCreateRequest = Body(...),
     ctx: WorkspaceSessionContext = Depends(get_workspace_context),
@@ -171,7 +171,7 @@ class ValidationDecisionResponse(BaseModel):
 
 
 @router.post("/documents/{document_id}/validate/approve", response_model=ValidationDecisionResponse)
-async def approve_document_validation_direct(
+def approve_document_validation_direct(
     document_id: str,
     background_tasks: BackgroundTasks,
     request: ValidationApproveRequest = Body(...),
@@ -293,7 +293,7 @@ async def approve_document_validation_direct(
 
 
 @router.post("/documents/{document_id}/validate/reject", response_model=ValidationDecisionResponse)
-async def reject_document_validation_direct(
+def reject_document_validation_direct(
     document_id: str,
     request: ValidationRejectDirectRequest = Body(...),
     user_id: str = Depends(get_current_user_id),
@@ -414,7 +414,7 @@ async def reject_document_validation_direct(
 
 
 @router.post("/validations/{validation_id}/approve", response_model=ValidationResponse)
-async def approve_document_validation(
+def approve_document_validation(
     validation_id: str,
     background_tasks: BackgroundTasks,
     user_id: str = Depends(get_current_user_id),
@@ -514,7 +514,7 @@ async def approve_document_validation(
 
 
 @router.post("/validations/{validation_id}/reject", response_model=ValidationResponse)
-async def reject_document_validation(
+def reject_document_validation(
     validation_id: str,
     request: ValidationRejectRequest = Body(...),
     user_id: str = Depends(get_current_user_id),
@@ -685,7 +685,7 @@ async def reject_document_validation(
 
 
 @router.get("/documents/{document_id}/validations", response_model=list[ValidationResponse])
-async def get_document_validations(
+def get_document_validations(
     document_id: str,
     ctx: WorkspaceSessionContext = Depends(get_workspace_context),
 ):

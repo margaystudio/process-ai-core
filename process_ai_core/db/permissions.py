@@ -432,4 +432,183 @@ def can_approve_in_folder(
     return _has_folder_access_by_operational_roles(session, user_id, workspace_id, folder_id)
 
 
+# --- Contexto de permisos precargado (evaluación bulk sin N+1) ---
+
+
+class PermissionContext:
+    """
+    Precarga en un número constante de queries (~7) todo lo necesario para
+    evaluar can_view_folder / can_create_in_folder / can_approve_in_folder en
+    memoria sobre N carpetas/documentos, en lugar de ~12 queries por item.
+
+    Replica EXACTAMENTE la semántica de las funciones individuales de este
+    módulo, que siguen siendo la fuente de verdad para chequeos de un solo
+    item. Cualquier cambio de semántica debe hacerse primero en ellas y
+    replicarse aquí (los tests de paridad en
+    tests/test_permission_context.py lo verifican).
+
+    Casos borde replicados a propósito:
+      - Carpeta inexistente o folder_id=None → sin restricciones (acceso si
+        tiene el permiso), igual que _get_folder_allowed_operational_role_ids.
+      - Carpeta con inherits_permissions=False y cero filas en
+        folder_permissions → sin restricciones (lista vacía == sin restricción).
+      - Ciclo en la jerarquía → set() → sin restricciones.
+      - Carpeta (o ancestro) fuera del workspace precargado: cae al camino
+        por-item original, porque get_folder_by_id no filtra por workspace.
+    """
+
+    def __init__(
+        self,
+        session: Session,
+        user_id: str,
+        workspace_id: str,
+        platform_is_superadmin: bool = False,
+    ) -> None:
+        self._session = session
+        self.user_id = user_id
+        self.workspace_id = workspace_id
+
+        # 1) Superadmin: claim de plataforma o membership legacy (1 query).
+        #    Equivale a _is_superadmin: existe membership cuyo rol es
+        #    'superadmin' con is_system=True.
+        if platform_is_superadmin:
+            self.is_superadmin = True
+        else:
+            self.is_superadmin = (
+                session.query(WorkspaceMembership.id)
+                .join(Role, Role.id == WorkspaceMembership.role_id)
+                .filter(
+                    WorkspaceMembership.user_id == user_id,
+                    Role.name == "superadmin",
+                    Role.is_system.is_(True),
+                )
+                .first()
+                is not None
+            )
+
+        # 2) Membership y rol de sistema en el workspace (1-2 queries).
+        membership = (
+            session.query(WorkspaceMembership)
+            .filter_by(user_id=user_id, workspace_id=workspace_id)
+            .first()
+        )
+        role: Role | None = None
+        if membership:
+            if membership.role_id:
+                role = session.query(Role).filter_by(id=membership.role_id).first()
+            else:
+                # Compatibilidad: rol por nombre si role_id no existe
+                role = session.query(Role).filter_by(name=membership.role).first()
+        self.system_role_name: str | None = role.name if role else None
+
+        # 3) Permisos del rol (1 query).
+        if role is not None:
+            rows = (
+                session.query(Permission.name)
+                .join(RolePermission, RolePermission.permission_id == Permission.id)
+                .filter(RolePermission.role_id == role.id)
+                .all()
+            )
+            self.permission_names: set[str] = {r[0] for r in rows}
+        else:
+            self.permission_names = set()
+
+        # 4) Roles operativos del usuario (1 query).
+        if membership:
+            rows = (
+                session.query(UserOperationalRole.operational_role_id)
+                .filter_by(workspace_membership_id=membership.id)
+                .all()
+            )
+            self.operational_role_ids: set[str] = {r[0] for r in rows}
+        else:
+            self.operational_role_ids = set()
+
+        # 5) Jerarquía de carpetas del workspace (1 query).
+        folder_rows = (
+            session.query(Folder.id, Folder.parent_id, Folder.inherits_permissions)
+            .filter_by(workspace_id=workspace_id)
+            .all()
+        )
+        # id → (parent_id, inherits_permissions); default True como en el original
+        self._folders: dict[str, tuple[str | None, bool]] = {
+            fid: (parent_id, True if inherits is None else bool(inherits))
+            for fid, parent_id, inherits in folder_rows
+        }
+
+        # 6) Permisos por carpeta del workspace (1 query).
+        perm_rows = (
+            session.query(FolderPermission.folder_id, FolderPermission.operational_role_id)
+            .join(Folder, Folder.id == FolderPermission.folder_id)
+            .filter(Folder.workspace_id == workspace_id)
+            .all()
+        )
+        self._folder_perms: dict[str, set[str]] = {}
+        for fid, op_role_id in perm_rows:
+            self._folder_perms.setdefault(fid, set()).add(op_role_id)
+
+    def _folder_allowed_role_ids(self, folder_id: str | None) -> set[str]:
+        """Réplica en memoria de _get_folder_allowed_operational_role_ids."""
+        if folder_id not in self._folders:
+            # None, inexistente o de otro workspace: camino por-item original
+            # (mantiene semántica exacta; caso raro en la práctica).
+            return _get_folder_allowed_operational_role_ids(self._session, folder_id)
+        visited: set[str] = set()
+        current: str | None = folder_id
+        while current is not None:
+            if current in visited:
+                return set()
+            visited.add(current)
+            entry = self._folders.get(current)
+            if entry is None:
+                # Ancestro fuera del workspace precargado: camino original
+                # desde la carpeta inicial (get_folder_by_id no filtra por ws).
+                return _get_folder_allowed_operational_role_ids(self._session, folder_id)
+            parent_id, inherits = entry
+            if not inherits:
+                return self._folder_perms.get(current, set())
+            current = parent_id
+        # Raíz heredando sin permisos explícitos: sin restricción
+        return set()
+
+    def _can_in_folder(self, permission_name: str, folder_id: str | None) -> bool:
+        """Réplica en memoria del cuerpo común de can_*_in_folder / can_view_folder."""
+        if self.is_superadmin:
+            return True
+        if self.system_role_name in ("owner", "admin"):
+            return True
+        if not self.system_role_name:
+            return False
+        if permission_name not in self.permission_names:
+            return False
+        allowed = self._folder_allowed_role_ids(folder_id)
+        if not allowed:
+            # Sin restricciones en la carpeta: cualquier miembro con el permiso
+            return True
+        return bool(self.operational_role_ids & allowed)
+
+    def can_view_folder(self, folder_id: str | None) -> bool:
+        return self._can_in_folder("documents.view", folder_id)
+
+    def can_create_in_folder(self, folder_id: str | None) -> bool:
+        return self._can_in_folder("documents.create", folder_id)
+
+    def can_approve_in_folder(self, folder_id: str | None) -> bool:
+        return self._can_in_folder("documents.approve", folder_id)
+
+
+def build_permission_context(
+    session: Session,
+    user_id: str,
+    workspace_id: str,
+    platform_is_superadmin: bool = False,
+) -> PermissionContext:
+    """
+    Construye el contexto de permisos precargado para evaluar accesos a
+    carpetas en memoria. Usar en listados (N items); para chequeos puntuales
+    seguir usando can_view_folder / can_create_in_folder / can_approve_in_folder.
+    """
+    return PermissionContext(session, user_id, workspace_id, platform_is_superadmin)
+
+
 

@@ -98,7 +98,7 @@ def _slugify(text: str) -> str:
 
 
 @router.get("")
-async def list_document_types(
+def list_document_types(
     include_inactive: bool = False,
     user_id: str = Depends(get_current_user_id),
     session: Session = Depends(get_db),
@@ -114,7 +114,7 @@ async def list_document_types(
 
 
 @router.patch("/{type_id}")
-async def update_document_type(
+def update_document_type(
     type_id: str,
     request: DocumentTypeUpdate,
     user_id: str = Depends(get_current_user_id),
@@ -151,7 +151,7 @@ async def update_document_type(
 
 
 @router.post("")
-async def create_document_type(
+def create_document_type(
     request: DocumentTypeCreate,
     user_id: str = Depends(get_current_user_id),
     session: Session = Depends(get_db),

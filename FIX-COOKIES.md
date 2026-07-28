@@ -12,7 +12,7 @@
 
 1. Login en **Margay Hub** (`hub.local.margaystudio.io:3001`).
 2. Supabase emite cookie `sb-<project>-auth-token` en dominio **`.local.margaystudio.io`** (HttpOnly).
-3. Clic en tarjeta **Process AI** → navega a `process.local.margaystudio.io:3000`.
+3. Clic en tarjeta **Process AI** → navega a `process.local.margaystudio.io:3240`.
 4. El **middleware de Process** lee la cookie en el servidor y deja pasar la request.
 5. En el **browser**, varios componentes llamaban a `supabase.auth.getSession()` desde el cliente JS.
 6. Las cookies **HttpOnly no son visibles** desde `document.cookie` → el cliente creía que no había sesión.
@@ -315,7 +315,7 @@ Hub login
 Cookie sb-*-auth-token  (.local.margaystudio.io, HttpOnly)
    │
    ▼
-Clic Process AI → process.local.margaystudio.io:3000
+Clic Process AI → process.local.margaystudio.io:3240
    │
    ├─ Middleware: getUser() ✅ (lee cookie en request)
    │

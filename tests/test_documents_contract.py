@@ -1,4 +1,3 @@
-import asyncio
 import json
 import uuid
 from contextlib import contextmanager
@@ -92,6 +91,6 @@ def test_get_document_devuelve_preguntas_abiertas_en_metadata(monkeypatch, sessi
         lambda *_args, **_kwargs: SimpleNamespace(name="viewer"),
     )
 
-    response = asyncio.run(documents_route.get_document(doc.id, user_id="test-user", ctx=None))
+    response = (documents_route.get_document(doc.id, user_id="test-user", ctx=None))
 
     assert response.metadata == {"preguntas_abiertas": approved_question}

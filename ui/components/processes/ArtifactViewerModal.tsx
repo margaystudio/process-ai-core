@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import Image from 'next/image'
 import { X } from 'lucide-react'
 import { getVersionPreviewPdfUrl } from '@/lib/api'
-import { getAuthHeaders } from '@/lib/api-auth'
+import { authFetch, getAuthHeaders } from '@/lib/api-auth'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
@@ -79,7 +79,7 @@ export default function ArtifactViewerModal({
           // (rompería el CORS del signed URL), por eso solo se agrega para versionPreviewPdf.
           const pdfHeaders = versionPreviewPdf ? await getAuthHeaders() : undefined
           try {
-            const response = await fetch(urlWithCacheBust, {
+            const response = await authFetch(urlWithCacheBust, {
               cache: 'no-store',
               credentials: 'include',
               headers: pdfHeaders,

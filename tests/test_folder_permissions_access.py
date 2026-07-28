@@ -1,4 +1,3 @@
-import asyncio
 import uuid
 from types import SimpleNamespace
 
@@ -65,7 +64,7 @@ def test_superadmin_puede_ver_permissions(session, monkeypatch):
     monkeypatch.setattr(folders_route, "get_user_role", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(folders_route, "resolve_tenant_workspace_id", lambda _ctx: workspace.id)
 
-    resp = asyncio.run(
+    resp = (
         folders_route.get_folder_permissions(
             folder_id=folder.id,
             user_id="superadmin-user",
@@ -86,7 +85,7 @@ def test_viewer_miembro_devuelve_403(session, monkeypatch):
     monkeypatch.setattr(folders_route, "resolve_tenant_workspace_id", lambda _ctx: workspace.id)
 
     with pytest.raises(HTTPException) as exc:
-        asyncio.run(
+        (
             folders_route.get_folder_permissions(
                 folder_id=folder.id,
                 user_id="viewer-user",
@@ -105,7 +104,7 @@ def test_admin_miembro_devuelve_200(session, monkeypatch):
     monkeypatch.setattr(folders_route, "get_user_role", lambda *_args, **_kwargs: SimpleNamespace(name="admin"))
     monkeypatch.setattr(folders_route, "resolve_tenant_workspace_id", lambda _ctx: workspace.id)
 
-    resp = asyncio.run(
+    resp = (
         folders_route.get_folder_permissions(
             folder_id=folder.id,
             user_id="admin-user",
@@ -162,7 +161,7 @@ def test_get_permissions_devuelve_roles_heredados_y_origen(session, monkeypatch)
     monkeypatch.setattr(folders_route, "is_superadmin", lambda *_args, **_kwargs: False)
     _allow_admin(monkeypatch, workspace.id)
 
-    resp = asyncio.run(
+    resp = (
         folders_route.get_folder_permissions(
             folder_id=child.id,
             user_id="admin-user",
@@ -182,7 +181,7 @@ def test_get_permissions_devuelve_origen_personalizado(session, monkeypatch):
     monkeypatch.setattr(folders_route, "is_superadmin", lambda *_args, **_kwargs: False)
     _allow_admin(monkeypatch, workspace.id)
 
-    resp = asyncio.run(
+    resp = (
         folders_route.get_folder_permissions(
             folder_id=root.id,
             user_id="admin-user",
@@ -209,7 +208,7 @@ def test_put_permissions_reemplaza_roles_personalizados(session, monkeypatch):
     session.commit()
     _allow_admin(monkeypatch, workspace.id)
 
-    asyncio.run(
+    (
         folders_route.update_folder_permissions(
             folder_id=child.id,
             request=FolderPermissionsUpdateRequest(
@@ -238,7 +237,7 @@ def test_put_permissions_materializa_roles_al_cortar_herencia(session, monkeypat
     workspace, _root, child, role = _create_permission_tree(session)
     _allow_admin(monkeypatch, workspace.id)
 
-    asyncio.run(
+    (
         folders_route.update_folder_permissions(
             folder_id=child.id,
             request=FolderPermissionsUpdateRequest(inherits_permissions=False),
@@ -264,7 +263,7 @@ def test_put_permissions_rechaza_lista_si_la_carpeta_hereda(session, monkeypatch
     _allow_admin(monkeypatch, workspace.id)
 
     with pytest.raises(HTTPException) as exc:
-        asyncio.run(
+        (
             folders_route.update_folder_permissions(
                 folder_id=child.id,
                 request=FolderPermissionsUpdateRequest(operational_role_ids=[role.id]),

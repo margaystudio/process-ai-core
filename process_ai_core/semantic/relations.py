@@ -548,8 +548,17 @@ class RelationService:
             )
             .all()
         )
+        return self._best_duplicate(ko, siblings)
+
+    @staticmethod
+    def _best_duplicate(
+        ko: KnowledgeObject, siblings: list[KnowledgeObject]
+    ) -> KnowledgeObject | None:
+        """Núcleo compartido de find_possible_duplicate / find_possible_duplicates_bulk."""
         best, best_score = None, 0.0
         for other in siblings:
+            if other.id == ko.id:
+                continue
             score = _similarity(ko.normalized_name, other.normalized_name)
             if _is_token_subset(ko.normalized_name, other.normalized_name):
                 score = max(score, DUPLICATE_HINT_THRESHOLD)
@@ -558,6 +567,31 @@ class RelationService:
         if best is not None and best_score >= DUPLICATE_HINT_THRESHOLD:
             return best
         return None
+
+    def find_possible_duplicates_bulk(
+        self, session: Session, kos: list[KnowledgeObject]
+    ) -> dict[str, KnowledgeObject | None]:
+        """Versión bulk de find_possible_duplicate para listados.
+
+        Misma semántica exacta (SequenceMatcher + token-subset, mismos umbrales),
+        pero carga los siblings UNA vez por (workspace, type) en lugar de una
+        query con .all() por cada fila del listado (antes: O(filas × KOs)).
+        """
+        result: dict[str, KnowledgeObject | None] = {}
+        cache: dict[tuple[str, str], list[KnowledgeObject]] = {}
+        for ko in kos:
+            key = (ko.workspace_id, ko.type)
+            if key not in cache:
+                cache[key] = (
+                    session.query(KnowledgeObject)
+                    .filter(
+                        KnowledgeObject.workspace_id == ko.workspace_id,
+                        KnowledgeObject.type == ko.type,
+                    )
+                    .all()
+                )
+            result[ko.id] = self._best_duplicate(ko, cache[key])
+        return result
 
     def merge_knowledge_objects(
         self,
