@@ -57,7 +57,7 @@ def _get_workspace_branding_color(workspace: Workspace, key: str) -> str | None:
 
 
 @router.post("")
-async def create_user(
+def create_user(
     email: str,
     name: str,
 ):
@@ -112,7 +112,7 @@ async def create_user(
 
 
 @router.get("")
-async def list_users():
+def list_users():
     """
     Lista todos los usuarios.
     
@@ -145,7 +145,7 @@ def _is_legacy_system_workspace(workspace: Workspace) -> bool:
 
 
 @router.get("/me")
-async def get_current_user_me(
+def get_current_user_me(
     _sync: None = Depends(sync_workspace_access),
     ctx: WorkspaceSessionContext = Depends(get_workspace_context),
     authenticated_user_id: str = Depends(get_current_user_id),
@@ -232,7 +232,7 @@ async def get_current_user_me(
 
 
 @router.get("/{user_id}")
-async def get_user(
+def get_user(
     user_id: str,
     authenticated_user_id: str = Depends(get_current_user_id),
 ):
@@ -288,7 +288,7 @@ async def get_user(
 
 
 @router.post("/{user_id}/workspaces/{workspace_id}/membership")
-async def add_user_to_workspace(
+def add_user_to_workspace(
     user_id: str,
     workspace_id: str,
     role_name: str = Query(default="owner", description="Rol del usuario en el workspace"),  # "owner" | "admin" | "creator" | "viewer" | "approver"
@@ -369,7 +369,7 @@ async def add_user_to_workspace(
 
 
 @router.get("/{user_id}/workspaces")
-async def get_user_workspaces(user_id: str, session: Session = Depends(get_db)):
+def get_user_workspaces(user_id: str, session: Session = Depends(get_db)):
     """
     Obtiene todos los workspaces a los que pertenece un usuario.
     
@@ -450,7 +450,7 @@ async def get_user_workspaces(user_id: str, session: Session = Depends(get_db)):
 
 
 @router.get("/{user_id}/role/{workspace_id}")
-async def get_user_role_in_workspace(
+def get_user_role_in_workspace(
     user_id: str,
     workspace_id: str,
 ):
@@ -488,7 +488,7 @@ async def get_user_role_in_workspace(
 
 
 @router.get("/{user_id}/permission/{workspace_id}/{permission_name}")
-async def check_user_permission(
+def check_user_permission(
     user_id: str,
     workspace_id: str,
     permission_name: str,
@@ -528,7 +528,7 @@ class UpdateUserProfileRequest(BaseModel):
 
 
 @router.put("/{user_id}")
-async def update_user_profile(
+def update_user_profile(
     user_id: str,
     request: UpdateUserProfileRequest,
     authenticated_user_id: str = Depends(get_current_user_id),

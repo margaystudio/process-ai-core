@@ -14,6 +14,7 @@ vi.mock('@/lib/api-auth', () => ({
   getAccessToken: vi.fn(async () => null),
   getActiveTenantId: vi.fn(() => null),
   setActiveTenantId: vi.fn(),
+  authFetch: vi.fn((input: RequestInfo | URL, init?: RequestInit) => fetch(input, init)),
 }))
 
 const PLACEHOLDER = 'Preguntá sobre cualquier procedimiento…'

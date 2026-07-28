@@ -31,6 +31,7 @@ import { useWorkspace } from '@/contexts/WorkspaceContext'
 import { useLoading } from '@/contexts/LoadingContext'
 import { FileType } from '@/components/processes/FileUploadModal'
 import { usePdfViewer } from '@/hooks/usePdfViewer'
+import ArtifactViewerModal from '@/components/processes/ArtifactViewerModal'
 import { FileItemData } from '@/components/processes/FileItem'
 import { formatDateTime } from '@/utils/dateFormat'
 import { useCanApproveDocuments, useCanRejectDocuments, useHasPermission } from '@/hooks/useHasPermission'
@@ -46,6 +47,8 @@ import { DocumentCorrectionPanel } from '@/components/documents/DocumentCorrecti
 import { DocumentRunsSection } from '@/components/documents/DocumentRunsSection'
 import { DocumentHistorySection } from '@/components/documents/DocumentHistorySection'
 import { DocumentMetadataForm } from '@/components/documents/DocumentMetadataForm'
+import { DocumentRelationsPanel } from '@/components/documents/DocumentRelationsPanel'
+import { Tabs } from '@/shared/ui/components'
 
 // ─── Skeleton de carga ────────────────────────────────────────────────────────
 function DocumentDetailSkeleton() {
@@ -75,6 +78,7 @@ export default function DocumentDetailPage() {
   const { hasPermission: hasApprovePermission } = useCanApproveDocuments()
   const { hasPermission: hasRejectPermission } = useCanRejectDocuments()
   const { hasPermission: hasDocumentEditPermission } = useHasPermission('documents.edit')
+  const { hasPermission: hasDocumentCreatePermission } = useHasPermission('documents.create')
   const { hasPermission: hasDocumentDeletePermission } = useHasPermission('documents.delete')
   const { role: userRoleName } = useUserRole()
 
@@ -106,6 +110,7 @@ export default function DocumentDetailPage() {
   const [showHistory, setShowHistory] = useState(false)
   const [showNewVersionForm, setShowNewVersionForm] = useState(false)
   const [isNewVersionModalOpen, setIsNewVersionModalOpen] = useState(false)
+  const [detailTab, setDetailTab] = useState('documento')
 
   // Modales de confirmación
   const [showCancelSubmitConfirm, setShowCancelSubmitConfirm] = useState(false)
@@ -137,7 +142,7 @@ export default function DocumentDetailPage() {
   const [newVersionFiles, setNewVersionFiles] = useState<FileItemData[]>([])
 
   // PDF viewer
-  const { openArtifactFromRun, openVersionPreviewPdf, ModalComponent } = usePdfViewer()
+  const { openArtifactFromRun, openVersionPreviewPdf, modalProps } = usePdfViewer()
 
   // ── Carga inicial ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -167,14 +172,14 @@ export default function DocumentDetailPage() {
 
       if (doc.domain === 'process') {
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
-        const { getAccessToken } = await import('@/lib/api-auth')
+        const { getAccessToken, authFetch } = await import('@/lib/api-auth')
         const authToken = await getAccessToken()
         const authHeaders: HeadersInit = {}
         if (authToken) authHeaders['Authorization'] = `Bearer ${authToken}`
         const [audienceOpts, detailOpts, processDocResponse] = await Promise.all([
           getCatalogOptions('audience').catch(() => []),
           getCatalogOptions('detail_level').catch(() => []),
-          fetch(`${apiUrl}/api/v1/documents/${documentId}/process`, { headers: authHeaders })
+          authFetch(`${apiUrl}/api/v1/documents/${documentId}/process`, { headers: authHeaders })
             .then((r) => (r.ok ? r.json() : null))
             .catch(() => null),
         ])
@@ -280,11 +285,11 @@ export default function DocumentDetailPage() {
     let objectUrl: string | null = null
     ;(async () => {
       try {
-        const { getAccessToken } = await import('@/lib/api-auth')
+        const { getAccessToken, authFetch } = await import('@/lib/api-auth')
         const token = await getAccessToken()
         const headers: HeadersInit = {}
         if (token) headers['Authorization'] = `Bearer ${token}`
-        const res = await fetch(getVersionPreviewPdfUrl(documentId, version.id), {
+        const res = await authFetch(getVersionPreviewPdfUrl(documentId, version.id), {
           headers,
           cache: 'no-store',
         })
@@ -592,6 +597,8 @@ export default function DocumentDetailPage() {
       : ''
 
   const isPendingValidation = document.status === 'pending_validation'
+  const showRelations =
+    document.status === 'approved' && !isEditing && detailTab === 'relaciones'
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
@@ -664,8 +671,28 @@ export default function DocumentDetailPage() {
         </div>
       )}
 
+      {document.status === 'approved' && !isEditing && (
+        <Tabs
+          id="document-detail"
+          value={detailTab}
+          onValueChange={setDetailTab}
+          items={[
+            { value: 'documento', label: 'Documento' },
+            { value: 'relaciones', label: 'Relaciones' },
+          ]}
+          className="mb-6"
+        />
+      )}
+
       {/* ── Formulario de edición de metadatos ───────────────────────────── */}
-      {isEditing ? (
+      {showRelations ? (
+        <DocumentRelationsPanel
+          documentId={documentId}
+          canApprove={hasApprovePermission ?? false}
+          canReject={hasRejectPermission ?? false}
+          canEdit={hasDocumentCreatePermission ?? false}
+        />
+      ) : isEditing ? (
         <div className="mb-8 rounded-lg border border-ink-200 bg-white p-7 shadow-sm">
           <h2 className="text-h2 text-ink-900 mb-5">Editar documento</h2>
           <DocumentMetadataForm
@@ -801,55 +828,59 @@ export default function DocumentDetailPage() {
         </>
       )}
 
-      {/* ── Versiones generadas ─────────────────────────────────────────── */}
-      <div className="mb-8 border-t border-ink-200 pt-8">
-        <DocumentRunsSection
-          runs={runs}
-          versions={versions}
-          documentId={documentId}
-          canCreateNewVersion={actions.canCreateNewVersion}
-          showNewVersionForm={showNewVersionForm}
-          onToggleNewVersionForm={() => {
-            setShowNewVersionForm((s) => !s)
-            if (showNewVersionForm) {
-              setNewVersionFiles([])
-              setRevisionNotes('')
-            }
-          }}
-          revisionNotes={revisionNotes}
-          onRevisionNotesChange={setRevisionNotes}
-          newVersionFiles={newVersionFiles}
-          onAddFile={(file, type, desc) => {
-            setNewVersionFiles((prev) => [
-              ...prev,
-              { id: `${Date.now()}-${Math.random()}`, file, type, description: desc },
-            ])
-          }}
-          onRemoveFile={(id) => setNewVersionFiles((prev) => prev.filter((f) => f.id !== id))}
-          isNewVersionModalOpen={isNewVersionModalOpen}
-          onOpenModal={() => setIsNewVersionModalOpen(true)}
-          onCloseModal={() => setIsNewVersionModalOpen(false)}
-          onGenerateNewVersion={handleGenerateNewVersion}
-          isGenerating={isGenerating}
-          onOpenVersionPreviewPdf={openVersionPreviewPdf}
-          onOpenArtifactFromRun={openArtifactFromRun}
-        />
-      </div>
+      {!showRelations && (
+        <>
+          {/* ── Versiones generadas ─────────────────────────────────────────── */}
+          <div className="mb-8 border-t border-ink-200 pt-8">
+            <DocumentRunsSection
+              runs={runs}
+              versions={versions}
+              documentId={documentId}
+              canCreateNewVersion={actions.canCreateNewVersion}
+              showNewVersionForm={showNewVersionForm}
+              onToggleNewVersionForm={() => {
+                setShowNewVersionForm((s) => !s)
+                if (showNewVersionForm) {
+                  setNewVersionFiles([])
+                  setRevisionNotes('')
+                }
+              }}
+              revisionNotes={revisionNotes}
+              onRevisionNotesChange={setRevisionNotes}
+              newVersionFiles={newVersionFiles}
+              onAddFile={(file, type, desc) => {
+                setNewVersionFiles((prev) => [
+                  ...prev,
+                  { id: `${Date.now()}-${Math.random()}`, file, type, description: desc },
+                ])
+              }}
+              onRemoveFile={(id) => setNewVersionFiles((prev) => prev.filter((f) => f.id !== id))}
+              isNewVersionModalOpen={isNewVersionModalOpen}
+              onOpenModal={() => setIsNewVersionModalOpen(true)}
+              onCloseModal={() => setIsNewVersionModalOpen(false)}
+              onGenerateNewVersion={handleGenerateNewVersion}
+              isGenerating={isGenerating}
+              onOpenVersionPreviewPdf={openVersionPreviewPdf}
+              onOpenArtifactFromRun={openArtifactFromRun}
+            />
+          </div>
 
-      {/* ── Historial y trazabilidad ────────────────────────────────────── */}
-      <div className="border-t border-ink-200 pt-8">
-        <DocumentHistorySection
-          versions={versions}
-          auditLog={auditLog}
-          validations={validations}
-          userDisplayNames={userDisplayNames}
-          showHistory={showHistory}
-          onToggle={handleToggleHistory}
-        />
-      </div>
+          {/* ── Historial y trazabilidad ────────────────────────────────────── */}
+          <div className="border-t border-ink-200 pt-8">
+            <DocumentHistorySection
+              versions={versions}
+              auditLog={auditLog}
+              validations={validations}
+              userDisplayNames={userDisplayNames}
+              showHistory={showHistory}
+              onToggle={handleToggleHistory}
+            />
+          </div>
+        </>
+      )}
 
       {/* ── Modal PDF ────────────────────────────────────────────────────── */}
-      <ModalComponent />
+      <ArtifactViewerModal {...modalProps} />
 
       {/* ── Modales de confirmación ─────────────────────────────────────── */}
 

@@ -23,7 +23,7 @@ router = APIRouter(prefix="/api/v1/artifacts", tags=["artifacts"])
 
 
 @router.get("/{run_id}/{filename:path}")
-async def get_artifact(
+def get_artifact(
     run_id: str,
     filename: str,
     token: str = Query(..., description="Token HMAC firmado por el backend"),

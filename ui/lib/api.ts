@@ -4,6 +4,8 @@
  * Fácil de migrar: solo cambiar NEXT_PUBLIC_API_URL en .env.local
  */
 
+import { authFetch } from '@/lib/api-auth'
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 /** Evita fetches duplicados en paralelo (React Strict Mode, varios hooks). */
@@ -255,7 +257,7 @@ export async function createProcessRun(
   }
   // No establecer Content-Type para FormData, el navegador lo hace automáticamente
   
-  const response = await fetch(`${API_URL}/api/v1/process-runs`, {
+  const response = await authFetch(`${API_URL}/api/v1/process-runs`, {
     method: 'POST',
     headers,
     body: formData,
@@ -294,8 +296,12 @@ export async function processEvidenceFile(
   formData.append('file', file);
   formData.append('kind', kind);
 
-  const headers = await getAuthHeaders();
-  const response = await fetch(`${API_URL}/api/v1/evidence/process`, {
+  const headers = new Headers(await getAuthHeaders());
+  // FormData necesita que el navegador genere el Content-Type junto con su
+  // boundary. getAuthHeaders usa application/json por defecto para el resto
+  // del cliente, así que lo quitamos únicamente para este upload.
+  headers.delete('Content-Type');
+  const response = await authFetch(`${API_URL}/api/v1/evidence/process`, {
     method: 'POST',
     headers,
     body: formData,
@@ -321,7 +327,7 @@ export async function createRecipeRun(
   if (token) {
     headers['Authorization'] = `Bearer ${token}`
   }
-  const response = await fetch(`${API_URL}/api/v1/recipe-runs`, {
+  const response = await authFetch(`${API_URL}/api/v1/recipe-runs`, {
     method: 'POST',
     headers,
     body: formData,
@@ -347,7 +353,7 @@ export async function importDocuments(formData: FormData): Promise<Document[]> {
     headers['Authorization'] = `Bearer ${token}`
   }
 
-  const response = await fetch(`${API_URL}/api/v1/documents/import`, {
+  const response = await authFetch(`${API_URL}/api/v1/documents/import`, {
     method: 'POST',
     headers,
     body: formData,
@@ -370,7 +376,7 @@ export async function getRun(runId: string, domain: 'process' | 'recipe'): Promi
     : `/api/v1/recipe-runs/${runId}`;
 
   const { getAuthHeaders } = await import('@/lib/api-auth');
-  const response = await fetch(`${API_URL}${endpoint}`, { headers: await getAuthHeaders() });
+  const response = await authFetch(`${API_URL}${endpoint}`, { headers: await getAuthHeaders() });
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
@@ -388,7 +394,7 @@ export async function generatePDF(runId: string, domain: 'process' | 'recipe'): 
     ? `/api/v1/process-runs/${runId}/generate-pdf`
     : `/api/v1/recipe-runs/${runId}/generate-pdf`;
   
-  const response = await fetch(`${API_URL}${endpoint}`, {
+  const response = await authFetch(`${API_URL}${endpoint}`, {
     method: 'POST',
   });
 
@@ -449,7 +455,7 @@ export async function createWorkspace(
     }
   }
 
-  const response = await fetch(`${API_URL}/api/v1/workspaces`, {
+  const response = await authFetch(`${API_URL}/api/v1/workspaces`, {
     method: 'POST',
     headers,
     body: JSON.stringify(request),
@@ -500,7 +506,7 @@ export async function getCurrentUser(options?: { force?: boolean }): Promise<Cur
   return dedupeInFlight('users/me', async () => {
     const { getAuthHeaders } = await import('@/lib/api-auth')
     const headers = await getAuthHeaders({})
-    const response = await fetch(`${API_URL}/api/v1/users/me`, { headers })
+    const response = await authFetch(`${API_URL}/api/v1/users/me`, { headers })
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({ detail: 'Error desconocido' }))
@@ -534,7 +540,7 @@ export async function uploadWorkspaceBrandingIcon(
   const formData = new FormData()
   formData.append('file', file)
 
-  const response = await fetch(`${API_URL}/api/v1/workspaces/${workspaceId}/branding/icon`, {
+  const response = await authFetch(`${API_URL}/api/v1/workspaces/${workspaceId}/branding/icon`, {
     method: 'POST',
     headers,
     body: formData,
@@ -559,7 +565,7 @@ export async function deleteWorkspaceBrandingIcon(
   const { getAuthHeaders } = await import('@/lib/api-auth')
   const headers = await getAuthHeaders({})
 
-  const response = await fetch(`${API_URL}/api/v1/workspaces/${workspaceId}/branding/icon`, {
+  const response = await authFetch(`${API_URL}/api/v1/workspaces/${workspaceId}/branding/icon`, {
     method: 'DELETE',
     headers,
   })
@@ -579,7 +585,7 @@ export async function updateWorkspaceBranding(
   const { getAuthHeaders } = await import('@/lib/api-auth')
   const headers = await getAuthHeaders({ 'Content-Type': 'application/json' })
 
-  const response = await fetch(`${API_URL}/api/v1/workspaces/${workspaceId}/branding`, {
+  const response = await authFetch(`${API_URL}/api/v1/workspaces/${workspaceId}/branding`, {
     method: 'PUT',
     headers,
     body: JSON.stringify(branding),
@@ -612,7 +618,7 @@ export async function getUser(userId: string): Promise<UserProfile> {
   const headers: HeadersInit = {};
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
-  const response = await fetch(`${API_URL}/api/v1/users/${userId}`, { headers });
+  const response = await authFetch(`${API_URL}/api/v1/users/${userId}`, { headers });
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
     throw new Error(error.detail || `HTTP ${response.status}`);
@@ -640,7 +646,7 @@ export async function updateMyProfile(
   const headers: HeadersInit = { 'Content-Type': 'application/json' };
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
-  const response = await fetch(`${API_URL}/api/v1/users/${userId}`, {
+  const response = await authFetch(`${API_URL}/api/v1/users/${userId}`, {
     method: 'PUT',
     headers,
     body: JSON.stringify(data),
@@ -668,7 +674,7 @@ export async function addUserToWorkspace(
   workspaceId: string,
   roleName: string
 ): Promise<{ id: string; user_id: string; workspace_id: string; role: string; created_at: string }> {
-  const response = await fetch(
+  const response = await authFetch(
     `${API_URL}/api/v1/users/${userId}/workspaces/${workspaceId}/membership?role_name=${encodeURIComponent(roleName)}`,
     {
       method: 'POST',
@@ -690,7 +696,7 @@ export async function getWorkspace(workspaceId: string): Promise<WorkspaceRespon
   const { getAuthHeaders } = await import('@/lib/api-auth')
   const headers = await getAuthHeaders()
 
-  const response = await fetch(`${API_URL}/api/v1/workspaces/${workspaceId}`, { headers });
+  const response = await authFetch(`${API_URL}/api/v1/workspaces/${workspaceId}`, { headers });
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
@@ -708,7 +714,7 @@ export async function updateWorkspaceSettings(
   const { getAuthHeaders } = await import('@/lib/api-auth')
   const headers = await getAuthHeaders({ 'Content-Type': 'application/json' })
 
-  const response = await fetch(`${API_URL}/api/v1/workspaces/${workspaceId}/settings`, {
+  const response = await authFetch(`${API_URL}/api/v1/workspaces/${workspaceId}/settings`, {
     method: 'PATCH',
     headers,
     body: JSON.stringify(settings),
@@ -727,7 +733,7 @@ export async function updateWorkspaceSettings(
  * Obtiene las opciones del catálogo para un dominio.
  */
 export async function getCatalogOptions(domain: string): Promise<CatalogOption[]> {
-  const response = await fetch(`${API_URL}/api/v1/catalog/${domain}`);
+  const response = await authFetch(`${API_URL}/api/v1/catalog/${domain}`);
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
@@ -772,7 +778,7 @@ export async function createCatalogOption(
     throw new Error('Supabase no está configurado. No se pueden crear opciones de catálogo.')
   }
 
-  const response = await fetch(`${API_URL}/api/v1/catalog`, {
+  const response = await authFetch(`${API_URL}/api/v1/catalog`, {
     method: 'POST',
     headers,
     body: JSON.stringify(request),
@@ -798,7 +804,7 @@ export async function listFolders(workspaceId?: string): Promise<Folder[]> {
     const { getAuthHeaders } = await import('@/lib/api-auth')
     const headers = await getAuthHeaders({})
 
-    const response = await fetch(`${API_URL}/api/v1/folders`, { headers })
+    const response = await authFetch(`${API_URL}/api/v1/folders`, { headers })
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({ detail: 'Error desconocido' }))
@@ -816,7 +822,7 @@ export async function getFolderStats(folderId: string): Promise<FolderStats> {
   const { getAuthHeaders } = await import('@/lib/api-auth')
   const headers = await getAuthHeaders({})
 
-  const response = await fetch(`${API_URL}/api/v1/folders/${folderId}/stats`, { headers })
+  const response = await authFetch(`${API_URL}/api/v1/folders/${folderId}/stats`, { headers })
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Error desconocido' }))
@@ -833,7 +839,7 @@ export async function getFolderGovernance(folderId: string): Promise<FolderGover
   const { getAuthHeaders } = await import('@/lib/api-auth')
   const headers = await getAuthHeaders({})
 
-  const response = await fetch(`${API_URL}/api/v1/folders/${folderId}/governance`, { headers })
+  const response = await authFetch(`${API_URL}/api/v1/folders/${folderId}/governance`, { headers })
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Error desconocido' }))
@@ -850,7 +856,7 @@ export async function createFolder(request: FolderCreateRequest): Promise<Folder
   const { getAuthHeaders } = await import('@/lib/api-auth')
   const headers = await getAuthHeaders({ 'Content-Type': 'application/json' })
 
-  const response = await fetch(`${API_URL}/api/v1/folders`, {
+  const response = await authFetch(`${API_URL}/api/v1/folders`, {
     method: 'POST',
     headers,
     body: JSON.stringify(request),
@@ -871,7 +877,7 @@ export async function updateFolder(folderId: string, request: Partial<FolderCrea
   const { getAuthHeaders } = await import('@/lib/api-auth')
   const headers = await getAuthHeaders({ 'Content-Type': 'application/json' })
 
-  const response = await fetch(`${API_URL}/api/v1/folders/${folderId}`, {
+  const response = await authFetch(`${API_URL}/api/v1/folders/${folderId}`, {
     method: 'PUT',
     headers,
     body: JSON.stringify(request),
@@ -897,7 +903,7 @@ export async function deleteFolder(folderId: string, moveDocumentsTo?: string): 
   const { getAuthHeaders } = await import('@/lib/api-auth')
   const headers = await getAuthHeaders({})
 
-  const response = await fetch(url.toString(), {
+  const response = await authFetch(url.toString(), {
     method: 'DELETE',
     headers,
   });
@@ -916,7 +922,7 @@ export async function getFolderPermissions(folderId: string): Promise<FolderPerm
   const token = await getAccessToken();
   const headers: HeadersInit = {};
   if (token) headers['Authorization'] = `Bearer ${token}`;
-  const response = await fetch(`${API_URL}/api/v1/folders/${folderId}/permissions`, { headers });
+  const response = await authFetch(`${API_URL}/api/v1/folders/${folderId}/permissions`, { headers });
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
     throw new Error(error.detail || `HTTP ${response.status}`);
@@ -935,7 +941,7 @@ export async function updateFolderPermissions(
   const token = await getAccessToken();
   const headers: HeadersInit = { 'Content-Type': 'application/json' };
   if (token) headers['Authorization'] = `Bearer ${token}`;
-  const response = await fetch(`${API_URL}/api/v1/folders/${folderId}/permissions`, {
+  const response = await authFetch(`${API_URL}/api/v1/folders/${folderId}/permissions`, {
     method: 'PUT',
     headers,
     body: JSON.stringify(body),
@@ -955,7 +961,7 @@ export async function listOperationalRoles(workspaceId: string): Promise<Operati
   const token = await getAccessToken();
   const headers: HeadersInit = {};
   if (token) headers['Authorization'] = `Bearer ${token}`;
-  const response = await fetch(`${API_URL}/api/v1/workspaces/${workspaceId}/operational-roles`, { headers });
+  const response = await authFetch(`${API_URL}/api/v1/workspaces/${workspaceId}/operational-roles`, { headers });
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
     throw new Error(error.detail || `HTTP ${response.status}`);
@@ -974,7 +980,7 @@ export async function createOperationalRole(
   const token = await getAccessToken();
   const headers: HeadersInit = { 'Content-Type': 'application/json' };
   if (token) headers['Authorization'] = `Bearer ${token}`;
-  const response = await fetch(`${API_URL}/api/v1/workspaces/${workspaceId}/operational-roles`, {
+  const response = await authFetch(`${API_URL}/api/v1/workspaces/${workspaceId}/operational-roles`, {
     method: 'POST',
     headers,
     body: JSON.stringify(body),
@@ -997,7 +1003,7 @@ export async function updateOperationalRole(
   const token = await getAccessToken();
   const headers: HeadersInit = { 'Content-Type': 'application/json' };
   if (token) headers['Authorization'] = `Bearer ${token}`;
-  const response = await fetch(`${API_URL}/api/v1/operational-roles/${roleId}`, {
+  const response = await authFetch(`${API_URL}/api/v1/operational-roles/${roleId}`, {
     method: 'PUT',
     headers,
     body: JSON.stringify(body),
@@ -1017,7 +1023,7 @@ export async function deleteOperationalRole(roleId: string): Promise<void> {
   const token = await getAccessToken();
   const headers: HeadersInit = {};
   if (token) headers['Authorization'] = `Bearer ${token}`;
-  const response = await fetch(`${API_URL}/api/v1/operational-roles/${roleId}`, {
+  const response = await authFetch(`${API_URL}/api/v1/operational-roles/${roleId}`, {
     method: 'DELETE',
     headers,
   });
@@ -1035,7 +1041,7 @@ export async function getWorkspaceMembers(workspaceId: string): Promise<{ worksp
   const token = await getAccessToken();
   const headers: HeadersInit = {};
   if (token) headers['Authorization'] = `Bearer ${token}`;
-  const response = await fetch(`${API_URL}/api/v1/workspaces/${workspaceId}/members`, { headers });
+  const response = await authFetch(`${API_URL}/api/v1/workspaces/${workspaceId}/members`, { headers });
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
     throw new Error(error.detail || `HTTP ${response.status}`);
@@ -1054,7 +1060,7 @@ export async function assignOperationalRolesToMembership(
   const token = await getAccessToken();
   const headers: HeadersInit = { 'Content-Type': 'application/json' };
   if (token) headers['Authorization'] = `Bearer ${token}`;
-  const response = await fetch(`${API_URL}/api/v1/workspace-memberships/${membershipId}/operational-roles`, {
+  const response = await authFetch(`${API_URL}/api/v1/workspace-memberships/${membershipId}/operational-roles`, {
     method: 'POST',
     headers,
     body: JSON.stringify({ operational_role_ids: operationalRoleIds }),
@@ -1085,7 +1091,7 @@ export async function listDocuments(workspaceId?: string, folderId?: string, doc
       url.searchParams.append('status', status)
     }
 
-    const response = await fetch(url.toString(), { headers })
+    const response = await authFetch(url.toString(), { headers })
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({ detail: 'Error desconocido' }))
@@ -1113,7 +1119,7 @@ export async function getDocumentRuns(documentId: string): Promise<Array<{
   const headers: HeadersInit = {};
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
-  const response = await fetch(`${API_URL}/api/v1/documents/${documentId}/runs`, { headers });
+  const response = await authFetch(`${API_URL}/api/v1/documents/${documentId}/runs`, { headers });
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
@@ -1133,7 +1139,7 @@ export async function getDocument(documentId: string): Promise<Document> {
   const headers: HeadersInit = {};
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
-  const response = await fetch(`${API_URL}/api/v1/documents/${documentId}`, { headers });
+  const response = await authFetch(`${API_URL}/api/v1/documents/${documentId}`, { headers });
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
@@ -1152,7 +1158,7 @@ export async function updateDocument(documentId: string, request: DocumentUpdate
   const headers: HeadersInit = { 'Content-Type': 'application/json' };
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
-  const response = await fetch(`${API_URL}/api/v1/documents/${documentId}`, {
+  const response = await authFetch(`${API_URL}/api/v1/documents/${documentId}`, {
     method: 'PUT',
     headers,
     body: JSON.stringify(request),
@@ -1183,7 +1189,7 @@ export async function createDocumentRun(
   }
   // No establecer Content-Type para FormData, el navegador lo hace automáticamente
   
-  const response = await fetch(`${API_URL}/api/v1/documents/${documentId}/runs`, {
+  const response = await authFetch(`${API_URL}/api/v1/documents/${documentId}/runs`, {
     method: 'POST',
     headers,
     body: formData,
@@ -1235,7 +1241,7 @@ export async function createValidation(
   documentId: string,
   request: ValidationCreateRequest
 ): Promise<Validation> {
-  const response = await fetch(`${API_URL}/api/v1/documents/${documentId}/validate`, {
+  const response = await authFetch(`${API_URL}/api/v1/documents/${documentId}/validate`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -1260,7 +1266,7 @@ export async function approveValidation(
 ): Promise<{ message: string; version_id: string }> {
   const { getAuthHeaders } = await import('@/lib/api-auth');
   const headers = await getAuthHeaders({ 'Content-Type': 'application/json' });
-  const response = await fetch(`${API_URL}/api/v1/validations/${validationId}/approve`, {
+  const response = await authFetch(`${API_URL}/api/v1/validations/${validationId}/approve`, {
     method: 'POST',
     headers,
     body: JSON.stringify(request || {}),
@@ -1287,7 +1293,7 @@ export async function rejectValidation(
     'Content-Type': 'application/json',
   })
 
-  const response = await fetch(`${API_URL}/api/v1/validations/${validationId}/reject`, {
+  const response = await authFetch(`${API_URL}/api/v1/validations/${validationId}/reject`, {
     method: 'POST',
     headers,
     body: JSON.stringify(request),
@@ -1306,7 +1312,7 @@ export async function rejectValidation(
  */
 export async function listValidations(documentId: string): Promise<Validation[]> {
   const { getAuthHeaders } = await import('@/lib/api-auth');
-  const response = await fetch(`${API_URL}/api/v1/documents/${documentId}/validations`, {
+  const response = await authFetch(`${API_URL}/api/v1/documents/${documentId}/validations`, {
     headers: await getAuthHeaders(),
   });
 
@@ -1342,7 +1348,7 @@ export async function approveDocumentValidation(
     'Content-Type': 'application/json',
   })
 
-  const response = await fetch(`${API_URL}/api/v1/documents/${documentId}/validate/approve`, {
+  const response = await authFetch(`${API_URL}/api/v1/documents/${documentId}/validate/approve`, {
     method: 'POST',
     headers,
     body: JSON.stringify({ observations: observations || '' }),
@@ -1374,7 +1380,7 @@ export async function rejectDocumentValidation(
     'Content-Type': 'application/json',
   })
 
-  const response = await fetch(`${API_URL}/api/v1/documents/${documentId}/validate/reject`, {
+  const response = await authFetch(`${API_URL}/api/v1/documents/${documentId}/validate/reject`, {
     method: 'POST',
     headers,
     body: JSON.stringify({ observations }),
@@ -1400,7 +1406,7 @@ export async function cancelDocumentSubmission(
 ): Promise<{ message: string; version: { id: string; version_number: number; version_status: string } }> {
   const { getAuthHeaders } = await import('@/lib/api-auth');
   const headers = await getAuthHeaders({ 'Content-Type': 'application/json' });
-  const response = await fetch(
+  const response = await authFetch(
     `${API_URL}/api/v1/documents/${documentId}/versions/${versionId}/cancel-submission`,
     {
       method: 'POST',
@@ -1430,7 +1436,7 @@ export async function submitVersionForReview(
 ): Promise<{ message: string; version: { id: string; version_number: number; version_status: string; validation_id: string }; validation: { id: string; status: string; document_id: string; created_at: string; assigned_approver_ids: string[]; submit_comment: string } }> {
   const { getAuthHeaders } = await import('@/lib/api-auth');
   const headers = await getAuthHeaders({ 'Content-Type': 'application/json' });
-  const response = await fetch(
+  const response = await authFetch(
     `${API_URL}/api/v1/documents/${documentId}/versions/${versionId}/submit`,
     {
       method: 'POST',
@@ -1478,7 +1484,7 @@ export function getVersionPreviewPdfUrl(documentId: string, versionId: string): 
  */
 export async function getDocumentVersions(documentId: string): Promise<DocumentVersion[]> {
   const { getAuthHeaders } = await import('@/lib/api-auth');
-  const response = await fetch(`${API_URL}/api/v1/documents/${documentId}/versions`, {
+  const response = await authFetch(`${API_URL}/api/v1/documents/${documentId}/versions`, {
     headers: await getAuthHeaders(),
   });
 
@@ -1505,7 +1511,7 @@ export async function getCurrentDocumentVersion(documentId: string): Promise<{
   created_at: string;
 }> {
   const { getAuthHeaders } = await import('@/lib/api-auth');
-  const response = await fetch(`${API_URL}/api/v1/documents/${documentId}/current-version`, {
+  const response = await authFetch(`${API_URL}/api/v1/documents/${documentId}/current-version`, {
     headers: await getAuthHeaders(),
   });
 
@@ -1538,7 +1544,7 @@ export interface AuditLogEntry {
  */
 export async function getDocumentAuditLog(documentId: string): Promise<AuditLogEntry[]> {
   const { getAuthHeaders } = await import('@/lib/api-auth');
-  const response = await fetch(`${API_URL}/api/v1/documents/${documentId}/audit-log`, {
+  const response = await authFetch(`${API_URL}/api/v1/documents/${documentId}/audit-log`, {
     headers: await getAuthHeaders(),
   });
 
@@ -1571,7 +1577,7 @@ export async function updateDocumentContent(
   const headers: HeadersInit = { 'Content-Type': 'application/json' };
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
-  const response = await fetch(`${API_URL}/api/v1/documents/${documentId}/content`, {
+  const response = await authFetch(`${API_URL}/api/v1/documents/${documentId}/content`, {
     method: 'PUT',
     headers,
     body: JSON.stringify({ content_json: contentJson }),
@@ -1599,7 +1605,7 @@ export async function getEditableContent(documentId: string): Promise<{
   const headers: HeadersInit = {};
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
-  const response = await fetch(`${API_URL}/api/v1/documents/${documentId}/editable`, { method: 'GET', headers });
+  const response = await authFetch(`${API_URL}/api/v1/documents/${documentId}/editable`, { method: 'GET', headers });
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
     throw new Error(error.detail || `HTTP ${response.status}`);
@@ -1619,7 +1625,7 @@ export async function saveEditableContent(
   const headers: HeadersInit = { 'Content-Type': 'application/json' };
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
-  const response = await fetch(`${API_URL}/api/v1/documents/${documentId}/editable`, {
+  const response = await authFetch(`${API_URL}/api/v1/documents/${documentId}/editable`, {
     method: 'PUT',
     headers,
     body: JSON.stringify({ content_html: contentHtml }),
@@ -1643,7 +1649,7 @@ export async function uploadEditorImage(documentId: string, file: File): Promise
   const formData = new FormData();
   formData.append('file', file);
 
-  const response = await fetch(`${API_URL}/api/v1/documents/${documentId}/upload-editor-image`, {
+  const response = await authFetch(`${API_URL}/api/v1/documents/${documentId}/upload-editor-image`, {
     method: 'POST',
     headers,
     body: formData,
@@ -1674,7 +1680,7 @@ export async function patchDocumentWithAI(
     headers['Authorization'] = `Bearer ${token}`
   }
 
-  const response = await fetch(`${API_URL}/api/v1/documents/${documentId}/patch`, {
+  const response = await authFetch(`${API_URL}/api/v1/documents/${documentId}/patch`, {
     method: 'POST',
     headers,
     body: JSON.stringify({ observations, run_id: runId }),
@@ -1704,7 +1710,7 @@ export async function checkPermission(
   const { getAuthHeaders } = await import('@/lib/api-auth')
   const headers = await getAuthHeaders({})
   
-  const response = await fetch(
+  const response = await authFetch(
     `${API_URL}/api/v1/users/${userId}/permission/${workspaceId}/${encodeURIComponent(permissionName)}`,
     {
       headers,
@@ -1735,7 +1741,7 @@ export async function listDocumentsPendingApproval(
   const headers: HeadersInit = {};
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
-  const response = await fetch(
+  const response = await authFetch(
     `${API_URL}/api/v1/documents/pending-approval`,
     { headers }
   );
@@ -1760,7 +1766,7 @@ export async function listDocumentsToReview(
   const headers: HeadersInit = {};
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
-  const response = await fetch(
+  const response = await authFetch(
     `${API_URL}/api/v1/documents/to-review`,
     { headers }
   );
@@ -1798,7 +1804,7 @@ export async function deleteDocument(documentId: string): Promise<{ message: str
   const headers: HeadersInit = {}
   if (token) headers['Authorization'] = `Bearer ${token}`
 
-  const response = await fetch(`${API_URL}/api/v1/documents/${documentId}`, {
+  const response = await authFetch(`${API_URL}/api/v1/documents/${documentId}`, {
     method: 'DELETE',
     headers,
   })
@@ -1872,7 +1878,7 @@ export async function getDocumentTypes(
     url.searchParams.set('include_inactive', 'true')
   }
 
-  const response = await fetch(url.toString(), { headers })
+  const response = await authFetch(url.toString(), { headers })
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Error desconocido' }))
@@ -1893,7 +1899,7 @@ export async function updateDocumentType(
   const { getAuthHeaders } = await import('@/lib/api-auth')
   const headers = await getAuthHeaders({ 'Content-Type': 'application/json' })
 
-  const response = await fetch(`${API_URL}/api/v1/document-types/${id}`, {
+  const response = await authFetch(`${API_URL}/api/v1/document-types/${id}`, {
     method: 'PATCH',
     headers,
     body: JSON.stringify(patch),
@@ -1916,7 +1922,7 @@ export async function createDocumentType(
   const { getAuthHeaders } = await import('@/lib/api-auth')
   const headers = await getAuthHeaders({ 'Content-Type': 'application/json' })
 
-  const response = await fetch(`${API_URL}/api/v1/document-types`, {
+  const response = await authFetch(`${API_URL}/api/v1/document-types`, {
     method: 'POST',
     headers,
     body: JSON.stringify(body),
@@ -1943,7 +1949,7 @@ export async function updateUserProfile(
 ): Promise<void> {
   const fullName = `${firstName} ${lastName}`.trim()
   
-  const response = await fetch(`${API_URL}/api/v1/users/${userId}`, {
+  const response = await authFetch(`${API_URL}/api/v1/users/${userId}`, {
     method: 'PUT',
     headers: {
       'Content-Type': 'application/json',
@@ -2025,7 +2031,7 @@ export async function listSubscriptionPlans(
     url.searchParams.append('plan_type', planType);
   }
 
-  const response = await fetch(url.toString());
+  const response = await authFetch(url.toString());
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
@@ -2044,7 +2050,7 @@ export async function getWorkspaceSubscription(
   const { getAuthHeaders } = await import('@/lib/api-auth')
   const headers = await getAuthHeaders()
 
-  const response = await fetch(`${API_URL}/api/v1/workspaces/${workspaceId}/subscription`, {
+  const response = await authFetch(`${API_URL}/api/v1/workspaces/${workspaceId}/subscription`, {
     headers,
   });
 
@@ -2068,7 +2074,7 @@ export async function getWorkspaceLimits(
   const { getAuthHeaders } = await import('@/lib/api-auth')
   const headers = await getAuthHeaders()
 
-  const response = await fetch(`${API_URL}/api/v1/workspaces/${workspaceId}/limits`, {
+  const response = await authFetch(`${API_URL}/api/v1/workspaces/${workspaceId}/limits`, {
     headers,
   });
 
@@ -2152,7 +2158,7 @@ export async function streamTytoQuery(
   const { getAuthHeaders } = await import('@/lib/api-auth');
   const headers = await getAuthHeaders({ 'Content-Type': 'application/json' });
 
-  const response = await fetch(`${API_URL}/api/v1/tyto/query/stream`, {
+  const response = await authFetch(`${API_URL}/api/v1/tyto/query/stream`, {
     method: 'POST',
     headers,
     body: JSON.stringify({ question }),
@@ -2181,4 +2187,269 @@ export async function streamTytoQuery(
       if (parsed) onEvent(parsed);
     }
   }
+}
+
+// ============================================================================
+// Relaciones semánticas y objetos de conocimiento
+// ============================================================================
+
+export type RelationStatus = 'candidate' | 'confirmed' | 'rejected' | 'obsolete'
+
+export type RelationType =
+  | 'usa'
+  | 'requiere'
+  | 'genera'
+  | 'relacionado_con'
+  | 'describe'
+  | 'aplica_a'
+  | 'depende_de'
+  | 'reemplaza_a'
+  | 'ejecutado_por'
+  | 'aprobado_por'
+  | 'ubicado_en'
+
+export type KnowledgeObjectType =
+  | 'sistema'
+  | 'rol'
+  | 'area'
+  | 'equipo'
+  | 'formulario'
+  | 'proceso'
+  | 'ubicacion'
+  | 'normativa'
+
+export interface RelationTarget {
+  id: string
+  type: string
+  name: string
+}
+
+export interface DocumentRelationItem {
+  id: string
+  target: RelationTarget
+  confidence: number | null
+  status: RelationStatus
+  evidence_text: string | null
+  created_by_ai: boolean
+  confirmed_by: string | null
+  confirmed_at: string | null
+  possible_duplicate_of: RelationTarget | null
+}
+
+export interface DocumentRelationGroup {
+  relation_type: RelationType | string
+  items: DocumentRelationItem[]
+}
+
+export interface DocumentRelationsResponse {
+  document_id: string
+  groups: DocumentRelationGroup[]
+}
+
+export interface WorkspaceRelationDocument {
+  id: string
+  name: string
+  folder_id: string
+  folder_name: string
+}
+
+export interface WorkspaceRelationItem extends DocumentRelationItem {
+  document: WorkspaceRelationDocument
+  relation_type: RelationType | string
+}
+
+export interface WorkspaceRelationsResponse {
+  items: WorkspaceRelationItem[]
+  total: number
+  page: number
+  page_size: number
+  total_pages: number
+}
+
+export interface WorkspaceRelationsParams {
+  status?: RelationStatus
+  type?: RelationType | string
+  folder_id?: string
+  page?: number
+  page_size?: number
+}
+
+export interface SuggestDocumentRelationsResponse {
+  document_id: string
+  version_id: string
+  candidates_created: number
+  chunks_indexed: number
+}
+
+export interface RelationPatch {
+  relation_type?: RelationType
+  target_type?: string
+  target_id?: string
+}
+
+export interface KnowledgeObject {
+  id: string
+  type: KnowledgeObjectType | string
+  canonical_name: string
+  normalized_name: string
+  description: string | null
+  aliases: string[]
+}
+
+export interface KnowledgeObjectCreateRequest {
+  type: KnowledgeObjectType
+  canonical_name: string
+  description?: string
+}
+
+export interface KnowledgeObjectSearchParams {
+  type?: KnowledgeObjectType | string
+  q?: string
+}
+
+export interface DocumentImpactItem {
+  id: string
+  name: string
+}
+
+export interface DocumentImpactDocument extends DocumentImpactItem {
+  status: string
+  document_type: string
+}
+
+export interface DocumentImpactEntity extends DocumentImpactItem {
+  type: string
+}
+
+export interface DocumentImpactResponse {
+  document_id: string
+  affected_documents: DocumentImpactDocument[]
+  affected_entities: DocumentImpactEntity[]
+}
+
+async function semanticRequest<T>(
+  path: string,
+  init: RequestInit = {}
+): Promise<T> {
+  const { getAuthHeaders } = await import('@/lib/api-auth')
+  const headers = await getAuthHeaders(
+    Object.fromEntries(new Headers(init.headers).entries())
+  )
+  const response = await authFetch(`${API_URL}/api/v1${path}`, {
+    ...init,
+    headers,
+  })
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }))
+    throw new Error(formatApiErrorDetail(error.detail, `HTTP ${response.status}`))
+  }
+
+  return response.json()
+}
+
+/**
+ * El backend devuelve candidate + confirmed por defecto. Como semantic.py no
+ * expone un query param status, el filtro opcional se aplica sobre la respuesta.
+ */
+export async function getDocumentRelations(
+  documentId: string,
+  status?: Extract<RelationStatus, 'candidate' | 'confirmed'>
+): Promise<DocumentRelationsResponse> {
+  const result = await semanticRequest<DocumentRelationsResponse>(
+    `/documents/${encodeURIComponent(documentId)}/relations`
+  )
+  if (!status) return result
+
+  return {
+    ...result,
+    groups: result.groups
+      .map((group) => ({
+        ...group,
+        items: group.items.filter((item) => item.status === status),
+      }))
+      .filter((group) => group.items.length > 0),
+  }
+}
+
+export function getWorkspaceRelations(
+  params: WorkspaceRelationsParams = {}
+): Promise<WorkspaceRelationsResponse> {
+  const query = new URLSearchParams({
+    status: params.status ?? 'candidate',
+    page: String(params.page ?? 1),
+    page_size: String(params.page_size ?? 25),
+  })
+  if (params.type) query.set('type', params.type)
+  if (params.folder_id) query.set('folder_id', params.folder_id)
+  return semanticRequest(`/relations?${query.toString()}`)
+}
+
+export function suggestDocumentRelations(
+  documentId: string
+): Promise<SuggestDocumentRelationsResponse> {
+  return semanticRequest(`/documents/${encodeURIComponent(documentId)}/relations/suggest`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  })
+}
+
+export function confirmRelation(relationId: string): Promise<DocumentRelationItem> {
+  return semanticRequest(`/relations/${encodeURIComponent(relationId)}/confirm`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  })
+}
+
+export function rejectRelation(relationId: string): Promise<DocumentRelationItem> {
+  return semanticRequest(`/relations/${encodeURIComponent(relationId)}/reject`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  })
+}
+
+export function editRelation(
+  relationId: string,
+  patch: RelationPatch
+): Promise<DocumentRelationItem> {
+  return semanticRequest(`/relations/${encodeURIComponent(relationId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(patch),
+  })
+}
+
+export function searchKnowledgeObjects(
+  params: KnowledgeObjectSearchParams = {}
+): Promise<KnowledgeObject[]> {
+  const query = new URLSearchParams()
+  if (params.type) query.set('type', params.type)
+  if (params.q?.trim()) query.set('q', params.q.trim())
+  const suffix = query.size > 0 ? `?${query.toString()}` : ''
+  return semanticRequest(`/knowledge-objects${suffix}`)
+}
+
+export function createKnowledgeObject(
+  body: KnowledgeObjectCreateRequest
+): Promise<KnowledgeObject> {
+  return semanticRequest('/knowledge-objects', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+}
+
+export function mergeKnowledgeObject(
+  knowledgeObjectId: string,
+  body: { into_id: string }
+): Promise<KnowledgeObject> {
+  return semanticRequest(
+    `/knowledge-objects/${encodeURIComponent(knowledgeObjectId)}/merge`,
+    {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }
+  )
+}
+
+export function getDocumentImpact(documentId: string): Promise<DocumentImpactResponse> {
+  return semanticRequest(`/documents/${encodeURIComponent(documentId)}/impact`)
 }

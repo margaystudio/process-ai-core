@@ -42,7 +42,7 @@ router = APIRouter()
 
 
 @router.get("/{document_id}/runs")
-async def get_document_runs(
+def get_document_runs(
     document_id: str,
     user_id: str = Depends(get_current_user_id),
     ctx: WorkspaceSessionContext = Depends(get_workspace_context),
@@ -51,7 +51,7 @@ async def get_document_runs(
     Obtiene todos los runs asociados a un documento.
     """
     from process_ai_core.db.models import Run
-    from process_ai_core.storage import get_storage, run_artifact_key
+    from process_ai_core.storage import get_storage, run_artifact_key, run_prefix
 
     with get_db_session() as session:
         doc = session.query(Document).filter_by(id=document_id).first()
@@ -78,10 +78,18 @@ async def get_document_runs(
         artifact_files = {"json": "process.json", "md": "process.md", "pdf": "process.pdf"}
         result = []
         for run in runs:
-            artifact_dict = {}
-            for atype, filename in artifact_files.items():
-                if storage.exists(run_artifact_key(doc_workspace_id, run.id, filename)):
-                    artifact_dict[atype] = sign_artifact_url(run.id, filename, doc_workspace_id)
+            # Un solo list() del directorio del run en vez de 3 exists()
+            # (cada exists() listaba el MISMO directorio padre por HTTP:
+            # 10 runs = 30 round-trips a Supabase Storage; ahora 10).
+            try:
+                existing_keys = {blob.key for blob in storage.list_objects(run_prefix(doc_workspace_id, run.id))}
+            except Exception:
+                existing_keys = set()
+            artifact_dict = {
+                atype: sign_artifact_url(run.id, filename, doc_workspace_id)
+                for atype, filename in artifact_files.items()
+                if run_artifact_key(doc_workspace_id, run.id, filename) in existing_keys
+            }
 
             result.append({
                 "run_id": run.id,

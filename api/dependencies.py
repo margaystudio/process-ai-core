@@ -160,7 +160,7 @@ except ImportError:
     logger.warning("Supabase Python client not installed. Auth dependencies will not work.")
 
 
-async def get_current_user_id(
+def get_current_user_id(
     authorization: Optional[str] = Header(None, alias="Authorization"),
     session: Session = Depends(get_db),
 ) -> str:
@@ -251,7 +251,7 @@ async def get_current_user_id(
         )
 
 
-async def get_current_user(
+def get_current_user(
     user_id: str = Depends(get_current_user_id),
     session: Session = Depends(get_db),
 ) -> User:
@@ -297,7 +297,7 @@ def is_superadmin(
     return membership is not None
 
 
-async def require_superadmin(
+def require_superadmin(
     user_id: str = Depends(get_current_user_id),
     session: Session = Depends(get_db),
 ) -> str:
@@ -315,7 +315,7 @@ async def require_superadmin(
     return user_id
 
 
-async def require_permission(
+def require_permission(
     permission_name: str,
     workspace_id: str,
     user_id: str = Depends(get_current_user_id),
@@ -344,7 +344,7 @@ async def require_permission(
     return user_id
 
 
-async def require_role(
+def require_role(
     role_name: str,
     workspace_id: str,
     user_id: str = Depends(get_current_user_id),

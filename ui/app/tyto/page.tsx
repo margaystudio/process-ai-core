@@ -41,10 +41,20 @@ export default function TytoPage() {
   const idRef = useRef(0)
   const abortRef = useRef<AbortController | null>(null)
   const threadEndRef = useRef<HTMLDivElement | null>(null)
+  // Buffer de tokens del stream: sin esto, cada token disparaba un setState
+  // (re-render de todas las burbujas) + un scrollIntoView (reflow forzado).
+  const pendingTokensRef = useRef('')
+  const flushTimerRef = useRef<number | null>(null)
 
   useEffect(() => {
     threadEndRef.current?.scrollIntoView?.({ block: 'end' })
   }, [messages])
+
+  useEffect(() => {
+    return () => {
+      if (flushTimerRef.current !== null) window.clearTimeout(flushTimerRef.current)
+    }
+  }, [])
 
   useEffect(() => {
     return () => abortRef.current?.abort()
@@ -84,18 +94,40 @@ export default function TytoPage() {
       )
     }
 
+    function flushTokens() {
+      flushTimerRef.current = null
+      const chunk = pendingTokensRef.current
+      if (!chunk) return
+      pendingTokensRef.current = ''
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === assistantId && m.role === 'assistant'
+            ? { ...m, text: m.text + chunk }
+            : m
+        )
+      )
+    }
+
+    function clearPendingTokens() {
+      if (flushTimerRef.current !== null) {
+        window.clearTimeout(flushTimerRef.current)
+        flushTimerRef.current = null
+      }
+      pendingTokensRef.current = ''
+    }
+
     function handleEvent(event: TytoStreamEvent) {
       if (event.type === 'token') {
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === assistantId && m.role === 'assistant'
-              ? { ...m, text: m.text + event.text }
-              : m
-          )
-        )
+        // Acumular y flushear cada ~50ms: un solo re-render por lote de tokens.
+        pendingTokensRef.current += event.text
+        if (flushTimerRef.current === null) {
+          flushTimerRef.current = window.setTimeout(flushTokens, 50)
+        }
         return
       }
       if (event.type === 'result') {
+        // El result trae el texto completo: descartar lo pendiente del buffer.
+        clearPendingTokens()
         if (event.data.answered) {
           patchAssistant({ status: 'answered', text: event.data.answer, result: event.data })
         } else {
@@ -107,12 +139,16 @@ export default function TytoPage() {
         return
       }
       // event.type === 'error'
+      clearPendingTokens()
       patchAssistant({ status: 'error', errorDetail: event.detail })
     }
 
     try {
       await streamTytoQuery(question, handleEvent, controller.signal)
+      // Si el stream terminó sin evento result (corte), mostrar lo acumulado.
+      flushTokens()
     } catch (err) {
+      clearPendingTokens()
       patchAssistant({
         status: 'error',
         errorDetail: err instanceof Error ? err.message : 'No se pudo conectar con Tyto.',

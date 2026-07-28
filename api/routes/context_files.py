@@ -133,7 +133,7 @@ def _context_folder_response(folder: ContextFolder) -> ContextFolderResponse:
 
 
 @router.get("/{workspace_id}/context-folders", response_model=List[ContextFolderResponse])
-async def list_context_folders(
+def list_context_folders(
     workspace_id: str,
     user_id: str = Depends(get_current_user_id),
 ):
@@ -151,7 +151,7 @@ async def list_context_folders(
 
 
 @router.post("/{workspace_id}/context-folders", response_model=ContextFolderResponse)
-async def create_context_folder(
+def create_context_folder(
     workspace_id: str,
     request: ContextFolderCreateRequest,
     user_id: str = Depends(get_current_user_id),
@@ -176,7 +176,7 @@ async def create_context_folder(
 
 
 @router.patch("/{workspace_id}/context-folders/{folder_id}", response_model=ContextFolderResponse)
-async def move_or_update_context_folder(
+def move_or_update_context_folder(
     workspace_id: str,
     folder_id: str,
     request: ContextFolderMoveRequest = Body(...),
@@ -257,7 +257,7 @@ async def upload_context_file(
 
 
 @router.get("/{workspace_id}/context-files", response_model=List[ContextFileResponse])
-async def list_context_files(
+def list_context_files(
     workspace_id: str,
     user_id: str = Depends(get_current_user_id),
 ):
@@ -275,7 +275,7 @@ async def list_context_files(
 
 
 @router.patch("/{workspace_id}/context-files/{file_id}/move", response_model=ContextFileResponse)
-async def move_context_file(
+def move_context_file(
     workspace_id: str,
     file_id: str,
     request: ContextFileMoveRequest = Body(...),
@@ -297,7 +297,7 @@ async def move_context_file(
 
 
 @router.delete("/{workspace_id}/context-files/{file_id}")
-async def delete_context_file(
+def delete_context_file(
     workspace_id: str,
     file_id: str,
     user_id: str = Depends(get_current_user_id),
@@ -323,7 +323,7 @@ async def delete_context_file(
 
 
 @router.get("/{workspace_id}/context-files/{file_id}/download")
-async def download_context_file(
+def download_context_file(
     workspace_id: str,
     file_id: str,
     user_id: str = Depends(get_current_user_id),
@@ -348,7 +348,7 @@ async def download_context_file(
 
 
 @router.get("/{workspace_id}/context-files/{file_id}/view")
-async def view_context_file(
+def view_context_file(
     workspace_id: str,
     file_id: str,
     user_id: str = Depends(get_current_user_id),

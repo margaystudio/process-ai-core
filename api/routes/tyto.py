@@ -118,7 +118,7 @@ def _to_response(result) -> TytoQueryResponse:
 
 
 @router.post("/query", response_model=TytoQueryResponse)
-async def tyto_query(
+def tyto_query(
     request: TytoQueryRequest = Body(...),
     user_id: str = Depends(get_current_user_id),
     session: Session = Depends(get_db),
@@ -149,7 +149,7 @@ def _sse(event: str, data: dict) -> str:
 
 
 @router.post("/query/stream")
-async def tyto_query_stream(
+def tyto_query_stream(
     request: TytoQueryRequest = Body(...),
     user_id: str = Depends(get_current_user_id),
     session: Session = Depends(get_db),

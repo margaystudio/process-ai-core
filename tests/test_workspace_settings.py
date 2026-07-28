@@ -1,6 +1,5 @@
 """Tests para configuración general del workspace (PATCH /settings)."""
 
-import asyncio
 import uuid
 
 import pytest
@@ -79,7 +78,7 @@ def test_serialize_workspace_includes_settings_fields(session):
 def test_owner_can_update_workspace_settings(session):
     workspace, user = _create_workspace_with_owner(session)
 
-    result = asyncio.run(
+    result = (
         workspaces_route.update_workspace_settings(
             workspace_id=workspace.id,
             request=WorkspaceSettingsUpdateRequest(
@@ -125,7 +124,7 @@ def test_admin_can_update_workspace_settings(session):
     session.flush()
     session.commit()
 
-    result = asyncio.run(
+    result = (
         workspaces_route.update_workspace_settings(
             workspace_id=workspace.id,
             request=WorkspaceSettingsUpdateRequest(country="UY", language_style="es_uy_formal"),
@@ -149,7 +148,7 @@ def test_viewer_cannot_update_workspace_settings(session):
     session.commit()
 
     with pytest.raises(HTTPException) as exc:
-        asyncio.run(
+        (
             workspaces_route.update_workspace_settings(
                 workspace_id=workspace.id,
                 request=WorkspaceSettingsUpdateRequest(country="UY"),

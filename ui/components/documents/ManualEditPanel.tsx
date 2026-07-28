@@ -1,9 +1,21 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
+import dynamic from 'next/dynamic'
 import { X } from 'lucide-react'
 import { getEditableContent, saveEditableContent, submitVersionForReview } from '@/lib/api'
-import ManualEditorTiptap, { type ManualEditorTiptapRef } from './ManualEditorTiptap'
+import type { ManualEditorTiptapRef } from './ManualEditorTiptap'
+
+// Code-splitting: Tiptap (~10 paquetes de @tiptap) solo se descarga al entrar
+// en modo edición, no en la vista de lectura del documento.
+const ManualEditorTiptap = dynamic(() => import('./ManualEditorTiptap'), {
+  ssr: false,
+  loading: () => (
+    <div className="flex h-40 items-center justify-center text-[13px] text-ink-400">
+      Cargando editor…
+    </div>
+  ),
+})
 
 function formatSavedAt(iso: string): string {
   try {

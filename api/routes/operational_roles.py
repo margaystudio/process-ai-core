@@ -64,7 +64,7 @@ def _require_workspace_admin(session: Session, user_id: str, workspace_id: str) 
 
 
 @router.get("/workspaces/{workspace_id}/operational-roles", response_model=list[OperationalRoleResponse])
-async def list_operational_roles(
+def list_operational_roles(
     workspace_id: str,
     user_id: str = Depends(get_current_user_id),
     session: Session = Depends(get_db),
@@ -91,7 +91,7 @@ async def list_operational_roles(
 
 
 @router.post("/workspaces/{workspace_id}/operational-roles", response_model=OperationalRoleResponse)
-async def create_operational_role(
+def create_operational_role(
     workspace_id: str,
     request: OperationalRoleCreateRequest,
     user_id: str = Depends(get_current_user_id),
@@ -132,7 +132,7 @@ async def create_operational_role(
 
 
 @router.put("/operational-roles/{operational_role_id}", response_model=OperationalRoleResponse)
-async def update_operational_role(
+def update_operational_role(
     operational_role_id: str,
     request: OperationalRoleUpdateRequest,
     user_id: str = Depends(get_current_user_id),
@@ -164,7 +164,7 @@ async def update_operational_role(
 
 
 @router.delete("/operational-roles/{operational_role_id}")
-async def delete_operational_role(
+def delete_operational_role(
     operational_role_id: str,
     user_id: str = Depends(get_current_user_id),
     session: Session = Depends(get_db),
@@ -179,7 +179,7 @@ async def delete_operational_role(
 
 
 @router.post("/workspace-memberships/{membership_id}/operational-roles")
-async def assign_operational_roles_to_membership(
+def assign_operational_roles_to_membership(
     membership_id: str,
     request: OperationalRoleAssignRequest,
     user_id: str = Depends(get_current_user_id),
@@ -225,7 +225,7 @@ async def assign_operational_roles_to_membership(
 
 
 @router.delete("/workspace-memberships/{membership_id}/operational-roles/{role_id}")
-async def remove_operational_role_from_membership(
+def remove_operational_role_from_membership(
     membership_id: str,
     role_id: str,
     user_id: str = Depends(get_current_user_id),

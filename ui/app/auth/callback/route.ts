@@ -17,9 +17,9 @@ const PROD_COOKIE_DOMAIN = '.margaystudio.io'
 const ALLOWED_ORIGINS = [
   'https://process.margaystudio.io',
   'https://hub.margaystudio.io',
-  'http://localhost:3000',
+  'http://localhost:3240',
   'http://localhost:3001',
-  'https://process.local.margaystudio.io:3000',
+  'https://process.local.margaystudio.io:3240',
   'https://hub.local.margaystudio.io:3001',
 ]
 

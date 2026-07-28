@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { getRun, getArtifactUrl } from '@/lib/api'
 import { useLoading } from '@/contexts/LoadingContext'
@@ -195,12 +196,12 @@ export default function RecipeResultPage() {
 
           {/* Botón para crear otra receta */}
           <div className="mt-8 pt-6 border-t border-gray-200">
-            <a
+            <Link
               href="/recipes/new"
               className="inline-block bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-md"
             >
               Crear Otra Receta
-            </a>
+            </Link>
           </div>
         </div>
       </div>

@@ -6,6 +6,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 vi.mock('@/lib/api-auth', () => ({
   getAccessToken: vi.fn().mockResolvedValue('test-token'),
+  authFetch: vi.fn((input: RequestInfo | URL, init?: RequestInit) => fetch(input, init)),
 }))
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'

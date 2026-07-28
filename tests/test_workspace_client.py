@@ -9,7 +9,6 @@ Cubre:
   - Header faltante / formato incorrecto → HTTPException 401
 """
 
-import asyncio
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -237,7 +236,7 @@ def test_dependency_ok():
     with patch("api.workspace_client.httpx.Client") as mock_client_cls:
         mock_client_cls.return_value.__enter__.return_value.get.return_value = mock_resp
 
-        ctx = asyncio.run(get_workspace_context(authorization="Bearer valid-token"))
+        ctx = (get_workspace_context(authorization="Bearer valid-token"))
 
     assert ctx.user.email == "alice@example.com"
 
@@ -245,7 +244,7 @@ def test_dependency_ok():
 def test_dependency_missing_header_raises_401():
     """Sin Authorization header → HTTPException 401."""
     with pytest.raises(HTTPException) as exc_info:
-        asyncio.run(get_workspace_context(authorization=None))
+        (get_workspace_context(authorization=None))
 
     assert exc_info.value.status_code == 401
 
@@ -253,6 +252,6 @@ def test_dependency_missing_header_raises_401():
 def test_dependency_bad_format_raises_401():
     """Header sin prefijo Bearer → HTTPException 401."""
     with pytest.raises(HTTPException) as exc_info:
-        asyncio.run(get_workspace_context(authorization="Token abc123"))
+        (get_workspace_context(authorization="Token abc123"))
 
     assert exc_info.value.status_code == 401

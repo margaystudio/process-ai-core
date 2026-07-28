@@ -58,7 +58,7 @@ router = APIRouter()
 
 
 @router.get("/{document_id}/versions")
-async def get_document_versions(
+def get_document_versions(
     document_id: str,
     ctx: WorkspaceSessionContext = Depends(get_workspace_context),
 ):
@@ -313,7 +313,7 @@ async def get_version_preview_pdf(
 
 
 @router.get("/{document_id}/current-version")
-async def get_current_document_version(
+def get_current_document_version(
     document_id: str,
     ctx: WorkspaceSessionContext = Depends(get_workspace_context),
 ):
@@ -365,7 +365,7 @@ async def get_current_document_version(
 
 
 @router.get("/{document_id}/audit-log")
-async def get_document_audit_log(
+def get_document_audit_log(
     document_id: str,
     ctx: WorkspaceSessionContext = Depends(get_workspace_context),
 ):
@@ -413,7 +413,7 @@ async def get_document_audit_log(
 
 
 @router.post("/{document_id}/versions/{version_id}/submit")
-async def submit_version_for_review_endpoint(
+def submit_version_for_review_endpoint(
     document_id: str,
     version_id: str,
     payload: SubmitVersionRequest | None = None,
@@ -500,7 +500,7 @@ async def submit_version_for_review_endpoint(
 
 
 @router.post("/{document_id}/versions/{version_id}/cancel-submission")
-async def cancel_submission_endpoint(
+def cancel_submission_endpoint(
     document_id: str,
     version_id: str,
     user_id: str = Depends(get_current_user_id),
@@ -543,7 +543,7 @@ async def cancel_submission_endpoint(
 
 
 @router.post("/{document_id}/versions/{version_id}/clone")
-async def clone_version_to_draft(
+def clone_version_to_draft(
     document_id: str,
     version_id: str,
     user_id: str = Depends(get_current_user_id),

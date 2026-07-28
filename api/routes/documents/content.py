@@ -48,7 +48,7 @@ router = APIRouter()
 
 
 @router.put("/{document_id}/content")
-async def update_document_content(
+def update_document_content(
     document_id: str,
     content_json: str = Body(..., embed=True),
     user_id: str = Depends(get_current_user_id),
@@ -177,7 +177,7 @@ async def update_document_content(
 
 
 @router.get("/{document_id}/editable")
-async def get_editable_content(
+def get_editable_content(
     document_id: str,
     user_id: str = Depends(get_current_user_id),
     ctx: WorkspaceSessionContext = Depends(get_workspace_context),
@@ -303,7 +303,7 @@ def _generate_draft_pdf_background(
 
 
 @router.put("/{document_id}/editable")
-async def save_editable_content(
+def save_editable_content(
     document_id: str,
     background_tasks: BackgroundTasks,
     content_html: str = Body(..., embed=True),
@@ -434,7 +434,7 @@ async def upload_editor_image(
 
 
 @router.get("/{document_id}/editor-images/{filename}")
-async def get_editor_image(document_id: str, filename: str):
+def get_editor_image(document_id: str, filename: str):
     """Sirve una imagen subida por el editor manual (desde object storage)."""
     if ".." in filename or "/" in filename or "\\" in filename:
         raise HTTPException(status_code=400, detail="Nombre de archivo no válido")
@@ -464,7 +464,7 @@ async def get_editor_image(document_id: str, filename: str):
 
 
 @router.post("/{document_id}/patch")
-async def patch_document_with_ai(
+def patch_document_with_ai(
     document_id: str,
     observations: str = Body(..., embed=True),
     run_id: str | None = Body(None, embed=True),
