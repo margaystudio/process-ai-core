@@ -2231,6 +2231,12 @@ export interface TytoQueryResult {
   segments: TytoSegment[];
   sources: TytoSource[];
   refusal_reason?: string | null;
+  /**
+   * La búsqueda corrió sin embeddings (solo coincidencia de palabras). Acompaña
+   * tanto a las respuestas como a los rechazos: cambia lo que el resultado puede
+   * afirmar, no solo cómo se obtuvo.
+   */
+  search_degraded?: boolean;
 }
 
 export type TytoStreamEvent =

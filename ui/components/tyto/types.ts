@@ -25,6 +25,12 @@ export interface TytoAssistantMessage {
   text: string
   result?: TytoQueryResult
   errorDetail?: string
+  /**
+   * La búsqueda semántica no estaba disponible y se rankeó por coincidencia de
+   * palabras. Se muestra siempre que sea true — tanto si respondió como si
+   * rechazó: sin embeddings, "no encontré" deja de significar "no está".
+   */
+  searchDegraded?: boolean
 }
 
 export type TytoMessage = TytoUserMessage | TytoAssistantMessage

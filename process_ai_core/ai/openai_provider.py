@@ -18,9 +18,10 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-from openai import OpenAI, OpenAIError
+from openai import AuthenticationError, OpenAI, OpenAIError
 
 from ..config import get_settings
+from .credentials import record_auth_failure, record_success
 
 logger = logging.getLogger(__name__)
 
@@ -37,14 +38,31 @@ class AIProviderError(RuntimeError):
 
 @contextmanager
 def _openai_call(operation: str):
-    """Envuelve una llamada al SDK: traduce OpenAIError a AIProviderError (logueado)."""
+    """
+    Envuelve una llamada al SDK: traduce OpenAIError a AIProviderError (logueado).
+
+    De paso registra el estado de la credencial. Es el único punto por donde pasan
+    todas las llamadas al proveedor, así que es el lugar natural: `/health` puede
+    decir si la key sirve sin gastar una sola llamada extra, porque lo aprende de
+    las que ya se hacen.
+    """
     try:
         yield
-    except OpenAIError as exc:
+    except AuthenticationError as exc:
+        record_auth_failure(operation, type(exc).__name__)
         logger.error("OpenAI %s falló: %s: %s", operation, type(exc).__name__, exc)
         raise AIProviderError(
             f"OpenAI {operation} falló: {type(exc).__name__}: {exc}"
         ) from exc
+    except OpenAIError as exc:
+        # Un 500 o un rate-limit no dicen nada sobre la credencial: no se toca el
+        # estado, o un pico de carga se leería como una key rota.
+        logger.error("OpenAI %s falló: %s: %s", operation, type(exc).__name__, exc)
+        raise AIProviderError(
+            f"OpenAI {operation} falló: {type(exc).__name__}: {exc}"
+        ) from exc
+    else:
+        record_success(operation)
 
 
 class OpenAIProvider:

@@ -187,6 +187,56 @@ describe('TytoPage — chat streaming', () => {
     expect(screen.queryByRole('button', { name: 'Reintentar' })).not.toBeInTheDocument()
   })
 
+  it('avisa cuando la búsqueda corrió degradada, y no lo hace cuando no', async () => {
+    // El incidente que esto fija: con los embeddings caídos, Tyto rechazaba con
+    // "No tengo documentación aprobada suficiente" y se leía como el sistema
+    // funcionando bien. Sin búsqueda semántica, "no encontré" deja de significar
+    // "no está", y quien lee tiene que poder distinguirlo.
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        sseEvent('result', {
+          answered: false,
+          answer: '',
+          segments: [],
+          sources: [],
+          refusal_reason: 'No pude buscar con normalidad: la búsqueda semántica no está disponible.',
+          search_degraded: true,
+        }),
+      ])
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await askQuestion('¿Cómo registro una incidencia?')
+
+    const aviso = await screen.findByRole('status')
+    expect(aviso).toHaveTextContent(/búsqueda semántica no está disponible/i)
+    expect(aviso).toHaveTextContent(/puede estar incompleto/i)
+    // Sigue siendo un rechazo, no un error: no hay alerta ni reintento.
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('un rechazo con la búsqueda sana no muestra el aviso de degradación', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        sseEvent('result', {
+          answered: false,
+          answer: '',
+          segments: [],
+          sources: [],
+          refusal_reason: 'No tengo documentación aprobada suficiente para responder esta pregunta.',
+        }),
+      ])
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await askQuestion('¿Cuándo juega Peñarol?')
+
+    expect(
+      await screen.findByText(/No tengo documentación aprobada suficiente/i)
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+  })
+
   it('un evento `error` se muestra como error real, distinto del rechazo', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       sseResponse([

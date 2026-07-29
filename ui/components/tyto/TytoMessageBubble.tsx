@@ -66,6 +66,26 @@ export const TytoAssistantBubble = memo(function TytoAssistantBubble({
             </div>
           )}
 
+          {/*
+            Búsqueda degradada: se avisa arriba de todo y en ámbar, no en rojo.
+            No es un error —hubo un resultado— pero sí acota cuánto vale: sin
+            embeddings, que Tyto no encuentre algo no prueba que no esté. Sin
+            este aviso, un rechazo por infraestructura caída se lee igual que uno
+            confiable, que es exactamente lo que pasó cuando venció la key.
+          */}
+          {message.searchDegraded && (
+            <div
+              role="status"
+              className="mb-3 flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2"
+            >
+              <AlertCircle size={14} className="mt-0.5 flex-shrink-0 text-amber-700" aria-hidden="true" />
+              <p className="text-[12px] leading-relaxed text-amber-900">
+                La búsqueda semántica no está disponible en este momento, así que Tyto solo
+                buscó por coincidencia de palabras. Este resultado puede estar incompleto.
+              </p>
+            </div>
+          )}
+
           {message.status === 'refused' ? (
             <div className="flex items-start gap-2.5">
               <Info size={16} className="mt-0.5 flex-shrink-0 text-ink-400" aria-hidden="true" />

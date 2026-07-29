@@ -55,6 +55,17 @@ REFUSAL_NO_CONTEXT = (
 REFUSAL_LLM_NO_ANSWER = (
     "Las fuentes aprobadas disponibles no respaldan una respuesta a esta pregunta."
 )
+#: Rechazo con la búsqueda semántica caída. Deliberadamente NO afirma que no haya
+#: documentación: con embeddings caídos solo se buscó por coincidencia de
+#: palabras, así que no encontrar algo no prueba que no esté. Decir "no tengo
+#: documentación aprobada" en ese estado es afirmar un hecho sobre la biblioteca
+#: del cliente a partir de una falla de infraestructura propia.
+REFUSAL_SEARCH_DEGRADED = (
+    "No pude buscar con normalidad: la búsqueda semántica no está disponible en "
+    "este momento y solo pude buscar por coincidencia de palabras. Con esa "
+    "búsqueda limitada no encontré documentación aprobada que responda, pero "
+    "puede existir. Volvé a intentar en unos minutos."
+)
 
 # Los delimitadores marcan el contenido como DATOS (input no confiable, jamás
 # instrucciones). Los tests anti-inyección verifican que el contenido recuperado
@@ -145,6 +156,10 @@ class TytoAnswer:
     segments: list[TytoSegment] = field(default_factory=list)
     sources: list[TytoSource] = field(default_factory=list)
     refusal_reason: str | None = None
+    #: La búsqueda corrió degradada (sin embeddings). Acompaña tanto a los
+    #: rechazos como a las respuestas: si contestó, lo hizo sobre un contexto
+    #: recuperado peor, y quien lee tiene derecho a saberlo.
+    search_degraded: bool = False
 
 
 class TytoAnswerError(RuntimeError):
@@ -217,7 +232,13 @@ class TytoAnswerService:
 
         # Camino de rechazo: sin contexto relevante NO se llama al LLM.
         if not relevant:
-            result = TytoAnswer(answered=False, refusal_reason=REFUSAL_NO_CONTEXT)
+            result = TytoAnswer(
+                answered=False,
+                refusal_reason=(
+                    REFUSAL_SEARCH_DEGRADED if context.search_degraded else REFUSAL_NO_CONTEXT
+                ),
+                search_degraded=context.search_degraded,
+            )
             self._log_query(session, workspace_id, user_id, question, result)
             return result
 
@@ -226,6 +247,9 @@ class TytoAnswerService:
         raw = self._get_llm().complete_json(system=system, user=user, temperature=0.0)
         result = self._parse_and_guard(raw, sources)
 
+        # Si la búsqueda corrió degradada, la respuesta lo lleva puesto aunque
+        # haya contestado: se contestó sobre un contexto recuperado peor.
+        result.search_degraded = context.search_degraded
         self._log_query(session, workspace_id, user_id, question, result)
         return result
 
@@ -263,7 +287,13 @@ class TytoAnswerService:
         relevant = [c for c in context.citations if c.score >= threshold]
 
         if not relevant:
-            result = TytoAnswer(answered=False, refusal_reason=REFUSAL_NO_CONTEXT)
+            result = TytoAnswer(
+                answered=False,
+                refusal_reason=(
+                    REFUSAL_SEARCH_DEGRADED if context.search_degraded else REFUSAL_NO_CONTEXT
+                ),
+                search_degraded=context.search_degraded,
+            )
             self._log_query(session, workspace_id, user_id, question, result)
             yield {"type": "result", "answer": result}
             return
@@ -324,6 +354,9 @@ class TytoAnswerService:
                 sources=sources,
             )
 
+        # Si la búsqueda corrió degradada, la respuesta lo lleva puesto aunque
+        # haya contestado: se contestó sobre un contexto recuperado peor.
+        result.search_degraded = context.search_degraded
         self._log_query(session, workspace_id, user_id, question, result)
         yield {"type": "result", "answer": result}
 

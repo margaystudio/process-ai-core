@@ -155,8 +155,20 @@ async def root():
 
 
 @app.get("/health")
-async def health():
-    """Health check detallado."""
+async def health(probe: bool = False):
+    """
+    Health check detallado.
+
+    `?probe=1` verifica la credencial del proveedor de IA contra el proveedor, en
+    el momento. Sin el parámetro se reporta lo que se sabe por el tráfico real,
+    que no cuesta nada.
+
+    La sonda es opt-in y no automática por una razón concreta: si el health
+    llamara a un tercero en cada visita, la salud del servicio pasaría a depender
+    de que ese tercero conteste. Acá el probe de Cloud Run es TCP contra el
+    puerto, así que hoy no habría riesgo de reinicios, pero atar el health a una
+    API externa es la clase de acoplamiento que se paga meses después.
+    """
     from process_ai_core.db.database import DATABASE_URL
 
     db_backend = "sqlite" if DATABASE_URL.startswith("sqlite") else "postgresql"
@@ -190,6 +202,11 @@ async def health():
     try:
         from process_ai_core.db.database import get_db_session
         from process_ai_core.semantic.preflight import check_semantic_infra
+
+        if probe:
+            from process_ai_core.ai.credentials import probe_credential
+
+            probe_credential()
 
         with get_db_session() as _session:
             semantic = check_semantic_infra(_session)

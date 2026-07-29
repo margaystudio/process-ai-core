@@ -74,6 +74,10 @@ class TytoQueryResponse(BaseModel):
     segments: list[TytoSegmentResponse] = []
     sources: list[TytoSourceResponse] = []
     refusal_reason: Optional[str] = None
+    #: La búsqueda semántica no estaba disponible y se rankeó por coincidencia de
+    #: palabras. La UI lo muestra: un rechazo en ese estado no significa que no
+    #: haya documentación, significa que se buscó peor.
+    search_degraded: bool = False
 
 
 def _build_service() -> TytoAnswerService:
@@ -114,6 +118,7 @@ def _to_response(result) -> TytoQueryResponse:
             for s in result.sources
         ],
         refusal_reason=result.refusal_reason,
+        search_degraded=getattr(result, "search_degraded", False),
     )
 
 

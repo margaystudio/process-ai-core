@@ -128,12 +128,21 @@ export default function TytoPage() {
       if (event.type === 'result') {
         // El result trae el texto completo: descartar lo pendiente del buffer.
         clearPendingTokens()
+        const searchDegraded = Boolean(event.data.search_degraded)
         if (event.data.answered) {
-          patchAssistant({ status: 'answered', text: event.data.answer, result: event.data })
+          patchAssistant({
+            status: 'answered',
+            text: event.data.answer,
+            result: event.data,
+            searchDegraded,
+          })
         } else {
           patchAssistant({
             status: 'refused',
+            // El backend ya redacta el rechazo degradado sin afirmar que no haya
+            // documentación; el fallback de acá solo cubre un result sin motivo.
             text: event.data.refusal_reason || 'No encontré documentación aprobada suficiente para responder con confianza.',
+            searchDegraded,
           })
         }
         return
