@@ -69,6 +69,9 @@ def test_document_context_no_expone_datos_mutables():
         "reviewed_by", "approved_by", "approved_at", "supersedes_version_number",
         "supersedes_approved_at", "validity_until", "version_id", "client_name",
         "is_approved", "verification_url",
+        # Paso 4: rol de cada firmante, historial de versiones e índice.
+        "elaborated_by_role", "reviewed_by_role", "approved_by_role",
+        "version_history", "show_toc",
     }
     assert campos == esperados
 
@@ -191,7 +194,14 @@ def test_build_document_context_resuelve_firmas_tipo_y_reemplazo(session):
 
 
 def test_build_document_context_resuelve_los_nombres_en_una_sola_query(session):
-    """Tres personas distintas ⇒ una query a users, no una por rol."""
+    """
+    Tres personas distintas ⇒ una query a users, no una por persona.
+
+    Desde el Paso 4 la misma query trae el rol operativo, y los aprobadores del
+    historial de versiones se resuelven en ese mismo lote: sin eso, un documento
+    con diez versiones haría diez consultas extra dentro de la transacción de
+    aprobación.
+    """
     doc, v2, ws, user_ids, _, val_id = _crear_documento_con_version(session)
     queries = []
 

@@ -9,6 +9,7 @@ from .branding import PdfBranding
 from .color import resolve_palette
 from .document_context import DocumentContext
 from .qr import qr_data_uri
+from .toc import add_heading_anchors, toc_html
 
 # Familia tipográfica del PDF.
 #
@@ -269,6 +270,73 @@ blockquote {
     margin: 0.85em 0;
     padding: 0.15em 0 0.15em 0.9em;
     color: var(--pdf-ink-soft);
+}
+
+
+/* ── Índice de contenidos ──────────────────────────────────────────────────
+   El número de página lo resuelve el motor con target-counter(): depende de la
+   paginación final, así que no se puede calcular antes de renderizar. */
+.pdf-toc {
+    margin: 0 0 2em;
+    page-break-after: avoid;
+}
+
+.pdf-toc-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    counter-reset: pdf-toc;
+}
+
+.pdf-toc-item {
+    counter-increment: pdf-toc;
+    margin: 0;
+    border-bottom: 0.5pt solid var(--pdf-border-color);
+}
+
+.pdf-toc-link {
+    display: flex;
+    align-items: baseline;
+    gap: 0.6rem;
+    padding: 0.42em 0;
+    text-decoration: none;
+    color: var(--pdf-ink);
+    font-size: 10pt;
+}
+
+.pdf-toc-link::before {
+    content: counter(pdf-toc);
+    flex: none;
+    min-width: 1.2rem;
+    font-weight: 700;
+    color: var(--pdf-ink-faint);
+}
+
+.pdf-toc-text { flex: 1; }
+
+.pdf-toc-link::after {
+    content: target-counter(attr(href), page);
+    flex: none;
+    color: var(--pdf-ink-faint);
+    font-variant-numeric: tabular-nums;
+}
+
+/* ── Historial de versiones ────────────────────────────────────────────────
+   SIN columna de estado: el estado es mutable y este PDF no se puede reescribir.
+   Las versiones figuran por haber sido aprobadas y superadas, que es permanente. */
+.pdf-version-history {
+    margin: 0 0 2em;
+}
+
+.pdf-version-history td:first-child {
+    font-weight: 700;
+    text-align: center;
+    width: 3.2rem;
+}
+
+.pdf-version-history .pdf-vh-sin-datos {
+    color: var(--pdf-ink-faint);
+    font-style: italic;
 }
 
 /* ── Portada ───────────────────────────────────────────────────────────────
@@ -853,14 +921,82 @@ def _logo_img_html(branding: PdfBranding | None, css_class: str = "") -> str:
     return f'<img src="{_esc(ruta)}"{clase} alt="Logo del cliente">'
 
 
+_MESES = (
+    "enero", "febrero", "marzo", "abril", "mayo", "junio",
+    "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
+)
+
+
 def _fecha(valor) -> str | None:
-    """Fecha en formato legible y sin ambigüedad regional (dd/mm/aaaa)."""
+    """Fecha corta (dd/mm/aaaa). Para el cuerpo y el pie."""
     if valor is None:
         return None
     try:
         return valor.strftime("%d/%m/%Y")
     except AttributeError:
         return str(valor)
+
+
+def _fecha_larga(valor) -> str | None:
+    """
+    Fecha en letras: "15 de enero de 2028". Solo para el ACTA.
+
+    dd/mm/aaaa es ambiguo para quien lee mm/dd, y este documento puede terminar
+    ante un auditor externo o una contraparte de otro país. En el cuerpo y en el
+    pie la fecha corta está bien; en el acta, donde el dato es probatorio, no se
+    deja lugar a la interpretación.
+
+    Se arma a mano y no con locale: `strftime("%B")` depende del locale del
+    proceso, que en un contenedor suele ser C y devolvería "January".
+    """
+    if valor is None:
+        return None
+    try:
+        return f"{valor.day} de {_MESES[valor.month - 1]} de {valor.year}"
+    except (AttributeError, IndexError):
+        return str(valor)
+
+
+def _meses_entre(desde, hasta) -> int | None:
+    """
+    Meses enteros entre dos fechas, o None si no son un número redondo.
+
+    Sirve para reconstruir la política que se aplicó al aprobar ("24 meses")
+    sin guardar un campo más: si la vigencia cae exactamente a N meses de la
+    aprobación, hubo una política; si cae en cualquier otro día, la fecha se
+    eligió a mano y decir "23 meses" sería inventar una regla que no existió.
+    """
+    if desde is None or hasta is None:
+        return None
+    try:
+        d = desde.date() if hasattr(desde, "date") else desde
+        h = hasta.date() if hasattr(hasta, "date") else hasta
+    except AttributeError:
+        return None
+
+    meses = (h.year - d.year) * 12 + (h.month - d.month)
+    if meses <= 0:
+        return None
+    # Se verifica sumando: el día tiene que coincidir (o ser el último del mes,
+    # como cuando se suma un mes al 31 de enero).
+    import calendar
+
+    ultimo = calendar.monthrange(h.year, h.month)[1]
+    if h.day == d.day or (h.day == ultimo and d.day > ultimo):
+        return meses
+    return None
+
+
+def _firma(nombre: str | None, rol: str | None) -> str | None:
+    """
+    "Diego Sosa — Encargado de turno".
+
+    El rol importa para gobernanza: el acta registra bajo qué autoridad se
+    aprobó, no solo quién lo hizo. Sin rol va solo el nombre, sin guion suelto.
+    """
+    if not nombre:
+        return None
+    return f"{nombre} — {rol}" if rol else nombre
 
 
 def _record_item(label: str, value: str | None) -> str:
@@ -887,19 +1023,31 @@ def _cover_record_html(context: DocumentContext) -> str:
     titulo = "Acta de aprobación" if aprobado else "Responsables"
 
     items = [
-        _record_item("Elaborado por", context.elaborated_by),
-        _record_item("Revisado por", context.reviewed_by),
+        _record_item("Elaborado por", _firma(context.elaborated_by, context.elaborated_by_role)),
+        _record_item("Revisado por", _firma(context.reviewed_by, context.reviewed_by_role)),
     ]
     if aprobado:
-        items.append(_record_item("Aprobado por", context.approved_by))
-        items.append(_record_item("Fecha de aprobación", _fecha(context.approved_at)))
+        items.append(
+            _record_item("Aprobado por", _firma(context.approved_by, context.approved_by_role))
+        )
+        items.append(_record_item("Fecha de aprobación", _fecha_larga(context.approved_at)))
         if context.supersedes_version_number is not None:
             reemplaza = f"Versión {context.supersedes_version_number}"
-            fecha_previa = _fecha(context.supersedes_approved_at)
+            fecha_previa = _fecha_larga(context.supersedes_approved_at)
             if fecha_previa:
-                reemplaza += f" (aprobada el {fecha_previa})"
+                reemplaza += f" — aprobada el {fecha_previa}"
             items.append(_record_item("Reemplaza a", reemplaza))
-        items.append(_record_item("Vigencia de la aprobación", _fecha(context.validity_until)))
+
+        # "24 meses — hasta el 15 de enero de 2028". La duración comunica que se
+        # aplicó una política y no que alguien puso una fecha a dedo.
+        vigencia = _fecha_larga(context.validity_until)
+        if vigencia:
+            meses = _meses_entre(context.approved_at, context.validity_until)
+            if meses:
+                vigencia = f"{meses} meses — hasta el {vigencia}"
+            else:
+                vigencia = f"hasta el {vigencia}"
+        items.append(_record_item("Vigencia de la aprobación", vigencia))
 
     cuerpo = "".join(i for i in items if i)
     if not cuerpo:
@@ -1039,6 +1187,45 @@ def _running_header_html(branding: PdfBranding | None, context: DocumentContext 
     )
 
 
+def _version_history_html(context: DocumentContext | None) -> str:
+    """
+    Tabla del historial de versiones aprobadas.
+
+    Solo en documentos aprobados: en un borrador el historial todavía no incluye
+    a esta versión, y mostrar el de las anteriores induce a leerlo como si el
+    borrador ya fuera parte de la cadena.
+    """
+    if context is None or not context.is_approved or not context.version_history:
+        return ""
+
+    filas = []
+    for entrada in context.version_history:
+        resumen = (
+            _esc(entrada.change_summary)
+            if entrada.change_summary
+            else '<span class="pdf-vh-sin-datos">Sin detalle registrado</span>'
+        )
+        filas.append(
+            "<tr>"
+            f"<td>{_esc(entrada.version_number)}</td>"
+            f"<td>{_esc(_fecha(entrada.approved_at) or '')}</td>"
+            f"<td>{_esc(entrada.approved_by or '')}</td>"
+            f"<td>{resumen}</td>"
+            "</tr>"
+        )
+
+    return (
+        '<section class="pdf-version-history">'
+        "<h2>Historial de versiones</h2>"
+        "<table><thead><tr>"
+        "<th>Versión</th><th>Aprobada el</th><th>Aprobada por</th>"
+        "<th>Cambios principales</th>"
+        "</tr></thead>"
+        f"<tbody>{''.join(filas)}</tbody></table>"
+        "</section>"
+    )
+
+
 def _wrap_html(
     html_content: str,
     branding: PdfBranding | None = None,
@@ -1059,6 +1246,15 @@ def _wrap_html(
     if _marks_as_invalid(document_context):
         watermark_html = _invalidation_watermark_html()
         notice_html = _invalidation_notice_html()
+
+    # Índice: se derivan de los h2 del contenido y se les inyecta el ancla. Va
+    # antes del historial, que a su vez va antes del cuerpo.
+    toc = ""
+    if document_context is not None and document_context.show_toc:
+        html_content, entradas = add_heading_anchors(html_content)
+        toc = toc_html(entradas)
+
+    historial = _version_history_html(document_context)
 
     cover_html = _cover_html(branding, document_context, notice_html)
     # Sin portada (sin contexto) el aviso vuelve al cuerpo, para que un PDF
@@ -1082,6 +1278,8 @@ def _wrap_html(
 {_running_header_html(branding, document_context)}
 <main class="pdf-content">
 {inline_notice}
+{toc}
+{historial}
 {html_content}
 </main>
 </body>

@@ -89,6 +89,14 @@ class DocumentProfile:
     # Formato de pasos
     steps_format: Literal["lista", "tabla"] = "lista"
 
+    # ¿Lleva índice de contenidos en el PDF?
+    #
+    # Depende del público, no del documento: un pistero con un procedimiento de
+    # dos páginas en la mano no navega un índice, lo lee. Un documento de gestión
+    # que se consulta por partes —o que va a un auditor— sí. Se deriva de los h2
+    # del contenido; ver process_ai_core/export/toc.py.
+    show_toc: bool = False
+
 
 # ============================================================
 # Perfiles predefinidos (V1)
@@ -144,6 +152,7 @@ GESTION_V1 = DocumentProfile(
         "preguntas_abiertas": "Preguntas abiertas / pendientes",
     },
     steps_format="tabla",
+    show_toc=True,
 )
 
 

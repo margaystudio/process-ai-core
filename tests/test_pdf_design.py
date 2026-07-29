@@ -304,8 +304,10 @@ def test_la_portada_lleva_lo_que_queda_congelado_al_aprobar():
             "Versión 3",                  # número de versión
             "Estación ACME",              # cliente
             "Ana Autora", "Beto Revisor", "Carla Jefa",   # firmas
-            "15/01/2026",                 # fecha de aprobación
-            "15/01/2027",                 # vigencia
+            # Fecha larga en el acta: dd/mm es ambiguo para quien lee mm/dd y
+            # este documento puede terminar ante un auditor externo.
+            "15 de enero de 2026",        # fecha de aprobación
+            "15 de enero de 2027",        # vigencia
             "7f3a9c21",                   # version_id en el bloque de verificación
         ):
             assert esperado in portada, f"falta en la portada: {esperado}"

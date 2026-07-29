@@ -25,8 +25,27 @@ resto queda en None. Un campo ausente se omite del PDF, no se inventa.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
+
+
+@dataclass(frozen=True)
+class VersionHistoryEntry:
+    """
+    Una fila del historial de versiones impreso en el documento.
+
+    SIN estado a propósito. El estado es mutable y el PDF congelado no se puede
+    reescribir: si dijera "vigente", mentiría en cuanto se apruebe la versión
+    siguiente. Las versiones anteriores figuran por el hecho de haber sido
+    aprobadas y superadas, que es permanente.
+    """
+
+    version_number: int
+    approved_at: datetime | None = None
+    approved_by: str | None = None
+    #: Qué cambió, según lo escribió el autor al enviar la versión a revisión
+    #: (`Validation.submit_comment`). Puede faltar: la fila se imprime igual.
+    change_summary: str | None = None
 
 
 @dataclass(frozen=True)
@@ -74,6 +93,21 @@ class DocumentContext:
 
     #: Hasta cuándo se comprometió la vigencia, fijada al aprobar.
     validity_until: date | None = None
+
+    #: Rol operativo de cada firmante en el momento de aprobar. Para gobernanza
+    #: importa la autoridad bajo la que se aprobó, no solo la identidad: "aprobado
+    #: por Juan Pérez" es más débil que "Juan Pérez, Gerente de Planta". Si el
+    #: workspace no configuró roles operativos quedan en None y se omiten.
+    elaborated_by_role: str | None = None
+    reviewed_by_role: str | None = None
+    approved_by_role: str | None = None
+
+    #: Historial de versiones aprobadas, de la más nueva a la más vieja,
+    #: reconstruido desde la cadena `supersedes_version_id`.
+    version_history: tuple[VersionHistoryEntry, ...] = ()
+
+    #: Índice de contenidos (lo decide el perfil de render; ver profiles.py).
+    show_toc: bool = False
 
     #: URL de verificación en línea de ESTA versión (lleva el version_id). Va en
     #: el QR de la portada. Es inmutable como el version_id del que deriva: una

@@ -16,31 +16,143 @@ from process_ai_core.db.models import (
     Document,
     DocumentType,
     DocumentVersion,
+    OperationalRole,
     User,
+    UserOperationalRole,
     Validation,
     Workspace,
+    WorkspaceMembership,
 )
 from process_ai_core.config import resolve_verification_base_url
-from process_ai_core.export.document_context import DocumentContext
+from process_ai_core.export.document_context import DocumentContext, VersionHistoryEntry
 
 logger = logging.getLogger(__name__)
 
 
-def _resolve_user_names(session: Session, user_ids: list[str | None]) -> dict[str, str]:
+def _resolve_signatories(
+    session: Session, workspace_id: str | None, user_ids: list[str | None]
+) -> dict[str, tuple[str, str | None]]:
     """
-    Resuelve varios user_id a nombre en UNA query.
+    Resuelve varios user_id a (nombre, rol operativo) en UNA query.
 
     El PDF necesita hasta tres personas distintas (elaboró / revisó / aprobó);
-    una query por rol serían tres round-trips por render, y el freeze corre
+    una query por persona serían tres round-trips por render, y el freeze corre
     dentro de la transacción de aprobación.
+
+    El rol es el **operativo** ("Encargado de turno", "Gerente de Estación"), no
+    el rol de sistema (owner/admin/approver). Un acta que dijera "aprobado por
+    Juan Pérez, approver" no aporta autoridad: describe un permiso, no una
+    posición en la organización. Si el workspace no configuró roles operativos,
+    el rol queda en None y el acta lo omite.
+
+    Si alguien tiene más de un rol operativo se toma el primero por nombre, para
+    que el resultado sea determinista y el PDF reproducible.
     """
     ids = {uid for uid in user_ids if uid}
     if not ids:
         return {}
-    rows = session.query(User.id, User.name, User.email).filter(User.id.in_(ids)).all()
-    # Fallback al email: un usuario recién sincronizado puede no tener nombre, y
-    # una firma vacía en el PDF es peor que una firma con el mail.
-    return {uid: (name or email or "") for uid, name, email in rows}
+
+    filas = (
+        session.query(User.id, User.name, User.email, OperationalRole.name)
+        .outerjoin(
+            WorkspaceMembership,
+            (WorkspaceMembership.user_id == User.id)
+            & (WorkspaceMembership.workspace_id == workspace_id),
+        )
+        .outerjoin(
+            UserOperationalRole,
+            UserOperationalRole.workspace_membership_id == WorkspaceMembership.id,
+        )
+        .outerjoin(
+            OperationalRole,
+            (OperationalRole.id == UserOperationalRole.operational_role_id)
+            & (OperationalRole.is_active.is_(True)),
+        )
+        .filter(User.id.in_(ids))
+        .order_by(User.id, OperationalRole.name)
+        .all()
+    )
+
+    resultado: dict[str, tuple[str, str | None]] = {}
+    for uid, nombre, email, rol in filas:
+        if uid in resultado and resultado[uid][1]:
+            continue  # ya tiene rol: el order_by garantiza cuál
+        # Fallback al email: un usuario recién sincronizado puede no tener
+        # nombre, y una firma vacía en el PDF es peor que una firma con el mail.
+        resultado[uid] = ((nombre or email or ""), rol or None)
+    return resultado
+
+
+def _collect_version_chain(session: Session, version: DocumentVersion) -> list[DocumentVersion]:
+    """
+    Versiones aprobadas de la cadena `supersedes_version_id`, de la más nueva a
+    la más vieja.
+
+    Se traen TODAS las versiones del documento en una query y la cadena se
+    recorre en memoria. Ir saltando de una a otra con una query por eslabón sería
+    un N+1 dentro de la transacción de aprobación, que es justo donde no conviene.
+
+    Se sigue la cadena y no se listan todas las versiones: el historial dice qué
+    aprobaciones llevaron hasta esta, no cuántos borradores hubo en el camino. Un
+    borrador descartado o una versión rechazada no son hitos del documento.
+    """
+    todas = (
+        session.query(DocumentVersion)
+        .filter_by(document_id=version.document_id)
+        .all()
+    )
+    por_id = {v.id: v for v in todas}
+
+    cadena: list[DocumentVersion] = []
+    actual: DocumentVersion | None = version
+    vistos: set[str] = set()
+    while actual is not None and actual.id not in vistos:
+        vistos.add(actual.id)
+        if actual.approved_at is not None:
+            cadena.append(actual)
+        siguiente = actual.supersedes_version_id
+        actual = por_id.get(siguiente) if siguiente else None
+    return cadena
+
+
+def _build_version_history(
+    session: Session,
+    cadena: list[DocumentVersion],
+    nombres: dict[str, tuple[str, str | None]],
+) -> tuple[VersionHistoryEntry, ...]:
+    """
+    Filas del historial a partir de la cadena ya resuelta.
+
+    `change_summary` sale del comentario que el autor escribió al enviar a
+    revisión (`Validation.submit_comment`): es quien sabe qué cambió, y el
+    aprobador lo tuvo a la vista antes de aprobar. Los nombres vienen resueltos
+    de afuera para no repetir la consulta de usuarios.
+    """
+    if not cadena:
+        return ()
+
+    # Un solo lote para todos los comentarios de la cadena.
+    validation_ids = [v.validation_id for v in cadena if v.validation_id]
+    resumenes: dict[str, str] = {}
+    if validation_ids:
+        for vid, comentario in (
+            session.query(Validation.id, Validation.submit_comment)
+            .filter(Validation.id.in_(validation_ids))
+            .all()
+        ):
+            texto = (comentario or "").strip()
+            if texto:
+                resumenes[vid] = texto
+
+    return tuple(
+        VersionHistoryEntry(
+            version_number=v.version_number,
+            approved_at=v.approved_at,
+            approved_by=nombres.get(v.approved_by or "", ("", None))[0] or None,
+            change_summary=resumenes.get(v.validation_id or ""),
+        )
+        for v in cadena
+    )
 
 
 def _document_type_label(session: Session, document: Document) -> str | None:
@@ -145,9 +257,21 @@ def build_document_context(
             )
             reviewer_id = row[0] if row else None
 
-        nombres = _resolve_user_names(
-            session, [version.created_by, reviewer_id, version.approved_by]
+        # La cadena primero, para resolver de UNA los nombres de los firmantes
+        # del acta y de todos los aprobadores del historial.
+        cadena = _collect_version_chain(session, version)
+        firmantes = _resolve_signatories(
+            session,
+            document.workspace_id,
+            [version.created_by, reviewer_id, version.approved_by]
+            + [v.approved_by for v in cadena],
         )
+
+        def _nombre(uid):
+            return firmantes.get(uid or "", ("", None))[0] or None
+
+        def _rol(uid):
+            return firmantes.get(uid or "", ("", None))[1]
 
         return DocumentContext(
             code=document.code,
@@ -157,9 +281,13 @@ def build_document_context(
             version_number=version.version_number,
             version_id=version.id,
             is_approved=version.version_status == "APPROVED",
-            elaborated_by=nombres.get(version.created_by or ""),
-            reviewed_by=nombres.get(reviewer_id or ""),
-            approved_by=nombres.get(version.approved_by or ""),
+            elaborated_by=_nombre(version.created_by),
+            reviewed_by=_nombre(reviewer_id),
+            approved_by=_nombre(version.approved_by),
+            elaborated_by_role=_rol(version.created_by),
+            reviewed_by_role=_rol(reviewer_id),
+            approved_by_role=_rol(version.approved_by),
+            version_history=_build_version_history(session, cadena, firmantes),
             approved_at=version.approved_at,
             supersedes_version_number=supersedes_number,
             supersedes_approved_at=supersedes_approved_at,

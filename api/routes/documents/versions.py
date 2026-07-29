@@ -35,6 +35,7 @@ from process_ai_core.db.helpers import (
 )
 from process_ai_core.config import get_settings
 from process_ai_core.export import export_pdf_from_content, get_export_content
+from process_ai_core.export.superseded_stamp import stamp_superseded
 from process_ai_core.storage import get_storage
 
 from api.routes._branding import get_workspace_pdf_branding
@@ -138,6 +139,7 @@ def get_version_frozen_pdf(
     document_id: str,
     version_id: str,
     request: Request,
+    original: bool = False,
     ctx: WorkspaceSessionContext = Depends(get_workspace_context),
 ):
     """
@@ -262,6 +264,27 @@ def get_version_frozen_pdf(
         is_source_file = bool(version.source_file_key) and version.source_file_key == storage_key
         source_file_name = version.source_file_name if is_source_file else None
 
+        # ── ¿Corresponde el sello de versión superada? ───────────────────────
+        # ISO 9001 pide que lo obsoleto esté identificado, pero el PDF congelado
+        # no se puede reescribir sin romper su hash. Se resuelve al servir.
+        vigente_version = None
+        sellar = False
+        if version.version_status in ("APPROVED", "OBSOLETE") and not version.is_current:
+            vigente = (
+                session.query(DocumentVersion.version_number)
+                .filter_by(document_id=document_id, is_current=True, version_status="APPROVED")
+                .first()
+            )
+            vigente_version = vigente[0] if vigente else None
+            # Sin versión vigente no se sella: que esta no sea `is_current` sin
+            # que ninguna otra lo sea significa que el documento no tiene versión
+            # en uso, no que ésta haya sido superada por otra.
+            sellar = vigente_version is not None
+
+    # `original=1` devuelve el blob intacto: es el que verifica contra el
+    # SHA-256 registrado, y es lo que necesita un auditor que quiera comprobarlo.
+    sellar = sellar and not original
+
     filename = source_file_name or f"documento-v{version_number}.pdf"
     # Comillas rotas en Content-Disposition ⇒ header inválido.
     filename = PurePosixPath(filename.replace("\\", "/")).name.replace('"', "") or "documento.pdf"
@@ -279,7 +302,24 @@ def get_version_frozen_pdf(
         # que termina en 304 sin cuerpo — ni render, ni transferencia del PDF.
         "Cache-Control": "private, no-cache",
     }
-    etag = f'"{sha256}"' if sha256 else None
+    if sha256:
+        # El hash del artefacto REGISTRADO viaja siempre, sellado o no: es lo que
+        # publica la página de verificación y lo que un auditor contrasta. Sin
+        # esto, quien descargue una copia sellada calcularía un hash distinto y
+        # concluiría —mal— que el documento fue alterado.
+        headers["X-Document-SHA256"] = sha256
+
+    # El ETag NO puede ser el sha256 pelado cuando hay sello: los bytes servidos
+    # no son los del blob. Se le agrega el sufijo con la versión vigente, que
+    # además hace que el ETag cambie solo cuando se aprueba una versión nueva —
+    # justo el momento en que el sello pasa a decir otra cosa.
+    if sha256 and sellar:
+        etag = f'"{sha256}+sup{vigente_version}"'
+    elif sha256:
+        etag = f'"{sha256}"'
+    else:
+        etag = None
+
     if etag:
         headers["ETag"] = etag
         if request.headers.get("if-none-match") == etag:
@@ -298,6 +338,10 @@ def get_version_frozen_pdf(
                 "encontró en el almacenamiento."
             ),
         ) from exc
+
+    if sellar:
+        pdf_bytes = stamp_superseded(pdf_bytes, vigente_version=vigente_version)
+        headers["X-Document-Stamped"] = "superseded"
 
     return Response(content=pdf_bytes, media_type="application/pdf", headers=headers)
 
