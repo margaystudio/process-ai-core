@@ -14,7 +14,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
-from .routes import artifacts, catalog, document_types, documents, evidence, folders, process_runs, semantic, tyto, users, validations, workspaces, subscriptions, operational_roles
+from .routes import artifacts, catalog, document_types, documents, evidence, folders, process_runs, semantic, tyto, users, validations, verification, workspaces, subscriptions, operational_roles
+from process_ai_core.config import (
+    PDF_SOURCE_DATE_EPOCH,
+    apply_reproducible_render_env,
+    resolve_verification_base_url,
+)
 from process_ai_core.db.database import warmup_db_pool
 # recipe_runs: dominio "recetas" (experimento B2C, sin auth/workspace) deshabilitado para el MVP. Ver línea de include_router más abajo.
 
@@ -87,10 +92,21 @@ app.include_router(operational_roles.router)
 app.include_router(semantic.router)
 # Tyto: capa de respuesta (Fase A — respuesta citada con niveles de confianza).
 app.include_router(tyto.router)
+# Verificación pública de vigencia (el otro extremo del QR de la portada del PDF).
+# Sin dependencias de auth a nivel de router: la sesión es opcional, ver el módulo.
+app.include_router(verification.router)
 
 
 @app.on_event("startup")
 def _startup_warmup() -> None:
+    # Una sola vez por proceso, con valor constante: hace que el mismo contenido
+    # rinda siempre los mismos bytes, que es lo que le da sentido al SHA-256
+    # persistido del PDF congelado. Ver process_ai_core/config.py.
+    apply_reproducible_render_env()
+    logger.info("Render de PDF reproducible: SOURCE_DATE_EPOCH=%s", PDF_SOURCE_DATE_EPOCH)
+    # Falla el arranque en prod si no está configurada: esta URL se imprime en el
+    # QR de cada PDF aprobado y el artefacto no se puede reescribir después.
+    logger.info("URL de verificación de vigencia: %s/verificar/...", resolve_verification_base_url())
     try:
         warmup_db_pool()
         logger.info("DB pool warmed up")
