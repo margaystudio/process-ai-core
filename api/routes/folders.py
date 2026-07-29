@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from process_ai_core.db.helpers import (
     create_audit_log,
+    create_audit_log_best_effort,
     create_folder,
     delete_folder,
     get_folder_by_id,
@@ -79,6 +80,27 @@ def _assert_folder_in_active_workspace(folder_workspace_id: str, active_workspac
 
 def _provided_fields(model) -> set[str]:
     return set(getattr(model, "model_fields_set", getattr(model, "__fields_set__", set())))
+
+
+def _nombre_visible(actor: User) -> str:
+    """
+    Cómo se identifica al autor de una acción en la actividad de una carpeta.
+
+    Nunca el email. El email es además el usuario de login, así que un endpoint
+    que lista los mails de todos los que tocaron una carpeta entrega el padrón de
+    cuentas del workspace a cualquiera que pueda ver esa carpeta — y nadie pidió
+    eso: la pregunta que la actividad responde es "quién hizo esto", y el nombre
+    la responde igual de bien.
+
+    El fallback tampoco es la parte local del mail. En un workspace todos conocen
+    el dominio, así que "jperez" es el mail con un paso de reconstrucción en el
+    medio: filtra lo mismo, disimulado. Se usa un prefijo del id, que distingue a
+    dos usuarios sin nombre entre sí —que es lo único que hace falta para leer
+    una traza— y no tiene forma de credencial. Un admin puede mapearlo si
+    necesita el dato real.
+    """
+    nombre = (actor.name or "").strip()
+    return nombre or f"Usuario {actor.id[:8]}"
 
 
 def _folder_metadata(folder: Folder) -> dict:
@@ -216,7 +238,9 @@ def create_folder_endpoint(
         )
 
         session.flush()
-        create_audit_log(
+        # Organizativo: crear una carpeta no afirma nada que después haya que
+        # sostener. Si el audit log falla, la carpeta se crea igual.
+        create_audit_log_best_effort(
             session=session,
             document_id=None,
             folder_id=folder.id,
@@ -420,6 +444,12 @@ def update_folder_permissions(
                     operational_role_id=rid,
                 )
             )
+    # Gobernanza, y por eso aborta: cambiar quién puede ver una carpeta es
+    # exactamente el tipo de hecho que una auditoría necesita poder reconstruir
+    # ("¿desde cuándo este rol tenía acceso?"). Un cambio de permisos sin
+    # registro deja al sistema sin forma de responder esa pregunta. No está en
+    # la lista corta de aprobar/rechazar/borrar, pero es de esa familia y no de
+    # la de renombrar.
     create_audit_log(
         session=session,
         document_id=None,
@@ -492,7 +522,7 @@ def get_folder_activity(
                     else None
                 ),
                 "actor": (
-                    {"id": actor.id, "name": actor.name, "email": actor.email}
+                    {"id": actor.id, "name": _nombre_visible(actor)}
                     if actor is not None
                     else None
                 ),
@@ -804,7 +834,10 @@ def update_folder_endpoint(
         }
         if "metadata" in provided:
             current_values["metadata"] = _folder_metadata(folder)
-        create_audit_log(
+        # Organizativo: renombrar, mover o reconfigurar una carpeta. Nadie audita
+        # una biblioteca por sus nombres de estante. Si el audit log falla, el
+        # cambio se guarda igual.
+        create_audit_log_best_effort(
             session=session,
             document_id=None,
             folder_id=folder.id,
@@ -908,6 +941,10 @@ def delete_folder_endpoint(
                     detail="No tiene permisos para mover documentos a la carpeta destino",
                 )
 
+        # Gobernanza, y por eso aborta: borrar es irreversible y sin registro no
+        # queda ni rastro de que la carpeta existió. Si no se puede auditar, no
+        # se borra.
+        #
         # El registro va ANTES del borrado: la FK tiene que resolver contra una
         # carpeta que todavía existe. Al borrarla, el `ondelete="SET NULL"` deja
         # la fila con folder_id nulo, así que este evento no vuelve a aparecer en

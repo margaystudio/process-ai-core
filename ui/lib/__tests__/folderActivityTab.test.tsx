@@ -90,7 +90,7 @@ describe('ActivityTab', () => {
           entity_type: 'version',
           entity_id: 'version-1',
           document: { id: 'document-1', name: 'Cierre de caja' },
-          actor: { id: 'user-1', name: 'Ana Auditora', email: 'ana@example.com' },
+          actor: { id: 'user-1', name: 'Ana Auditora' },
           created_at: '2026-07-28T12:30:00Z',
         },
       ],

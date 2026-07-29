@@ -489,7 +489,7 @@ function ActivityTab({ folder }: { folder: Folder }) {
                 <div className="min-w-0 flex-1">
                   <p className="text-[12.5px] text-ink-700">
                     <span className="font-extrabold text-ink-900">
-                      {item.actor?.name || item.actor?.email || 'Sistema'}
+                      {item.actor?.name || 'Sistema'}
                     </span>{' '}
                     {activityLabel(item)}
                     {item.document ? (

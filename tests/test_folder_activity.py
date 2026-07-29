@@ -1,11 +1,14 @@
 import uuid
+from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
+from sqlalchemy import text as sa_text
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from api.models.requests import FolderUpdateRequest
 from api.routes import folders as folders_route
 from process_ai_core.db.database import Base
 from process_ai_core.db.models import AuditLog, Folder, User, Workspace
@@ -255,3 +258,89 @@ def test_el_borrado_de_carpeta_queda_auditado(session, monkeypatch):
     assert evento.entity_id == folder.id
     assert evento.user_id == actor.id
     assert json.loads(evento.metadata_json)["name"] == folder.name
+
+
+# ── Criterio de aborto de la auditoría (gobernanza vs. organizativo) ─────────
+#
+# La auditoría corre dentro de la transacción del endpoint, así que un fallo al
+# auditar puede tumbar la operación de negocio. Eso NO es una decisión uniforme:
+# para un hecho de gobernanza el registro es el valor de la operación, y para uno
+# organizativo convertir el audit log en punto único de falla significa que nadie
+# puede ordenar su biblioteca si el logging tiene un problema.
+#
+# Los tests rompen la auditoría a propósito (un user_id que no existe viola la FK
+# audit_logs.user_id -> users.id) y miran qué pasa con la operación.
+
+_USUARIO_FANTASMA = "no-existe-en-users"
+
+
+@pytest.fixture
+def session_con_fk(session):
+    """SQLite ignora las FK salvo que se le pidan; sin esto no hay nada que romper."""
+    session.execute(sa_text("PRAGMA foreign_keys=ON"))
+    return session
+
+
+def test_renombrar_una_carpeta_sobrevive_a_una_auditoria_rota(session_con_fk, monkeypatch):
+    """
+    Organizativo: no aborta. Una carpeta renombrada sin registrar no debilita
+    ninguna afirmación de gobernanza del sistema.
+    """
+    session = session_con_fk
+    suffix = str(uuid.uuid4())[:8]
+    workspace, folder = _workspace_folder(session, f"org-{suffix}")
+    session.commit()
+
+    monkeypatch.setattr(
+        folders_route, "resolve_tenant_workspace_id", lambda _ctx: workspace.id
+    )
+    monkeypatch.setattr(
+        folders_route, "get_user_role", lambda *_a, **_k: SimpleNamespace(name="admin")
+    )
+    monkeypatch.setattr(folders_route, "can_create_in_folder", lambda *_a, **_k: True)
+
+    folders_route.update_folder_endpoint(
+        folder_id=folder.id,
+        request=FolderUpdateRequest(name="Nombre nuevo"),
+        user_id=_USUARIO_FANTASMA,
+        session=session,
+        ctx=None,
+    )
+    session.commit()
+
+    session.refresh(folder)
+    assert folder.name == "Nombre nuevo", "el renombrado se perdió por un fallo de auditoría"
+    assert session.query(AuditLog).filter_by(action="folder.updated").count() == 0
+
+
+def test_borrar_una_carpeta_no_sobrevive_a_una_auditoria_rota(session_con_fk, monkeypatch):
+    """
+    Gobernanza: aborta. Borrar es irreversible; sin registro no queda ni rastro
+    de que la carpeta existió, así que si no se puede auditar, no se borra.
+    """
+    session = session_con_fk
+    suffix = str(uuid.uuid4())[:8]
+    workspace, folder = _workspace_folder(session, f"gob-{suffix}")
+    session.commit()
+    nombre_original = folder.name
+
+    monkeypatch.setattr(
+        folders_route, "resolve_tenant_workspace_id", lambda _ctx: workspace.id
+    )
+    monkeypatch.setattr(folders_route, "_require_workspace_member", lambda *_args: None)
+    monkeypatch.setattr(folders_route, "can_create_in_folder", lambda *_a, **_k: True)
+
+    with pytest.raises(HTTPException) as exc:
+        folders_route.delete_folder_endpoint(
+            folder_id=folder.id,
+            move_documents_to=None,
+            user_id=_USUARIO_FANTASMA,
+            session=session,
+            ctx=None,
+        )
+    assert exc.value.status_code == 500
+
+    session.rollback()
+    sobreviviente = session.get(Folder, folder.id)
+    assert sobreviviente is not None, "la carpeta se borró sin dejar registro"
+    assert sobreviviente.name == nombre_original

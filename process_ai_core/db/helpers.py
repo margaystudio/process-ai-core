@@ -672,8 +672,21 @@ def create_audit_log(
     metadata_json: str = "{}",
 ) -> AuditLog:
     """
-    Crea un registro de auditoría.
-    
+    Crea un registro de auditoría que la operación NO puede darse el lujo de perder.
+
+    Esta versión propaga: si el audit log falla, se cae la operación entera. Usala
+    cuando lo que se está haciendo es un HECHO DE GOBERNANZA — aprobar, rechazar,
+    borrar un documento o una carpeta, cambiar quién puede ver qué. En esos casos
+    el valor de la operación ES la traza: una aprobación sin registro es peor que
+    ninguna aprobación, porque el sistema queda afirmando algo que no puede
+    sostener.
+
+    Para lo ORGANIZATIVO —crear, renombrar o mover una carpeta— usá
+    `create_audit_log_best_effort`. Una carpeta renombrada sin registrar no
+    debilita ninguna afirmación de gobernanza, y hacer del audit log un punto
+    único de falla para todo significa que nadie puede ordenar su biblioteca si
+    el logging tiene un problema.
+
     Args:
         session: Sesión de base de datos
         document_id: ID del documento (opcional para eventos de carpeta)
@@ -714,6 +727,40 @@ def create_audit_log(
     )
     session.add(audit_log)
     return audit_log
+
+
+def create_audit_log_best_effort(session: Session, **kwargs) -> AuditLog | None:
+    """
+    Registra un evento ORGANIZATIVO sin poder tumbar la operación de negocio.
+
+    Devuelve el AuditLog o None si no se pudo registrar. El criterio para elegir
+    entre esta y `create_audit_log` está en el docstring de aquella.
+
+    Dos detalles que no son opcionales:
+
+    - **El SAVEPOINT.** En Postgres, una sentencia que falla aborta la
+      transacción entera. Atrapar la excepción en Python no la reanima: sin
+      `begin_nested()`, "no abortar" seria mentira — la operacion de negocio se
+      caeria igual, al primer flush siguiente y con un error que no dice nada.
+    - **El flush previo.** Asienta lo del negocio ANTES de abrir el savepoint. Si
+      no, el flush de adentro arrastraría también los cambios pendientes de la
+      operación, y un error de negocio terminaría tragado por este `except` —
+      justo al revés de lo que queremos.
+    """
+    session.flush()
+    try:
+        with session.begin_nested():
+            audit_log = create_audit_log(session=session, **kwargs)
+            session.flush()
+        return audit_log
+    except Exception as exc:
+        logger.warning(
+            "No se pudo registrar el evento organizativo %r (la operación sigue "
+            "siendo válida): %s",
+            kwargs.get("action"),
+            exc,
+        )
+        return None
 
 
 def get_or_create_draft(

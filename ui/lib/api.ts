@@ -153,7 +153,9 @@ export interface FolderActivityItem {
   entity_type: string | null;
   entity_id: string | null;
   document: { id: string; name: string } | null;
-  actor: { id: string; name: string; email: string } | null;
+  // Sin email a propósito: es el usuario de login (ver `_nombre_visible`
+  // en api/routes/folders.py). El backend ya resuelve el nombre a mostrar.
+  actor: { id: string; name: string } | null;
   created_at: string;
 }
 
