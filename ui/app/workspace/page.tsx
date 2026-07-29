@@ -11,7 +11,6 @@ import { useCanEditWorkspace } from '@/hooks/useHasPermission'
 import { useWorkspaceProfileIncomplete } from '@/hooks/useWorkspaceProfileIncomplete'
 import { canAdministerWorkspace } from '@/lib/adminGating'
 import WorkspaceProfileBanner from '@/components/workspace/WorkspaceProfileBanner'
-import FileImportModal from '@/components/processes/FileImportModal'
 import { usePdfViewer } from '@/hooks/usePdfViewer'
 import ArtifactViewerModal from '@/components/processes/ArtifactViewerModal'
 import BibliotecaFolderTree from '@/components/biblioteca/BibliotecaFolderTree'
@@ -275,7 +274,7 @@ function RowSkeleton() {
 }
 
 // ---- Empty state ----
-function EmptyState({ canCreate, onImport }: { canCreate: boolean; onImport: () => void }) {
+function EmptyState({ canCreate }: { canCreate: boolean }) {
   return (
     <div className="rounded-2xl border-[1.5px] border-dashed border-line-input bg-surface-hover px-6 py-[54px] text-center">
       <span className="mx-auto mb-3.5 grid h-[54px] w-[54px] place-items-center rounded-2xl border border-line bg-surface text-ink-300">
@@ -296,14 +295,13 @@ function EmptyState({ canCreate, onImport }: { canCreate: boolean; onImport: () 
             <SvgIcon d={ICON.plus} size={16} />
             Crear documento
           </Link>
-          <button
-            type="button"
-            onClick={onImport}
+          <Link
+            href="/import"
             className="inline-flex h-[42px] items-center gap-2 rounded-[10px] border border-line-input bg-surface px-[18px] text-[13.5px] font-bold text-ink-700 hover:bg-surface-hover"
           >
             <SvgIcon d={ICON.upload} size={16} />
             Importar documentación
-          </button>
+          </Link>
         </div>
       )}
     </div>
@@ -425,7 +423,6 @@ export default function WorkspacePage() {
   const handleOpenDoc = useCallback((docId: string) => {
     router.push(`/documents/${docId}`)
   }, [router])
-  const [importOpen, setImportOpen] = useState(false)
 
   // Opciones de tipo documental
   const [tipoOptions, setTipoOptions] = useState<CatalogOption[]>([])
@@ -567,14 +564,13 @@ export default function WorkspacePage() {
             </div>
             {canCreateDocuments && (
               <div className="flex flex-shrink-0 items-center gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={() => setImportOpen(true)}
+                <Link
+                  href="/import"
                   className="inline-flex h-[38px] items-center gap-2 rounded-[10px] border border-line bg-surface px-4 text-[13px] font-bold text-ink-700 hover:bg-surface-hover"
                 >
                   <Upload size={15} aria-hidden="true" />
                   Importar
-                </button>
+                </Link>
                 <Link
                   href="/documents/new"
                   className="inline-flex h-[38px] items-center gap-2 rounded-[10px] bg-ink-800 px-4 text-[13px] font-bold text-white hover:bg-ink-900"
@@ -662,7 +658,7 @@ export default function WorkspacePage() {
             <p className="text-[13px] text-danger">Error cargando documentos: {error}</p>
           </div>
         ) : filtered.length === 0 ? (
-          <EmptyState canCreate={canCreateDocuments} onImport={() => setImportOpen(true)} />
+          <EmptyState canCreate={canCreateDocuments} />
         ) : (
           <div className="flex flex-col gap-[9px]">
             {filtered.map((doc) => (
@@ -680,15 +676,6 @@ export default function WorkspacePage() {
 
       <ArtifactViewerModal {...modalProps} />
 
-      {selectedWorkspaceId && (
-        <FileImportModal
-          workspaceId={selectedWorkspaceId}
-          defaultFolderId={selectedFolderId}
-          open={importOpen}
-          onClose={() => setImportOpen(false)}
-          onImported={loadDocuments}
-        />
-      )}
     </div>
   )
 }

@@ -147,6 +147,24 @@ export interface FolderStats {
   confianza_prom: number | null;
 }
 
+export interface FolderActivityItem {
+  id: string;
+  action: string;
+  entity_type: string | null;
+  entity_id: string | null;
+  document: { id: string; name: string } | null;
+  actor: { id: string; name: string; email: string } | null;
+  created_at: string;
+}
+
+export interface FolderActivityResponse {
+  items: FolderActivityItem[];
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+}
+
 export type FolderGovernanceOrigin = 'base' | 'heredado' | 'personalizado';
 
 export interface FolderGovernanceValue<T> {
@@ -823,6 +841,34 @@ export async function getFolderStats(folderId: string): Promise<FolderStats> {
   const headers = await getAuthHeaders({})
 
   const response = await authFetch(`${API_URL}/api/v1/folders/${folderId}/stats`, { headers })
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }))
+    throw new Error(error.detail || `HTTP ${response.status}`)
+  }
+
+  return response.json()
+}
+
+/**
+ * Obtiene la actividad auditada reciente de una carpeta.
+ */
+export async function getFolderActivity(
+  folderId: string,
+  page = 1,
+  pageSize = 20
+): Promise<FolderActivityResponse> {
+  const { getAuthHeaders } = await import('@/lib/api-auth')
+  const headers = await getAuthHeaders({})
+  const params = new URLSearchParams({
+    page: String(page),
+    page_size: String(pageSize),
+  })
+
+  const response = await authFetch(
+    `${API_URL}/api/v1/folders/${folderId}/activity?${params.toString()}`,
+    { headers }
+  )
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Error desconocido' }))

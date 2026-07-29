@@ -283,6 +283,9 @@ class Folder(Base):
     folder_permissions: Mapped[list["FolderPermission"]] = relationship(
         "FolderPermission", back_populates="folder", cascade="all, delete-orphan"
     )
+    audit_logs: Mapped[list["AuditLog"]] = relationship(
+        "AuditLog", foreign_keys="[AuditLog.folder_id]", back_populates="folder"
+    )
 
 
 class User(Base):
@@ -563,14 +566,19 @@ class Validation(Base):
 
 class AuditLog(Base):
     """
-    Registro de auditoría de todas las acciones realizadas sobre documentos.
+    Registro de auditoría de acciones realizadas sobre documentos y carpetas.
     
     Proporciona trazabilidad completa: quién hizo qué, cuándo, y qué cambió.
     """
     __tablename__ = "audit_logs"
     
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
-    document_id: Mapped[str] = mapped_column(String(36), ForeignKey("documents.id"), nullable=False, index=True)
+    document_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("documents.id"), nullable=True, index=True
+    )
+    folder_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("folders.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     run_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("runs.id"), nullable=True, index=True)
     
     # Usuario que realizó la acción (opcional, para cuando haya autenticación)
@@ -592,7 +600,12 @@ class AuditLog(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     
     # Relaciones
-    document: Mapped["Document"] = relationship("Document", foreign_keys=[document_id], overlaps="audit_logs")
+    document: Mapped["Document | None"] = relationship(
+        "Document", foreign_keys=[document_id], overlaps="audit_logs"
+    )
+    folder: Mapped["Folder | None"] = relationship(
+        "Folder", foreign_keys=[folder_id], back_populates="audit_logs"
+    )
     run: Mapped["Run | None"] = relationship("Run", foreign_keys=[run_id])
     user: Mapped["User | None"] = relationship("User", foreign_keys=[user_id])
 
