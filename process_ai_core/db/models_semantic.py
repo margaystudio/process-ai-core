@@ -277,8 +277,29 @@ class TytoQueryLog(Base):
     workspace_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
     user_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
 
+    #: Conversación a la que pertenece esta pregunta.
+    #:
+    #: COLUMNA PLANA, SIN FOREIGN KEY — Y NO ES UN DESCUIDO.
+    #:
+    #: Con una FK a `tyto_session`, borrar una conversación del historial
+    #: personal arrastraría (CASCADE) o bloquearía (RESTRICT) las filas de
+    #: auditoría. Las dos cosas están mal: este log alimenta la detección de
+    #: brechas documentales (ADR-011), que tiene que seguir funcionando aunque
+    #: la persona haya limpiado su historial. Que alguien borre su conversación
+    #: es una acción sobre SU vista, no sobre el rastro del sistema.
+    #:
+    #: Es la misma razón por la que `document_id` y `user_id` tampoco tienen FK
+    #: acá. Si en algún momento aparece un `session_id` huérfano, eso es correcto
+    #: y esperado: la pregunta ocurrió igual.
+    #:
+    #: Si venís a "arreglar esto" agregando la FK: el arreglo es el bug.
+    session_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+
     question: Mapped[str] = mapped_column(Text, nullable=False)
     answered: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    #: Texto de la respuesta, para poder reconstruir el hilo al recargar. Vacío
+    #: en los rechazos, donde lo que se muestra es `refusal_reason`.
+    answer: Mapped[str] = mapped_column(Text, nullable=False, default="")
     refusal_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # JSON: [{source_id, document_id, document_version_id, tier, cited}] — las
@@ -289,4 +310,54 @@ class TytoQueryLog(Base):
 
     __table_args__ = (
         Index("ix_tyto_query_log_ws_created", "workspace_id", "created_at"),
+    )
+
+
+class TytoSession(Base):
+    """
+    Agrupador de conversación de Tyto: el "hilo" que el usuario ve.
+
+    Existe para que una conversación sobreviva a un F5. Cada pregunta seguía
+    siendo un evento suelto en `tyto_query_log`; esto les da un padre.
+
+    HISTORIAL PERSONAL, NO REGISTRO DE ACTIVIDAD
+    --------------------------------------------
+    Se lee SIEMPRE filtrando por `user_id` además de `workspace_id`, sin
+    excepción de rol ni de admin. No es privacidad genérica: un registro de qué
+    preguntó cada persona revela lo que esa persona NO SABE. Si un supervisor
+    puede ver "Juan preguntó doce veces cómo cerrar caja", el producto se
+    convierte en una herramienta de vigilancia que nadie pidió y la gente deja
+    de preguntar — que es exactamente lo contrario de lo que Tyto necesita que
+    hagan. Para detectar brechas documentales se usa `tyto_query_log` agregado y
+    anónimo, que para eso está desacoplado.
+
+    El título sale de la primera pregunta, truncado, y es editable. No se le
+    pide a un LLM que lo resuma: cuesta plata y agrega latencia para algo que el
+    usuario arregla en un clic si no le gusta.
+    """
+
+    __tablename__ = "tyto_session"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    workspace_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    user_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+
+    title: Mapped[str] = mapped_column(String(200), nullable=False, default="")
+    pinned: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    #: Se toca con cada pregunta: es el orden en que se listan los "recientes".
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+    __table_args__ = (
+        # El índice del listado: mis sesiones de este workspace, más recientes
+        # primero. Lleva user_id porque NO existe un listado sin él.
+        Index(
+            "ix_tyto_session_ws_user_updated",
+            "workspace_id",
+            "user_id",
+            updated_at.desc(),
+        ),
     )

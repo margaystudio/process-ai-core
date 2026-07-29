@@ -41,9 +41,14 @@ function sseResponse(chunks: string[]): Response {
 async function askQuestion(question: string) {
   const user = userEvent.setup()
   render(<TytoPage />)
+  await sendQuestion(user, question)
+  return user
+}
+
+/** Escribe y envía sobre una página YA montada, para conversaciones de varios turnos. */
+async function sendQuestion(user: ReturnType<typeof userEvent.setup>, question: string) {
   await user.type(screen.getByPlaceholderText(PLACEHOLDER), question)
   await user.click(screen.getByRole('button', { name: 'Enviar pregunta' }))
-  return user
 }
 
 describe('TytoPage — chat streaming', () => {
@@ -235,6 +240,45 @@ describe('TytoPage — chat streaming', () => {
       await screen.findByText(/No tengo documentación aprobada suficiente/i)
     ).toBeInTheDocument()
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
+  })
+
+  it('mantiene el id de conversación entre preguntas y lo resetea al empezar una nueva', async () => {
+    // Sin esto la persistencia recolecta basura: cada pregunta quedaría como una
+    // sesión de un solo mensaje y el historial no serviría para nada.
+    const respuesta = (sessionId: string) =>
+      sseResponse([
+        sseEvent('session', { session_id: sessionId }),
+        sseEvent('token', { text: 'Contá el efectivo [S1].' }),
+        sseEvent('result', {
+          answered: true,
+          answer: 'Contá el efectivo [S1].',
+          segments: [{ text: 'Contá el efectivo', source_ids: ['S1'], tier: 'aprobado' }],
+          sources: [],
+          session_id: sessionId,
+        }),
+      ])
+
+    const fetchMock = vi.fn().mockImplementation(() => respuesta('sess-1'))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const user = userEvent.setup()
+    render(<TytoPage />)
+
+    await sendQuestion(user, '¿Cómo cierro la caja?')
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    // La primera va sin id: la conversación la abre el servidor.
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).session_id).toBeNull()
+
+    await sendQuestion(user, '¿Y si hay faltante?')
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+    // La segunda ya viaja con el id que mandó el servidor.
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body).session_id).toBe('sess-1')
+
+    // "Nueva conversación" lo suelta: la siguiente vuelve a ir sin id.
+    await user.click(screen.getByRole('button', { name: /nueva conversación/i }))
+    await sendQuestion(user, 'Otra cosa distinta')
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
+    expect(JSON.parse(fetchMock.mock.calls[2][1].body).session_id).toBeNull()
   })
 
   it('un evento `error` se muestra como error real, distinto del rechazo', async () => {

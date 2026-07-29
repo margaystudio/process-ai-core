@@ -218,6 +218,7 @@ class TytoAnswerService:
         question: str,
         user_id: str | None = None,
         top_k: int = DEFAULT_TOP_K,
+        session_id: str | None = None,
     ) -> TytoAnswer:
         threshold = (
             self._relevance_threshold
@@ -239,7 +240,7 @@ class TytoAnswerService:
                 ),
                 search_degraded=context.search_degraded,
             )
-            self._log_query(session, workspace_id, user_id, question, result)
+            self._log_query(session, workspace_id, user_id, question, result, session_id)
             return result
 
         sources = self._build_sources(session, workspace_id, relevant)
@@ -250,7 +251,7 @@ class TytoAnswerService:
         # Si la búsqueda corrió degradada, la respuesta lo lleva puesto aunque
         # haya contestado: se contestó sobre un contexto recuperado peor.
         result.search_degraded = context.search_degraded
-        self._log_query(session, workspace_id, user_id, question, result)
+        self._log_query(session, workspace_id, user_id, question, result, session_id)
         return result
 
     def answer_stream(
@@ -261,6 +262,7 @@ class TytoAnswerService:
         question: str,
         user_id: str | None = None,
         top_k: int = DEFAULT_TOP_K,
+        session_id: str | None = None,
     ) -> Iterator[dict]:
         """Versión streaming (Fase B). MISMAS garantías que `answer()`.
 
@@ -294,7 +296,7 @@ class TytoAnswerService:
                 ),
                 search_degraded=context.search_degraded,
             )
-            self._log_query(session, workspace_id, user_id, question, result)
+            self._log_query(session, workspace_id, user_id, question, result, session_id)
             yield {"type": "result", "answer": result}
             return
 
@@ -357,7 +359,7 @@ class TytoAnswerService:
         # Si la búsqueda corrió degradada, la respuesta lo lleva puesto aunque
         # haya contestado: se contestó sobre un contexto recuperado peor.
         result.search_degraded = context.search_degraded
-        self._log_query(session, workspace_id, user_id, question, result)
+        self._log_query(session, workspace_id, user_id, question, result, session_id)
         yield {"type": "result", "answer": result}
 
     # ------------------------------------------------------------------
@@ -520,16 +522,25 @@ class TytoAnswerService:
         user_id: str | None,
         question: str,
         result: TytoAnswer,
+        session_id: str | None = None,
     ) -> None:
-        """Registra la consulta. Best-effort: un fallo acá no voltea la respuesta."""
+        """Registra la consulta. Best-effort: un fallo acá no voltea la respuesta.
+
+        `result.answer` ya es el texto FINAL en los dos caminos: en el streaming
+        esta función se llama después de ensamblar `full_text`, no por cada
+        token, así que lo que se persiste es la respuesta completa y no un
+        fragmento.
+        """
         try:
             cited = {sid for seg in result.segments for sid in seg.source_ids}
             session.add(
                 TytoQueryLog(
                     workspace_id=workspace_id,
                     user_id=user_id,
+                    session_id=session_id,
                     question=question,
                     answered=result.answered,
+                    answer=result.answer or "",
                     refusal_reason=result.refusal_reason,
                     sources_json=json.dumps(
                         [

@@ -2240,6 +2240,13 @@ export interface TytoQueryResult {
 }
 
 export type TytoStreamEvent =
+  /**
+   * Llega PRIMERO, antes de cualquier token: el id de la conversación a la que
+   * el servidor asoció esta pregunta. Va al principio y no en el `result` final
+   * a propósito — si el stream muere a mitad, el cliente igual se queda con el
+   * id y la próxima pregunta sigue el mismo hilo en vez de abrir otro.
+   */
+  | { type: 'session'; sessionId: string }
   | { type: 'token'; text: string }
   | { type: 'result'; data: TytoQueryResult }
   | { type: 'error'; detail: string };
@@ -2259,6 +2266,7 @@ function parseTytoSseBlock(block: string): TytoStreamEvent | null {
   if (!dataLines.length) return null;
 
   const data = JSON.parse(dataLines.join('\n'));
+  if (eventName === 'session') return { type: 'session', sessionId: data.session_id };
   if (eventName === 'token') return { type: 'token', text: data.text };
   if (eventName === 'result') return { type: 'result', data };
   if (eventName === 'error') return { type: 'error', detail: data.detail };
@@ -2274,7 +2282,9 @@ function parseTytoSseBlock(block: string): TytoStreamEvent | null {
 export async function streamTytoQuery(
   question: string,
   onEvent: (event: TytoStreamEvent) => void,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  /** Conversación en curso. `null` en la primera pregunta: el servidor la crea. */
+  sessionId?: string | null
 ): Promise<void> {
   const { getAuthHeaders } = await import('@/lib/api-auth');
   const headers = await getAuthHeaders({ 'Content-Type': 'application/json' });
@@ -2282,7 +2292,7 @@ export async function streamTytoQuery(
   const response = await authFetch(`${API_URL}/api/v1/tyto/query/stream`, {
     method: 'POST',
     headers,
-    body: JSON.stringify({ question }),
+    body: JSON.stringify({ question, session_id: sessionId ?? null }),
     signal,
   });
 
