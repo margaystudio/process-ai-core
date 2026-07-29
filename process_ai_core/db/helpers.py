@@ -1197,6 +1197,11 @@ def approve_version(
     # lo tanto no imprimible—; el workspace solo aporta el valor por defecto que
     # se propone al aprobador. `skip_validity` permite aprobar sin comprometer
     # vencimiento (queda NULL y la portada omite la fila).
+    # El acta se congela ACÁ, junto con el resto de los hechos de la aprobación.
+    from process_ai_core.db.signatories import snapshot_acta_fields
+
+    snapshot_acta_fields(session, version)
+
     if not skip_validity:
         if validity_until is not None:
             version.validity_until = validity_until

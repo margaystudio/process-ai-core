@@ -685,6 +685,18 @@ class DocumentVersion(Base):
     # Indicador de versión actual
     is_current: Mapped[bool] = mapped_column(default=False, index=True)
 
+    # ── Acta de aprobación, congelada al aprobar ────────────────────────────
+    # Se guardan como TEXTO y no como FK: una FK sigue los renombres, y el acta
+    # tiene que decir qué cargo tenía la persona ESE día. Ver
+    # process_ai_core/db/signatories.py y la migración 0016.
+    acta_elaborated_by_name: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    acta_elaborated_by_role: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    acta_reviewed_by_name: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    acta_reviewed_by_role: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    acta_approved_by_name: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    acta_approved_by_role: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    acta_client_name: Mapped[str | None] = mapped_column(String(300), nullable=True)
+
     # Vigencia de ESTA aprobación, fijada en el momento de aprobar.
     #
     # No es una política del workspace: una política es mutable y por eso no se

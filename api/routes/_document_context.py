@@ -32,55 +32,10 @@ logger = logging.getLogger(__name__)
 def _resolve_signatories(
     session: Session, workspace_id: str | None, user_ids: list[str | None]
 ) -> dict[str, tuple[str, str | None]]:
-    """
-    Resuelve varios user_id a (nombre, rol operativo) en UNA query.
+    """Delegado al core: lo comparte con el snapshot del acta al aprobar."""
+    from process_ai_core.db.signatories import resolve_signatories
 
-    El PDF necesita hasta tres personas distintas (elaboró / revisó / aprobó);
-    una query por persona serían tres round-trips por render, y el freeze corre
-    dentro de la transacción de aprobación.
-
-    El rol es el **operativo** ("Encargado de turno", "Gerente de Estación"), no
-    el rol de sistema (owner/admin/approver). Un acta que dijera "aprobado por
-    Juan Pérez, approver" no aporta autoridad: describe un permiso, no una
-    posición en la organización. Si el workspace no configuró roles operativos,
-    el rol queda en None y el acta lo omite.
-
-    Si alguien tiene más de un rol operativo se toma el primero por nombre, para
-    que el resultado sea determinista y el PDF reproducible.
-    """
-    ids = {uid for uid in user_ids if uid}
-    if not ids:
-        return {}
-
-    filas = (
-        session.query(User.id, User.name, User.email, OperationalRole.name)
-        .outerjoin(
-            WorkspaceMembership,
-            (WorkspaceMembership.user_id == User.id)
-            & (WorkspaceMembership.workspace_id == workspace_id),
-        )
-        .outerjoin(
-            UserOperationalRole,
-            UserOperationalRole.workspace_membership_id == WorkspaceMembership.id,
-        )
-        .outerjoin(
-            OperationalRole,
-            (OperationalRole.id == UserOperationalRole.operational_role_id)
-            & (OperationalRole.is_active.is_(True)),
-        )
-        .filter(User.id.in_(ids))
-        .order_by(User.id, OperationalRole.name)
-        .all()
-    )
-
-    resultado: dict[str, tuple[str, str | None]] = {}
-    for uid, nombre, email, rol in filas:
-        if uid in resultado and resultado[uid][1]:
-            continue  # ya tiene rol: el order_by garantiza cuál
-        # Fallback al email: un usuario recién sincronizado puede no tener
-        # nombre, y una firma vacía en el PDF es peor que una firma con el mail.
-        resultado[uid] = ((nombre or email or ""), rol or None)
-    return resultado
+    return resolve_signatories(session, workspace_id, user_ids)
 
 
 def _collect_version_chain(session: Session, version: DocumentVersion) -> list[DocumentVersion]:
@@ -267,26 +222,37 @@ def build_document_context(
             + [v.approved_by for v in cadena],
         )
 
-        def _nombre(uid):
-            return firmantes.get(uid or "", ("", None))[0] or None
+        # ── Acta: se PREFIERE lo congelado al aprobar ────────────────────
+        # Si la versión trae el snapshot (migración 0016), esos son los valores
+        # del momento de la aprobación y son los que valen. El lookup queda solo
+        # para versiones anteriores al cambio: para esas no hay dato congelado y
+        # es lo mejor disponible, aunque pueda haber envejecido.
+        congelado = bool(version.acta_approved_by_name or version.acta_elaborated_by_name)
 
-        def _rol(uid):
-            return firmantes.get(uid or "", ("", None))[1]
+        def _acta(campo_snapshot, uid, indice):
+            valor = getattr(version, campo_snapshot, None)
+            if congelado:
+                return valor
+            return firmantes.get(uid or "", (None, None))[indice]
 
         return DocumentContext(
             code=document.code,
             title=document.name,
             document_type_label=_document_type_label(session, document),
-            client_name=_workspace_name(session, document.workspace_id),
+            client_name=(
+                version.acta_client_name
+                if congelado and version.acta_client_name
+                else _workspace_name(session, document.workspace_id)
+            ),
             version_number=version.version_number,
             version_id=version.id,
             is_approved=version.version_status == "APPROVED",
-            elaborated_by=_nombre(version.created_by),
-            reviewed_by=_nombre(reviewer_id),
-            approved_by=_nombre(version.approved_by),
-            elaborated_by_role=_rol(version.created_by),
-            reviewed_by_role=_rol(reviewer_id),
-            approved_by_role=_rol(version.approved_by),
+            elaborated_by=_acta("acta_elaborated_by_name", version.created_by, 0),
+            reviewed_by=_acta("acta_reviewed_by_name", reviewer_id, 0),
+            approved_by=_acta("acta_approved_by_name", version.approved_by, 0),
+            elaborated_by_role=_acta("acta_elaborated_by_role", version.created_by, 1),
+            reviewed_by_role=_acta("acta_reviewed_by_role", reviewer_id, 1),
+            approved_by_role=_acta("acta_approved_by_role", version.approved_by, 1),
             version_history=_build_version_history(session, cadena, firmantes),
             approved_at=version.approved_at,
             supersedes_version_number=supersedes_number,
