@@ -22,7 +22,10 @@ from .ai.factory import (
     get_vision_provider,
 )
 from .ai.openai_provider import OpenAIProvider
-from .prompts import get_process_doc_system_prompt
+# El prompt vive en el dominio, que es donde está el schema que describe.
+# Antes había una copia byte a byte en process_ai_core/prompts.py: dos
+# fuentes de verdad para el prompt más importante del sistema.
+from .domains.processes.prompts import get_process_doc_system_prompt
 
 # Re-export para compatibilidad (algún código viejo podía importarlo).
 _image_file_to_data_url = OpenAIProvider._image_file_to_data_url
@@ -165,12 +168,19 @@ def generate_document_json(
     system_prompt: str,
     user_message_prefix: str = DEFAULT_DOCUMENT_USER_PREFIX,
     temperature: float = 0.2,
+    response_format: dict | None = None,
 ) -> str:
-    """Genera el JSON final de un documento a partir de un prompt largo (genérico)."""
+    """
+    Genera el JSON final de un documento a partir de un prompt largo (genérico).
+
+    `response_format` permite pasar un json_schema estricto: con eso el proveedor
+    garantiza la forma y el esquema deja de tener que describirse en el prompt.
+    """
     return get_llm_provider("strong").complete_json(
         system=system_prompt,
         user=user_message_prefix + prompt,
         temperature=temperature,
+        response_format=response_format,
     )
 
 

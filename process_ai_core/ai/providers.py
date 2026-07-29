@@ -21,7 +21,14 @@ from typing import Any, Protocol, runtime_checkable
 class LLMProvider(Protocol):
     """Generación con un modelo de lenguaje."""
 
-    def complete_json(self, *, system: str, user: str, temperature: float = 0.2) -> str:
+    def complete_json(
+        self,
+        *,
+        system: str,
+        user: str,
+        temperature: float = 0.2,
+        response_format: dict | None = None,
+    ) -> str:
         """Completa un prompt y devuelve el **string JSON crudo** del modelo.
 
         El modelo se fuerza a responder en formato JSON (response_format json).

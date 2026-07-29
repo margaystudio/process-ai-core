@@ -122,12 +122,57 @@ SEED = [
     # =========================================================
     # business_type (cliente) - opcional pero útil para contexto
     # =========================================================
+    # El `prompt_text` de cada rubro es donde viven los EJEMPLOS concretos. El
+    # prompt base es genérico a propósito: cuando los ejemplos de logística
+    # ("Encargado de depósito recibe mercadería", "remito firmado") estaban en el
+    # prompt del sistema, sesgaban el vocabulario de un trámite municipal o un
+    # cierre de caja. Acá cada workspace los edita para su realidad.
     dict(
         domain="business_type",
         value="estaciones_servicio",
         label="Estaciones de servicio / retail combustible",
-        prompt_text="Tipo de negocio: estaciones de servicio. Considerar operación en pista, seguridad y turnos.",
+        prompt_text=(
+            "Tipo de negocio: estaciones de servicio. Considerar operación en pista, "
+            "seguridad y turnos.\n"
+            "Actores habituales: playero, encargado de turno, cajero, jefe de estación.\n"
+            "Controles habituales: arqueo de caja, varillado de tanques, control de "
+            "precintos, conciliación de turno contra reporte de surtidores.\n"
+            "Evidencias habituales: planilla de turno firmada, ticket de arqueo, "
+            "remito de descarga, registro en el sistema de playa."
+        ),
         sort_order=10,
+    ),
+    dict(
+        domain="business_type",
+        value="logistica_deposito",
+        label="Logística y depósito",
+        prompt_text=(
+            "Tipo de negocio: logística y depósito. Considerar recepción, "
+            "almacenamiento y despacho de mercadería.\n"
+            "Actores habituales: encargado de depósito, operario de picking, "
+            "responsable de despacho.\n"
+            "Controles habituales: validación contra orden de compra, conteo físico, "
+            "control de estado de la mercadería, tiempos de registro.\n"
+            "Evidencias habituales: remito firmado, foto de la factura, registro en "
+            "sistema, checklist de recepción, acta de discrepancia."
+        ),
+        sort_order=20,
+    ),
+    dict(
+        domain="business_type",
+        value="administracion_publica",
+        label="Administración pública / trámites",
+        prompt_text=(
+            "Tipo de negocio: administración pública. Considerar trámites con "
+            "ciudadanos, plazos reglamentarios y requisitos formales.\n"
+            "Actores habituales: funcionario de mesa de entrada, técnico revisor, "
+            "jerarca que resuelve.\n"
+            "Controles habituales: verificación de requisitos, control de plazos, "
+            "firma autorizada, número de expediente.\n"
+            "Evidencias habituales: expediente foliado, constancia de recepción, "
+            "resolución firmada, notificación al interesado."
+        ),
+        sort_order=30,
     ),
 
     # document_type ya NO vive en el catálogo: es una entidad por-tenant

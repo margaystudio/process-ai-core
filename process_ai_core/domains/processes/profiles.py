@@ -101,6 +101,16 @@ class DocumentProfile:
 # ============================================================
 # Perfiles predefinidos (V1)
 # ============================================================
+#
+# `preguntas_abiertas` NO figura en ningún `show`, a propósito. El campo se
+# genera, se valida y se guarda, pero no es contenido del documento: un
+# documento APROBADO con una sección "dudas para confirmar" se contradice a sí
+# mismo — o las dudas se resolvieron antes de aprobar, o no había que aprobarlo.
+#
+# Es insumo del ciclo de revisión. Queda accesible en `content_json` de la
+# versión y expuesto en `GET /documents/{id}` dentro de `metadata`, para que la
+# capa de revisión lo levante como comentarios sobre la versión IN_REVIEW. Esa
+# UI no está implementada todavía; el contrato de datos sí.
 
 OPERATIVO_V1 = DocumentProfile(
     id="operativo_v1",
@@ -110,13 +120,11 @@ OPERATIVO_V1 = DocumentProfile(
         "objetivo",
         "pasos",
         "excepciones",
-        "preguntas_abiertas",
     ],
     titles={
         "objetivo": "Qué hay que hacer",
         "pasos": "Cómo hacerlo (paso a paso)",
         "excepciones": "Si algo sale mal / casos especiales",
-        "preguntas_abiertas": "Dudas para confirmar",
     },
     steps_format="lista",
 )
@@ -136,7 +144,6 @@ GESTION_V1 = DocumentProfile(
         "riesgos",
         "metricas",
         "oportunidades",
-        "preguntas_abiertas",
     ],
     titles={
         "objetivo": "Objetivo",
@@ -149,7 +156,6 @@ GESTION_V1 = DocumentProfile(
         "riesgos": "Riesgos principales",
         "metricas": "Indicadores",
         "oportunidades": "Oportunidades de mejora",
-        "preguntas_abiertas": "Preguntas abiertas / pendientes",
     },
     steps_format="tabla",
     show_toc=True,

@@ -91,7 +91,23 @@ class OpenAIProvider:
     # ------------------------------------------------------------------
     # LLMProvider
     # ------------------------------------------------------------------
-    def complete_json(self, *, system: str, user: str, temperature: float = 0.2) -> str:
+    def complete_json(
+        self,
+        *,
+        system: str,
+        user: str,
+        temperature: float = 0.2,
+        response_format: dict | None = None,
+    ) -> str:
+        """
+        Completa a JSON. Con `response_format` de tipo json_schema + strict, el
+        proveedor GARANTIZA la forma: desaparece la clase de error "el modelo
+        devolvió JSON con otra estructura", que antes se cubría describiendo el
+        esquema en prosa dentro del prompt y reintentando.
+
+        Sin `response_format` cae a `json_object`, que es lo que necesitan los
+        llamadores que no tienen un modelo Pydantic detrás.
+        """
         with _openai_call("chat.completions (complete_json)"):
             completion = self.client.chat.completions.create(
                 model=self._model_text,
@@ -99,7 +115,7 @@ class OpenAIProvider:
                     {"role": "system", "content": system},
                     {"role": "user", "content": user},
                 ],
-                response_format={"type": "json_object"},
+                response_format=response_format or {"type": "json_object"},
                 temperature=temperature,
             )
         return completion.choices[0].message.content or "{}"

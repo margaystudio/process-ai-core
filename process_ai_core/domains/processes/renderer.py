@@ -39,6 +39,29 @@ def _norm_asset_path(p: str) -> str:
     return p
 
 
+#: Marca visible de contenido inferido y no validado. Se pinta como chip en el
+#: PDF (el CSS lo resuelve por el texto). La escala viene de ADR-015: lo inferido
+#: es 🔴 y necesita validación humana antes de tratarse como hecho.
+CHIP_A_VALIDAR = "`A VALIDAR`"
+
+
+def _t(valor) -> str:
+    """Texto de un campo opcional: None y vacío colapsan a ''."""
+    return (valor or "").strip()
+
+
+def _chip_campo(doc, campo: str) -> str:
+    """Chip para un campo de texto que el modelo declaró como inferido."""
+    return f" {CHIP_A_VALIDAR}" if doc.es_inferido(campo) else ""
+
+
+def _chip(confianza: str) -> str:
+    """Sufijo con el chip si el ítem está inferido; '' si fue relevado."""
+    from .models import CONFIANZA_INFERIDO
+
+    return f" {CHIP_A_VALIDAR}" if confianza == CONFIANZA_INFERIDO else ""
+
+
 # ============================================================
 # Rendering
 # ============================================================
@@ -128,55 +151,77 @@ def render_markdown(
     lines.append(f"# {doc.process_name}\n\n")
 
     # OBJETIVO
-    if "objetivo" in profile.show:
+    if "objetivo" in profile.show and (_t(doc.objetivo) or _t(doc.contexto)):
         lines.append(f"## {title('objetivo', 'Objetivo')}\n\n")
-        if doc.objetivo.strip():
-            lines.append(f"- {doc.objetivo.strip()}\n")
-        if "contexto" in profile.show and doc.contexto.strip():
-            lines.append(f"\n- Contexto: {doc.contexto.strip()}\n")
+        if _t(doc.objetivo):
+            lines.append(f"- {_t(doc.objetivo)}{_chip_campo(doc, 'objetivo')}\n")
+        # El contexto se inlinea acá SOLO si no tiene sección propia. Antes se
+        # emitía en los dos lugares y el documento repetía el mismo párrafo dos
+        # veces seguidas.
+        if "contexto" not in profile.show and _t(doc.contexto):
+            lines.append(f"\n- Contexto: {_t(doc.contexto)}\n")
         lines.append("\n")
 
     # CONTEXTO
-    if "contexto" in profile.show and doc.contexto.strip():
+    if "contexto" in profile.show and _t(doc.contexto):
         lines.append(f"## {title('contexto', 'Contexto')}\n\n")
-        lines.append(f"{doc.contexto.strip()}\n\n")
+        lines.append(f"{_t(doc.contexto)}\n\n")
 
     # ALCANCE
-    if "alcance" in profile.show:
+    # El encabezado se emite DESPUÉS de confirmar que hay contenido: si todos los
+    # subcampos vienen vacíos, un "## Alcance" solo es peor que no tener la
+    # sección — parece un documento incompleto en vez de uno que no releva eso.
+    if "alcance" in profile.show and any(
+        _t(x) for x in (doc.inicio, doc.fin, doc.incluidos, doc.excluidos)
+    ):
         lines.append(f"## {title('alcance', 'Alcance')}\n\n")
-        if doc.inicio.strip():
-            lines.append(f"- Inicio: {doc.inicio.strip()}\n")
-        if doc.fin.strip():
-            lines.append(f"- Fin: {doc.fin.strip()}\n")
-        if doc.incluidos.strip():
-            lines.append(f"- Incluye: {doc.incluidos.strip()}\n")
-        if doc.excluidos.strip():
-            lines.append(f"- No incluye: {doc.excluidos.strip()}\n")
+        if _t(doc.inicio):
+            lines.append(f"- Inicio: {_t(doc.inicio)}\n")
+        if _t(doc.fin):
+            lines.append(f"- Fin: {_t(doc.fin)}\n")
+        if _t(doc.incluidos):
+            lines.append(f"- Incluye: {_t(doc.incluidos)}\n")
+        if _t(doc.excluidos):
+            lines.append(f"- No incluye: {_t(doc.excluidos)}\n")
         lines.append("\n")
 
     # FRECUENCIA
-    if "frecuencia" in profile.show:
+    if "frecuencia" in profile.show and any(_t(x) for x in (doc.frecuencia, doc.disparadores)):
         lines.append(f"## {title('frecuencia', 'Frecuencia y disparadores')}\n\n")
-        if doc.frecuencia.strip():
-            lines.append(f"- Frecuencia: {doc.frecuencia.strip()}\n")
-        if doc.disparadores.strip():
-            lines.append(f"- Disparadores: {doc.disparadores.strip()}\n")
+        if _t(doc.frecuencia):
+            lines.append(f"- Frecuencia: {_t(doc.frecuencia)}{_chip_campo(doc, 'frecuencia')}\n")
+        if _t(doc.disparadores):
+            lines.append(f"- Disparadores: {_t(doc.disparadores)}\n")
         lines.append("\n")
 
     # ACTORES
-    if "actores" in profile.show and doc.actores_resumen.strip():
+    if "actores" in profile.show and doc.actores:
         lines.append(f"## {title('actores', 'Actores y responsabilidades')}\n\n")
-        lines.append(f"{doc.actores_resumen.strip()}\n\n")
+        lines.append("| Rol | Responsabilidad |\n|-----|------------------|\n")
+        for a in doc.actores:
+            rol = a.rol.strip() or "—"
+            lines.append(f"| {rol} | {a.responsabilidad.strip()}{_chip(a.confianza)} |\n")
+        lines.append("\n")
 
     # SISTEMAS / DATOS
-    if "sistemas" in profile.show:
+    if "sistemas" in profile.show and any(
+        _t(x) for x in (doc.sistemas, doc.inputs, doc.outputs,
+                        doc.almacenamiento_datos, doc.usos_datos)
+    ):
         lines.append(f"## {title('sistemas', 'Sistemas, datos y evidencias')}\n\n")
-        if doc.sistemas.strip():
-            lines.append(f"- Sistemas: {doc.sistemas.strip()}\n")
-        if doc.inputs.strip():
-            lines.append(f"- Entradas: {doc.inputs.strip()}\n")
-        if doc.outputs.strip():
-            lines.append(f"- Salidas: {doc.outputs.strip()}\n")
+        if _t(doc.sistemas):
+            lines.append(f"- Sistemas: {_t(doc.sistemas)}\n")
+        if _t(doc.inputs):
+            lines.append(f"- Entradas: {_t(doc.inputs)}\n")
+        if _t(doc.outputs):
+            lines.append(f"- Salidas: {_t(doc.outputs)}\n")
+        # Estos dos estaban en el schema desde siempre y NUNCA se imprimían.
+        # Son contenido de gobernanza: dónde viven los datos del proceso y para
+        # qué se usan. Su lugar natural es acá.
+        if _t(doc.almacenamiento_datos):
+            lines.append(f"- Almacenamiento de datos: {_t(doc.almacenamiento_datos)}\n")
+        if _t(doc.usos_datos):
+            lines.append(f"- Usos de los datos: {_t(doc.usos_datos)}\n")
         lines.append("\n")
 
     # PASOS
@@ -184,19 +229,22 @@ def render_markdown(
         lines.append(f"## {title('pasos', 'Pasos')}\n\n")
 
         if profile.steps_format == "tabla":
-            lines.append("| # | Actor | Acción | Input | Output | Riesgos |\n")
-            lines.append("|---|-------|--------|-------|--------|--------|\n")
+            # Cinco columnas y no seis: la de Riesgos se movió a la matriz de
+            # riesgos, que es donde un auditor la busca. Seis columnas en A4
+            # quedaban ilegibles.
+            lines.append("| # | Actor | Acción | Entrada | Salida |\n")
+            lines.append("|---|-------|--------|---------|--------|\n")
             for s in doc.pasos:
-                action = s.action
+                action = s.action + _chip(s.confianza)
                 if _has_capture(s.order):
                     action = f"{action} ({_cap_link(s.order)})"
                 lines.append(
-                    f"| {s.order} | {s.actor} | {action} | {s.input} | {s.output} | {s.risks} |\n"
+                    f"| {s.order} | {s.actor} | {action} | {s.input} | {s.output} |\n"
                 )
             lines.append("\n")
         else:
             for s in doc.pasos:
-                header = f"**{s.order}. {s.action}**"
+                header = f"**{s.order}. {s.action}**{_chip(s.confianza)}"
                 if _has_capture(s.order):
                     header += f" ({_cap_link(s.order)})"
                 lines.append(header + "\n")
@@ -204,8 +252,6 @@ def render_markdown(
                     lines.append(f"- Entrada: {s.input.strip()}\n")
                 if s.output.strip():
                     lines.append(f"- Resultado: {s.output.strip()}\n")
-                if s.risks.strip() and "riesgos" in profile.show:
-                    lines.append(f"- Riesgo: {s.risks.strip()}\n")
                 lines.append("\n")
 
     # CAPTURAS DEL PROCEDIMIENTO (sección separada)
@@ -246,25 +292,41 @@ def render_markdown(
             lines.append(f"![{img['title']}]({img['path']})\n\n")
 
     # RIESGOS / MÉTRICAS / OPORTUNIDADES
-    if "riesgos" in profile.show and doc.problemas.strip():
-        lines.append(f"## {title('riesgos', 'Riesgos')}\n\n")
-        lines.append(f"{doc.problemas.strip()}\n\n")
+    # Matriz de riesgos: riesgo + control + evidencia + criticidad es lo que
+    # espera un auditor, y es lo que el prompt ya venía pidiendo en prosa.
+    if "riesgos" in profile.show and doc.riesgos:
+        lines.append(f"## {title('riesgos', 'Riesgos y controles')}\n\n")
+        lines.append("| Riesgo | Control actual | Evidencia | Criticidad |\n")
+        lines.append("|--------|----------------|-----------|------------|\n")
+        for r in doc.riesgos:
+            lines.append(
+                f"| {r.riesgo.strip()}{_chip(r.confianza)} | {r.control_actual.strip() or '—'} "
+                f"| {r.evidencia.strip() or '—'} | {r.criticidad.strip() or '—'} |\n"
+            )
+        lines.append("\n")
 
-    if "metricas" in profile.show and doc.metricas.strip():
+    if "metricas" in profile.show and doc.metricas:
         lines.append(f"## {title('metricas', 'Indicadores')}\n\n")
-        lines.append(f"{doc.metricas.strip()}\n\n")
+        lines.append("| Indicador | Definición | Frecuencia | Meta |\n")
+        lines.append("|-----------|------------|------------|------|\n")
+        for m in doc.metricas:
+            lines.append(
+                f"| {m.indicador.strip()}{_chip(m.confianza)} | {m.definicion.strip() or '—'} "
+                f"| {m.frecuencia.strip() or '—'} | {m.meta.strip() or '—'} |\n"
+            )
+        lines.append("\n")
 
-    if "oportunidades" in profile.show and doc.oportunidades.strip():
+    if "oportunidades" in profile.show and _t(doc.oportunidades):
         lines.append(f"## {title('oportunidades', 'Oportunidades de mejora')}\n\n")
-        lines.append(f"{doc.oportunidades.strip()}\n\n")
+        lines.append(f"{_t(doc.oportunidades)}{_chip_campo(doc, 'oportunidades')}\n\n")
 
     # EXCEPCIONES
-    if "excepciones" in profile.show:
+    if "excepciones" in profile.show and any(_t(x) for x in (doc.excepciones, doc.variantes)):
         lines.append(f"## {title('excepciones', 'Excepciones')}\n\n")
-        if doc.excepciones.strip():
-            lines.append(f"- {doc.excepciones.strip()}\n")
-        if doc.variantes.strip():
-            lines.append(f"- Variantes: {doc.variantes.strip()}\n")
+        if _t(doc.excepciones):
+            lines.append(f"- {_t(doc.excepciones)}\n")
+        if _t(doc.variantes):
+            lines.append(f"- Variantes: {_t(doc.variantes)}\n")
         lines.append("\n")
 
     return "".join(lines)
