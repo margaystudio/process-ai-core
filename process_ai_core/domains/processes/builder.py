@@ -189,7 +189,6 @@ class ProcessBuilder:
             objetivo=schema.objetivo,
             pasos=pasos,
             contexto=schema.contexto,
-            alcance=schema.alcance,
             inicio=schema.inicio,
             fin=schema.fin,
             incluidos=schema.incluidos,

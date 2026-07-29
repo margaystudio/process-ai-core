@@ -236,3 +236,90 @@ def test_los_ejemplos_estan_en_el_catalogo():
     assert len(rubros) >= 3, "debería haber varios rubros, no uno solo"
     texto = " ".join(s["prompt_text"] for s in rubros).lower()
     assert "remito" in texto and "arqueo" in texto
+
+
+# ── 5. Sin campos huérfanos ──────────────────────────────────────────────────
+
+
+def test_alcance_ya_no_existe_como_campo():
+    """
+    Era el quinto huérfano: se generaba, se validaba, se guardaba, y el renderer
+    nunca lo usaba — imprime inicio/fin/incluidos/excluidos bajo ese título.
+
+    Se sacó, no se conectó. Los cuatro campos estructurados responden la pregunta
+    con precisión; un texto libre encima o los repite o los contradice, y si los
+    contradice no hay forma de saber cuál es el oficial.
+    """
+    assert "alcance" not in ProcessDocumentSchema.model_fields
+    esquema = BUILDER.get_response_format()["json_schema"]["schema"]
+    assert "alcance" not in esquema["properties"]
+    assert "alcance" not in esquema["required"]
+
+
+def test_un_v1_con_alcance_se_lee_y_lo_descarta():
+    payload = dict(V1, alcance="Desde que llega el cliente hasta que se va")
+    doc = BUILDER.parse_document(json.dumps(payload))
+    assert not hasattr(doc, "alcance")
+    assert "alcance" not in upgrade_v1_payload(dict(payload))
+
+
+def test_la_seccion_alcance_sobrevive_al_campo():
+    """
+    Lo que se sacó es el CAMPO, no la sección: "alcance" sigue siendo la clave
+    con la que el perfil pide imprimir inicio/fin/incluidos/excluidos.
+    """
+    from process_ai_core.domains.processes.models import ProcessDocument
+    from process_ai_core.domains.processes.profiles import get_profile
+    from process_ai_core.domains.processes.renderer import render_markdown
+
+    doc = ProcessDocument(
+        process_name="P", objetivo="O", pasos=[],
+        inicio="Llega el pedido", fin="Se archiva el remito",
+    )
+    md = render_markdown(doc, get_profile("gestion"))
+    assert "## Alcance" in md
+    assert "Llega el pedido" in md
+
+
+def test_no_quedan_campos_huerfanos_en_el_schema():
+    """
+    Todo campo del schema tiene que terminar impreso por algún perfil. Un campo
+    que se genera, se valida y se guarda pero nunca sale es trabajo del modelo
+    que nadie ve y una promesa que el documento no cumple.
+    """
+    from process_ai_core.domains.processes.profiles import GESTION_V1, OPERATIVO_V1
+    from process_ai_core.domains.processes.renderer import render_markdown
+    from process_ai_core.domains.processes.profiles import get_profile
+    from process_ai_core.domains.processes.models import ProcessDocument
+
+    #: Campos que a propósito NO se imprimen, con el motivo.
+    NO_SE_IMPRIMEN = {
+        # Insumo del ciclo de revisión: un documento aprobado con una sección
+        # "dudas para confirmar" se contradice a sí mismo (ver test_engine.py).
+        "preguntas_abiertas",
+        # Metadatos, no contenido.
+        "schema_version",
+        "campos_inferidos",
+        "process_name",  # va como título, no como sección
+    }
+
+    campos = set(ProcessDocumentSchema.model_fields) - NO_SE_IMPRIMEN
+
+    # Un documento con TODOS los campos poblados con un marcador único.
+    valores = {}
+    for campo in campos:
+        info = ProcessDocumentSchema.model_fields[campo]
+        anotacion = str(info.annotation)
+        if "str" in anotacion and "List" not in anotacion and "list" not in anotacion:
+            valores[campo] = f"MARCA-{campo}"
+    doc = ProcessDocument(
+        process_name="P", objetivo=valores.pop("objetivo", "O"), pasos=[], **valores
+    )
+
+    impreso = render_markdown(doc, get_profile("operativo")) + render_markdown(
+        doc, get_profile("gestion")
+    )
+    huerfanos = [c for c in valores if f"MARCA-{c}" not in impreso]
+    assert not huerfanos, (
+        f"campos que se generan y se guardan pero ningún perfil imprime: {huerfanos}"
+    )

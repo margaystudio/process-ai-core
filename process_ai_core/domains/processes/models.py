@@ -119,7 +119,6 @@ class ProcessDocument:
     pasos: List[Step]
 
     contexto: Optional[str] = None
-    alcance: Optional[str] = None
     inicio: Optional[str] = None
     fin: Optional[str] = None
     incluidos: Optional[str] = None
@@ -162,7 +161,7 @@ PROCESS_DOCUMENT_SCHEMA_VERSION = 2
 
 #: Campos de texto que pueden faltar legítimamente.
 _OPTIONAL_TEXT_FIELDS = (
-    "contexto", "alcance", "inicio", "fin", "incluidos", "excluidos",
+    "contexto", "inicio", "fin", "incluidos", "excluidos",
     "frecuencia", "disparadores", "sistemas", "inputs", "outputs",
     "variantes", "excepciones", "almacenamiento_datos", "usos_datos",
     "oportunidades", "preguntas_abiertas",
@@ -290,7 +289,6 @@ class ProcessDocumentSchema(BaseModel):
 
     # Opcionales: pueden no haberse relevado.
     contexto: Optional[str] = None
-    alcance: Optional[str] = None
     inicio: Optional[str] = None
     fin: Optional[str] = None
     incluidos: Optional[str] = None
@@ -404,5 +402,11 @@ def upgrade_v1_payload(data: dict) -> dict:
     # ignoraría, pero explícito es mejor que implícito).
     salida.pop("material_referencia", None)
     salida.pop("videos", None)
+    # `alcance` era texto libre por encima de inicio/fin/incluidos/excluidos, que
+    # ya responden la pregunta con precisión. Nunca se renderizó: el renderer
+    # imprime los cuatro campos bajo ese título. Un texto libre encima o los
+    # repite o los contradice, y si los contradice no hay forma de saber cuál es
+    # el oficial — en un artefacto de auditoría, una afirmación por hecho.
+    salida.pop("alcance", None)
 
     return salida
