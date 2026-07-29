@@ -231,7 +231,7 @@ def test_el_generador_saltea_un_codigo_ya_ocupado_a_mano(session):
 
 
 def test_el_indice_unico_por_workspace_existe():
-    """Respaldo del contador a nivel base de datos (migración 0014)."""
+    """Respaldo del contador a nivel base de datos (migración 0015)."""
     from sqlalchemy import text
 
     from process_ai_core.db.database import DATABASE_SCHEMA, get_db_engine

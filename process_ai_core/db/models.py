@@ -108,7 +108,7 @@ class Document(Base):
     # NUNCA CAMBIA: ni al mover de carpeta, ni al reclasificar el tipo. Un
     # procedimiento que pasa a instructivo sigue siendo PR-0042; el tipo actual
     # vive en `document_type`. Un código que nunca cambia es un código que nunca
-    # miente. Nullable solo para filas previas a la migración 0014.
+    # miente. Nullable solo para filas previas a la migración 0015.
     code: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
 
     # Nombre del documento
@@ -701,7 +701,7 @@ class DocumentVersion(Base):
     # ── Acta de aprobación, congelada al aprobar ────────────────────────────
     # Se guardan como TEXTO y no como FK: una FK sigue los renombres, y el acta
     # tiene que decir qué cargo tenía la persona ESE día. Ver
-    # process_ai_core/db/signatories.py y la migración 0016.
+    # process_ai_core/db/signatories.py y la migración 0017.
     acta_elaborated_by_name: Mapped[str | None] = mapped_column(String(300), nullable=True)
     acta_elaborated_by_role: Mapped[str | None] = mapped_column(String(300), nullable=True)
     acta_reviewed_by_name: Mapped[str | None] = mapped_column(String(300), nullable=True)

@@ -22,8 +22,8 @@ En los dos casos la portada omite la fila, en vez de inventar una fecha.
 Sin backfill: poner una vigencia retroactiva a aprobaciones que no la
 comprometieron sería fabricar un dato del acta.
 
-Revision ID: 0015_version_validity
-Revises: 0014_document_code
+Revision ID: 0016_version_validity
+Revises: 0015_document_code
 Create Date: 2026-07-28
 """
 from __future__ import annotations
@@ -32,8 +32,8 @@ from alembic import op
 from sqlalchemy import text
 
 
-revision = "0015_version_validity"
-down_revision = "0014_document_code"
+revision = "0016_version_validity"
+down_revision = "0015_document_code"
 branch_labels = None
 depends_on = None
 

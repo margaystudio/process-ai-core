@@ -32,8 +32,8 @@ Las versiones aprobadas antes de esta migración quedan en NULL y el
 Rellenarlas con los valores de hoy sería fabricar el dato que esto viene a
 proteger.
 
-Revision ID: 0016_acta_snapshot
-Revises: 0015_version_validity
+Revision ID: 0017_acta_snapshot
+Revises: 0016_version_validity
 Create Date: 2026-07-28
 """
 from __future__ import annotations
@@ -42,8 +42,8 @@ from alembic import op
 from sqlalchemy import text
 
 
-revision = "0016_acta_snapshot"
-down_revision = "0015_version_validity"
+revision = "0017_acta_snapshot"
+down_revision = "0016_version_validity"
 branch_labels = None
 depends_on = None
 

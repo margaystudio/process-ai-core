@@ -223,7 +223,7 @@ def build_document_context(
         )
 
         # ── Acta: se PREFIERE lo congelado al aprobar ────────────────────
-        # Si la versión trae el snapshot (migración 0016), esos son los valores
+        # Si la versión trae el snapshot (migración 0017), esos son los valores
         # del momento de la aprobación y son los que valen. El lookup queda solo
         # para versiones anteriores al cambio: para esas no hay dato congelado y
         # es lo mejor disponible, aunque pueda haber envejecido.

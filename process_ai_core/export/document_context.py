@@ -53,8 +53,8 @@ class DocumentContext:
     """
     Datos inmutables del documento y de la versión que se está imprimiendo.
 
-    `code` sale de `documents.code` (ADR-019, migración 0014) y `validity_until`
-    de `document_versions.validity_until` (migración 0015): los dos se fijan una
+    `code` sale de `documents.code` (ADR-019, migración 0015) y `validity_until`
+    de `document_versions.validity_until` (migración 0016): los dos se fijan una
     vez y no cambian. Pueden llegar en None —un documento previo a la migración,
     o una aprobación sin vencimiento comprometido— y la portada los omite.
     """

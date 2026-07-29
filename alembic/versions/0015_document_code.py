@@ -28,8 +28,8 @@ de un mapa estático de los 14 tipos por defecto; si tampoco, 'DO'.
 
 Reversible: el downgrade borra la tabla, el índice y las dos columnas.
 
-Revision ID: 0014_document_code
-Revises: 0013_perf_indexes
+Revision ID: 0015_document_code
+Revises: 0014_folder_activity_audit
 Create Date: 2026-07-28
 """
 from __future__ import annotations
@@ -38,8 +38,8 @@ from alembic import op
 from sqlalchemy import text
 
 
-revision = "0014_document_code"
-down_revision = "0013_perf_indexes"
+revision = "0015_document_code"
+down_revision = "0014_folder_activity_audit"
 branch_labels = None
 depends_on = None
 
@@ -157,7 +157,7 @@ def upgrade() -> None:
 
     if duplicados:
         print(
-            f"[0014] AVISO: {duplicados} par(es) (workspace_id, code) duplicados. "
+            f"[0015] AVISO: {duplicados} par(es) (workspace_id, code) duplicados. "
             "Se crea índice NO único; revisar y re-aplicar la unicidad a mano."
         )
         conn.execute(
