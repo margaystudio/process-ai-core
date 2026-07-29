@@ -23,41 +23,75 @@ from sqlalchemy.orm import Session
 
 from process_ai_core.config import get_settings
 from process_ai_core.db.models import Document, DocumentVersion
-from process_ai_core.export import export_pdf_from_content, get_export_content
+from process_ai_core.export import (
+    ASSET_BASE_URL,
+    StorageAssetFetcher,
+    export_pdf_from_content,
+    get_export_content,
+    verify_pdf_images,
+)
 from process_ai_core.storage import get_storage, version_pdf_key
-from ..artifact_signing import sign_artifact_url
 from ._branding import get_workspace_pdf_branding
+from ._document_context import build_document_context
 
 logger = logging.getLogger(__name__)
 
 
-def _rewrite_img_src(html: str, run_id: str | None, api_base: str, workspace_id: str | None) -> str:
-    """Reescribe src="assets/..." a la URL firmada del endpoint de artefactos."""
-    if not html or not run_id or not workspace_id:
+def _rewrite_img_src_to_assets(html: str) -> str:
+    """
+    Apunta las imágenes del documento al host centinela de assets.
+
+    Antes esto generaba URLs FIRMADAS de la propia API, y WeasyPrint las bajaba
+    por HTTP durante el render. Tres problemas, todos silenciosos: la API se
+    llamaba a sí misma mientras atendía la aprobación que disparó el freeze; el
+    render dependía de la red y de que la firma no hubiera vencido; y si la
+    descarga fallaba WeasyPrint omitía la imagen sin lanzar, congelando el
+    artefacto sin las evidencias.
+
+    Ahora las URLs quedan bajo `ASSET_BASE_URL`, que no existe en la red: las
+    resuelve `StorageAssetFetcher` leyendo directo de object storage.
+
+    Se reescriben también las rutas absolutas `/api/v1/...` (imágenes del editor
+    manual): el fetcher las mapea a su clave de storage.
+    """
+    if not html:
         return html
 
     def repl(m: re.Match) -> str:
         src = m.group(1)
-        if src.startswith("http") or src.startswith("/api/v1/"):
+        if src.startswith("data:") or src.startswith(ASSET_BASE_URL):
             return m.group(0)
         if src.startswith("assets/") or src.startswith("./assets/"):
-            clean = src.lstrip("./")
-            signed = sign_artifact_url(run_id, clean, workspace_id)
-            return f'src="{api_base}{signed}"'
+            return f'src="{ASSET_BASE_URL}{src.lstrip("./")}"'
+        if src.startswith("/api/v1/"):
+            return f'src="{ASSET_BASE_URL}{src.lstrip("/")}"'
+        if _API_IMAGE_RE.search(src):
+            # URL absoluta a nuestra propia API: se normaliza al host centinela
+            # para que tampoco salga por HTTP.
+            return f'src="{ASSET_BASE_URL}{_API_IMAGE_RE.sub("", src).lstrip("/")}"'
         return m.group(0)
 
     return re.sub(r'src="([^"]+)"', repl, html)
 
 
-def _render_engine_label(fmt: str) -> str:
-    try:
-        if fmt == "html":
-            import weasyprint  # type: ignore
+# Prefijo de una URL absoluta a nuestra propia API (cualquier host).
+_API_IMAGE_RE = re.compile(r"^https?://[^/]+(?=/api/v1/)")
 
-            return f"weasyprint-{getattr(weasyprint, '__version__', '?')}"
-        return "pandoc"
+
+def _render_engine_label() -> str:
+    """
+    Motor + versión con los que se produjo el artefacto.
+
+    Ya no depende del formato: WeasyPrint es el único motor de salida. La versión
+    es parte del contrato del artefacto (ver el pin en pyproject.toml), así que
+    queda registrada en la fila junto al hash.
+    """
+    try:
+        import weasyprint  # type: ignore
+
+        return f"weasyprint-{getattr(weasyprint, '__version__', '?')}"
     except Exception:
-        return "weasyprint" if fmt == "html" else "pandoc"
+        return "weasyprint"
 
 
 def freeze_approved_pdf(session: Session, version: DocumentVersion, api_base: str | None = None) -> bool:
@@ -78,25 +112,57 @@ def freeze_approved_pdf(session: Session, version: DocumentVersion, api_base: st
             return False
         workspace_id = document.workspace_id
 
-        content, fmt = get_export_content(version)
+        # Siempre HTML: get_export_content normaliza (ver content_source.py).
+        content = get_export_content(version)
+
+        # Si la versión llegó sin content_html, el HTML se acaba de derivar del
+        # markdown y sería una entrada del artefacto que NO quedó congelada: el
+        # PDF dependería de la versión de la librería `markdown` del día. Se
+        # persiste ahora, en la misma transacción que la clave y el hash, para
+        # que el registro del artefacto quede completo de una sola vez.
+        #
+        # Se guarda ANTES de reescribir los src a propósito: en la fila va la
+        # forma portable, con rutas relativas, no las del host centinela.
+        if not (version.content_html or "").strip():
+            version.content_html = content
+            logger.info(
+                "Versión %s no tenía content_html; se congela junto con el PDF", version.id
+            )
 
         settings = get_settings()
         api_base = (api_base or settings.api_base_url).rstrip("/")
         branding = get_workspace_pdf_branding(session, workspace_id)
+        # El artefacto de auditoría es el único render donde el contexto es
+        # definitivo: acá la versión ya está APPROVED y las firmas no cambian más.
+        document_context = build_document_context(session, document, version)
 
-        if fmt == "html":
-            content = _rewrite_img_src(content, version.run_id, api_base, workspace_id)
+        content = _rewrite_img_src_to_assets(content)
+
+        # Las imágenes se leen de object storage, no por HTTP: ver asset_fetcher.py.
+        fetcher = StorageAssetFetcher(
+            workspace_id=workspace_id,
+            run_id=version.run_id,
+            document_id=version.document_id,
+        )
 
         with tempfile.TemporaryDirectory() as tmp:
             pdf_path = export_pdf_from_content(
                 content=content,
-                format=fmt,
+                format="html",
                 run_dir=Path(tmp),
                 pdf_name="document.pdf",
-                base_url=api_base,
+                base_url=ASSET_BASE_URL,
                 branding=branding,
+                document_context=document_context,
+                url_fetcher=fetcher,
             )
             pdf_bytes = Path(pdf_path).read_bytes()
+
+        # Si falta una evidencia, se ABORTA. Lanza IncompletePdfError, que cae en
+        # el except de abajo: el freeze devuelve False, la aprobación sigue
+        # válida y el reintento del endpoint del PDF congelado lo vuelve a
+        # intentar. Un artefacto incompleto con hash registrado no se detecta más.
+        verify_pdf_images(pdf_bytes, fetcher, contexto=f"versión {version.id}")
 
         sha256 = hashlib.sha256(pdf_bytes).hexdigest()
         key = version_pdf_key(workspace_id, version.document_id, version.id)
@@ -105,7 +171,7 @@ def freeze_approved_pdf(session: Session, version: DocumentVersion, api_base: st
         version.pdf_storage_key = key
         version.pdf_sha256 = sha256
         version.pdf_generated_at = datetime.now(UTC)
-        version.pdf_render_engine = _render_engine_label(fmt)
+        version.pdf_render_engine = _render_engine_label()
 
         # Recalcular el uso de storage del tenant (best-effort).
         from process_ai_core.db.helpers import update_workspace_storage_usage
