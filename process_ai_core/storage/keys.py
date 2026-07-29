@@ -19,6 +19,18 @@ def workspace_prefix(workspace_id: str) -> str:
     return f"workspaces/{workspace_id}"
 
 
+def workspace_branding_key(workspace_id: str, filename: str) -> str:
+    """
+    Clave del icono de marca del workspace.
+
+    Vive en object storage y no en disco local porque lo lee el freeze del PDF:
+    en Cloud Run el filesystem es efímero y hay varias instancias, así que el
+    archivo subido por una instancia no existe en la que congela el documento.
+    """
+    safe = filename.replace("\\", "/").split("/")[-1] or "icon.png"
+    return f"{workspace_prefix(workspace_id)}/branding/{safe}"
+
+
 def run_prefix(workspace_id: str, run_id: str) -> str:
     return f"workspaces/{workspace_id}/runs/{run_id}"
 

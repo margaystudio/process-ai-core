@@ -18,10 +18,20 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
+# fonts-liberation: sin esto WeasyPrint no encontraba NINGUNA de las familias
+# pedidas por el CSS ('Helvetica Neue', Arial) y caía a DejaVu Sans, así que el
+# PDF de producción no coincidía con el de desarrollo. Liberation Sans es
+# métricamente compatible con Arial/Helvetica: misma paginación en los dos lados.
+# Si cambia la familia en process_ai_core/export/pdf_weasyprint.py, hay que
+# cambiar el paquete acá también.
+# Sin pandoc: quedó sin uso al pasar a WeasyPrint como único motor de salida.
+# La importación de documentos NO lo usa — extrae texto con PyMuPDF (.pdf) y
+# python-docx (.docx). Son ~150 MB menos de imagen y menos cold start.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     ffmpeg \
-    pandoc \
+    fonts-liberation \
+    fontconfig \
     libpango-1.0-0 \
     libpangocairo-1.0-0 \
     libgdk-pixbuf-2.0-0 \
