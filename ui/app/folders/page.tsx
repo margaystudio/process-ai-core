@@ -1,9 +1,27 @@
 'use client'
 
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
-import { ChevronRight, Folder as FolderIcon, Plus } from 'lucide-react'
+import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import {
+  Activity,
+  Archive,
+  BookOpen,
+  BriefcaseBusiness,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  ClipboardList,
+  FileCheck2,
+  FileText,
+  FilePlus2,
+  Folder as FolderIcon,
+  Plus,
+  Settings2,
+  ShieldCheck,
+  type LucideIcon,
+} from 'lucide-react'
 import {
   getDocumentTypes,
+  getFolderActivity,
   getFolderGovernance,
   getFolderPermissions,
   getFolderStats,
@@ -14,6 +32,7 @@ import {
   type Document,
   type DocumentType,
   type Folder,
+  type FolderActivityItem,
   type FolderGovernance,
   type FolderGovernanceOrigin,
   type FolderPermissionsResponse,
@@ -32,7 +51,18 @@ type FolderNode = Folder & {
 
 const DEFAULT_FOLDER_COLOR = '#48569C'
 const FOLDER_COLORS = ['#48569C', '#2F9E62', '#C99A2E', '#2E8B8B', '#CB4242', '#8B5CF6']
-const FOLDER_ICONS = ['folder', 'archive', 'book', 'briefcase', 'clipboard', 'file-text']
+const FOLDER_ICON_OPTIONS: {
+  value: string
+  label: string
+  icon: LucideIcon
+}[] = [
+  { value: 'folder', label: 'Carpeta', icon: FolderIcon },
+  { value: 'archive', label: 'Archivo', icon: Archive },
+  { value: 'book', label: 'Libro', icon: BookOpen },
+  { value: 'briefcase', label: 'Portafolio', icon: BriefcaseBusiness },
+  { value: 'clipboard', label: 'Lista de control', icon: ClipboardList },
+  { value: 'file-text', label: 'Documento', icon: FileText },
+]
 const FOLDER_TABS: TabItem[] = [
   { value: 'resumen', label: 'Resumen' },
   { value: 'general', label: 'General' },
@@ -269,6 +299,247 @@ function SummaryTab({
   )
 }
 
+function FolderGlyph({
+  name,
+  size = 16,
+  className,
+}: {
+  name?: string | null
+  size?: number
+  className?: string
+}) {
+  const option = FOLDER_ICON_OPTIONS.find((item) => item.value === name)
+  const Icon = option?.icon ?? FolderIcon
+  return <Icon size={size} className={className} aria-hidden="true" />
+}
+
+function FolderIconPicker({
+  value,
+  onChange,
+  disabled = false,
+}: {
+  value: string
+  onChange: (value: string) => void
+  disabled?: boolean
+}) {
+  const [open, setOpen] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
+  const listboxId = useId()
+  const selected = FOLDER_ICON_OPTIONS.find((item) => item.value === value) ?? FOLDER_ICON_OPTIONS[0]
+
+  useEffect(() => {
+    if (!open) return
+    const closeOnOutsideClick = (event: MouseEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
+    }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', closeOnOutsideClick)
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('mousedown', closeOnOutsideClick)
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [open])
+
+  return (
+    <div ref={rootRef} className="relative">
+      <button
+        type="button"
+        role="combobox"
+        aria-label="Icono"
+        aria-haspopup="listbox"
+        aria-controls={listboxId}
+        aria-expanded={open}
+        disabled={disabled}
+        onClick={() => setOpen((current) => !current)}
+        className="flex h-[42px] w-full items-center gap-2.5 rounded-[10px] border border-line-input bg-surface px-3 text-left text-sm font-semibold text-ink-800 outline-none focus:border-indigo focus:ring-[3px] focus:ring-indigo/10 disabled:opacity-60"
+      >
+        <span className="grid h-7 w-7 place-items-center rounded-[7px] bg-indigo-tint text-indigo">
+          <FolderGlyph name={selected.value} size={16} />
+        </span>
+        <span className="flex-1">{selected.label}</span>
+        <ChevronDown
+          size={16}
+          className={open ? 'rotate-180 text-ink-400 transition' : 'text-ink-400 transition'}
+          aria-hidden="true"
+        />
+      </button>
+
+      {open ? (
+        <div
+          id={listboxId}
+          role="listbox"
+          aria-label="Opciones de icono"
+          className="absolute z-30 mt-1.5 w-full overflow-hidden rounded-[10px] border border-line bg-surface p-1.5 shadow-lg"
+        >
+          {FOLDER_ICON_OPTIONS.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              role="option"
+              aria-selected={value === option.value}
+              onClick={() => {
+                onChange(option.value)
+                setOpen(false)
+              }}
+              className={
+                'flex w-full items-center gap-2.5 rounded-[8px] px-2.5 py-2 text-left text-[13px] font-semibold transition ' +
+                (value === option.value
+                  ? 'bg-indigo-tint text-ink-900'
+                  : 'text-ink-700 hover:bg-surface-hover')
+              }
+            >
+              <span className="grid h-7 w-7 place-items-center rounded-[7px] bg-surface-track text-indigo">
+                <FolderGlyph name={option.value} size={16} />
+              </span>
+              <span className="flex-1">{option.label}</span>
+              {value === option.value ? <Check size={15} className="text-indigo" aria-hidden="true" /> : null}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+const ACTIVITY_LABELS: Record<string, string> = {
+  'folder.created': 'creó la carpeta',
+  'folder.updated': 'actualizó la configuración de la carpeta',
+  'folder.permissions_updated': 'actualizó los permisos de la carpeta',
+  'version.imported_draft': 'importó un documento como borrador',
+  'version.imported_approved': 'importó y aprobó un documento',
+  'version.approved': 'aprobó una versión',
+  created: 'creó un documento',
+  updated: 'actualizó un documento',
+  approved: 'aprobó un documento',
+  rejected: 'rechazó un documento',
+}
+
+function activityLabel(item: FolderActivityItem): string {
+  return ACTIVITY_LABELS[item.action] ?? item.action.replaceAll('.', ' ')
+}
+
+function ActivityIcon({ action }: { action: string }) {
+  if (action.includes('permissions')) return <ShieldCheck className="h-4 w-4" />
+  if (action.includes('approved')) return <FileCheck2 className="h-4 w-4" />
+  if (action.includes('created') || action.includes('imported')) return <FilePlus2 className="h-4 w-4" />
+  if (action.startsWith('folder.')) return <Settings2 className="h-4 w-4" />
+  return <Activity className="h-4 w-4" />
+}
+
+function ActivityTab({ folder }: { folder: Folder }) {
+  const [page, setPage] = useState(1)
+  const { status, data, error, reload } = useAsync(
+    () => getFolderActivity(folder.id, page, 20),
+    [folder.id, page]
+  )
+
+  useEffect(() => setPage(1), [folder.id])
+
+  return (
+    <div className="mt-6 max-w-[760px] overflow-hidden rounded-[13px] border border-line bg-surface shadow-card">
+      <div className="border-b border-line px-5 py-4">
+        <h2 className="text-[13px] font-extrabold text-ink-900">Actividad reciente</h2>
+        <p className="mt-0.5 text-[11.5px] text-ink-400">
+          Cambios de documentos, configuración y permisos de esta carpeta.
+        </p>
+      </div>
+
+      {status === 'idle' || status === 'loading' ? (
+        <div className="space-y-3 px-5 py-4">
+          {[0, 1, 2].map((item) => (
+            <div key={item} className="h-14 animate-pulse rounded-[10px] bg-ink-100" />
+          ))}
+        </div>
+      ) : null}
+
+      {status === 'error' ? (
+        <div className="px-5 py-5">
+          <div className="rounded-[10px] border border-danger-bd bg-danger-bg px-3 py-2 text-[12.5px] font-semibold text-danger">
+            {error}
+          </div>
+          <button type="button" onClick={reload} className="mt-2 text-[12px] font-bold text-ink-700 underline">
+            Reintentar
+          </button>
+        </div>
+      ) : null}
+
+      {status === 'success' && data?.items.length === 0 ? (
+        <div className="px-6 py-12 text-center">
+          <span className="mx-auto mb-3 grid h-10 w-10 place-items-center rounded-[10px] bg-surface-track text-ink-300">
+            <Activity className="h-5 w-5" />
+          </span>
+          <p className="text-[13px] font-bold text-ink-700">Todavía no hay actividad</p>
+          <p className="mt-1 text-[12px] text-ink-400">
+            Los próximos cambios de esta carpeta aparecerán acá.
+          </p>
+        </div>
+      ) : null}
+
+      {status === 'success' && data && data.items.length > 0 ? (
+        <>
+          <div className="divide-y divide-line-soft">
+            {data.items.map((item) => (
+              <div key={item.id} className="flex gap-3 px-5 py-3.5">
+                <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-[9px] bg-indigo-tint text-indigo">
+                  <ActivityIcon action={item.action} />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[12.5px] text-ink-700">
+                    <span className="font-extrabold text-ink-900">
+                      {item.actor?.name || item.actor?.email || 'Sistema'}
+                    </span>{' '}
+                    {activityLabel(item)}
+                    {item.document ? (
+                      <>
+                        {' '}
+                        <span className="font-bold text-ink-800">{item.document.name}</span>
+                      </>
+                    ) : null}
+                  </p>
+                  <time className="mt-1 block text-[11px] text-ink-400" dateTime={item.created_at}>
+                    {new Intl.DateTimeFormat('es-UY', {
+                      dateStyle: 'medium',
+                      timeStyle: 'short',
+                    }).format(new Date(item.created_at))}
+                  </time>
+                </div>
+              </div>
+            ))}
+          </div>
+          {data.total_pages > 1 ? (
+            <div className="flex items-center justify-between border-t border-line px-5 py-3 text-[11.5px] text-ink-400">
+              <span>
+                Página {data.page} de {data.total_pages}
+              </span>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  disabled={page <= 1}
+                  onClick={() => setPage((value) => Math.max(1, value - 1))}
+                  className="rounded-[8px] border border-line px-3 py-1.5 font-bold text-ink-600 disabled:opacity-40"
+                >
+                  Anterior
+                </button>
+                <button
+                  type="button"
+                  disabled={page >= data.total_pages}
+                  onClick={() => setPage((value) => value + 1)}
+                  className="rounded-[8px] border border-line px-3 py-1.5 font-bold text-ink-600 disabled:opacity-40"
+                >
+                  Siguiente
+                </button>
+              </div>
+            </div>
+          ) : null}
+        </>
+      ) : null}
+    </div>
+  )
+}
+
 function GeneralTab({
   folder,
   folders,
@@ -368,20 +639,14 @@ function GeneralTab({
         </div>
       </div>
 
-      <label className="block">
+      <div>
         <span className="mb-1.5 block text-[13px] font-bold text-ink-900">Icono</span>
-        <select
+        <FolderIconPicker
           value={icon}
-          onChange={(event) => setIcon(event.target.value)}
-          className="h-[42px] w-full rounded-[10px] border border-line-input px-3 text-sm outline-none focus:border-indigo focus:ring-[3px] focus:ring-indigo/10"
-        >
-          {FOLDER_ICONS.map((option) => (
-            <option key={option} value={option}>
-              {option}
-            </option>
-          ))}
-        </select>
-      </label>
+          onChange={setIcon}
+          disabled={saving}
+        />
+      </div>
 
       {(localError || error) ? (
         <div className="rounded-[10px] border border-danger-bd bg-danger-bg px-3 py-2 text-[12.5px] font-semibold text-danger">
@@ -998,7 +1263,7 @@ function FolderTreeRow({
           }
         >
           <span className="grid h-6 w-6 flex-shrink-0 place-items-center rounded-md" style={{ color, background: `${color}1f` }}>
-            <FolderIcon size={14} />
+            <FolderGlyph name={node.icon} size={14} />
           </span>
           <span className="min-w-0 flex-1 truncate text-left">{node.name}</span>
           <span className="text-[10.5px] font-bold text-ink-300">{node.docs}</span>
@@ -1253,7 +1518,7 @@ export default function FoldersPage() {
                 className="grid h-12 w-12 flex-shrink-0 place-items-center rounded-[13px]"
                 style={{ color: folderColor(selected), background: `${folderColor(selected)}1f` }}
               >
-                <FolderIcon size={24} />
+                <FolderGlyph name={selected.icon} size={24} />
               </span>
               <div className="min-w-0 flex-1">
                 <div className="text-xs text-ink-400">{selectedPath}</div>
@@ -1319,13 +1584,9 @@ export default function FoldersPage() {
               <TabsContent id="folders-detail" value="permisos" current={activeTab}>
                 <PermissionsTab workspaceId={workspaceId} folder={selected} />
               </TabsContent>
-              {FOLDER_TABS.filter((tab) => !['resumen', 'general', 'gobierno', 'tyto', 'permisos'].includes(tab.value)).map((tab) => (
-                <TabsContent key={tab.value} id="folders-detail" value={tab.value} current={activeTab}>
-                  <div className="mt-6 rounded-[13px] border border-dashed border-line-input bg-surface-hover px-6 py-10 text-center text-[13px] text-ink-400">
-                    Contenido de {tab.label} se conectara en los siguientes tickets.
-                  </div>
-                </TabsContent>
-              ))}
+              <TabsContent id="folders-detail" value="actividad" current={activeTab}>
+                <ActivityTab folder={selected} />
+              </TabsContent>
             </Tabs>
           </>
         ) : (

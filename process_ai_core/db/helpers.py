@@ -661,8 +661,9 @@ def reject_validation(
 
 def create_audit_log(
     session: Session,
-    document_id: str,
+    document_id: str | None,
     action: str,
+    folder_id: str | None = None,
     run_id: str | None = None,
     user_id: str | None = None,
     entity_type: str | None = None,
@@ -675,7 +676,9 @@ def create_audit_log(
     
     Args:
         session: Sesión de base de datos
-        document_id: ID del documento
+        document_id: ID del documento (opcional para eventos de carpeta)
+        folder_id: ID de la carpeta. Para eventos de documento se resuelve
+            automáticamente si no se proporciona.
         action: Acción realizada (created, updated, validated, rejected, etc.)
         run_id: ID del run (opcional)
         user_id: ID del usuario (opcional)
@@ -687,9 +690,20 @@ def create_audit_log(
     Returns:
         AuditLog creado
     """
+    if folder_id is None and document_id is not None:
+        # `session.get` pega en el identity map: quien audita una acción sobre un
+        # documento casi siempre lo tiene cargado en la sesión, así que el caso
+        # normal no cuesta ninguna consulta. Un `query(...).scalar()` iría a la
+        # base siempre, una vez por evento auditado.
+        document = session.get(Document, document_id)
+        folder_id = document.folder_id if document is not None else None
+    if document_id is None and folder_id is None:
+        raise ValueError("El audit log requiere document_id o folder_id")
+
     audit_log = AuditLog(
         id=str(uuid.uuid4()),
         document_id=document_id,
+        folder_id=folder_id,
         run_id=run_id,
         user_id=user_id,
         action=action,

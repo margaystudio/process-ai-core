@@ -16,7 +16,7 @@ from fastapi import HTTPException
 from api.models.requests import FolderUpdateRequest
 from api.routes import folders as folders_route
 from process_ai_core.db.database import get_db_session
-from process_ai_core.db.models import DocumentType, Folder, Workspace
+from process_ai_core.db.models import DocumentType, Folder, User, Workspace
 
 
 @pytest.fixture
@@ -25,7 +25,23 @@ def session():
         yield s
 
 
+#: Autor de los PUT de este módulo. Tiene que existir de verdad: desde que
+#: `update_folder_endpoint` audita el cambio, el audit log referencia
+#: audit_logs.user_id -> users.id, y un id inventado tumba la actualización
+#: entera con una ForeignKeyViolation.
+_USER_ID = "user-gobierno"
+
+
+def _asegurar_usuario(session) -> None:
+    if session.get(User, _USER_ID) is None:
+        session.add(
+            User(id=_USER_ID, email="gobierno@test.local", name="Usuario Gobierno")
+        )
+        session.commit()
+
+
 def _workspace_con_carpeta(session) -> tuple[Workspace, Folder]:
+    _asegurar_usuario(session)
     uid = str(uuid.uuid4())[:8]
     workspace = Workspace(
         id=f"gov-ws-{uid}",
@@ -60,7 +76,7 @@ def _put(session, folder_id: str, request: FolderUpdateRequest):
         folders_route.update_folder_endpoint(
             folder_id=folder_id,
             request=request,
-            user_id="user-gobierno",
+            user_id=_USER_ID,
             session=session,
             ctx=None,
         )
