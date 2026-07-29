@@ -3,6 +3,16 @@
 Amplia audit_logs para conservar el contexto de carpeta y registrar acciones
 de configuracion/permisos que no pertenecen a un documento.
 
+LIMITACION DEL BACKFILL — leer antes de interpretar la actividad historica
+--------------------------------------------------------------------------
+El backfill hace `SET folder_id = document.folder_id`, o sea la carpeta donde el
+documento esta HOY. Si alguna vez se movio de carpeta, sus eventos anteriores al
+movimiento quedan atribuidos a la carpeta actual, no a la que estaba cuando el
+evento ocurrio. No hay forma de arreglarlo hacia atras: la carpeta de origen
+nunca se registro. Queda dicho porque en una traza de auditoria una atribucion
+silenciosamente incorrecta es peor que un hueco: de aca en adelante el folder_id
+lo escribe `create_audit_log` en el momento del evento y es exacto.
+
 Revision ID: 0014_folder_activity_audit
 Revises: 0013_perf_indexes
 Create Date: 2026-07-28
@@ -67,9 +77,20 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.execute(
-        sa.text(f'DELETE FROM "{SCHEMA}".audit_logs WHERE document_id IS NULL')
-    )
+    # Volver a NOT NULL exige que no queden filas sin documento. Antes esto las
+    # BORRABA, que es la unica operacion de esta migracion sin vuelta atras: los
+    # eventos de carpeta no se reconstruyen desde ningun lado. Ahora falla y
+    # deja la decision —y el DELETE explicito— en manos de quien baja.
+    conn = op.get_bind()
+    huerfanas = conn.execute(
+        sa.text(f'SELECT count(*) FROM "{SCHEMA}".audit_logs WHERE document_id IS NULL')
+    ).scalar()
+    if huerfanas:
+        raise RuntimeError(
+            f"{huerfanas} evento(s) de auditoria sin document_id (acciones de carpeta). "
+            f"Bajar esta migracion los destruye. Si es lo que querés, corré primero:\n"
+            f'  DELETE FROM "{SCHEMA}".audit_logs WHERE document_id IS NULL;'
+        )
     op.alter_column(
         "audit_logs",
         "document_id",

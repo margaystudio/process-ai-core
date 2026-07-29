@@ -470,7 +470,10 @@ def get_folder_activity(
     )
     total = query.count()
     rows = (
-        query.order_by(AuditLog.created_at.desc())
+        # El `id` desempata: `created_at` lo pone Python (datetime.utcnow), así
+        # que un lote puede producir varias filas con el mismo instante. Con el
+        # orden ambiguo, LIMIT/OFFSET repite o saltea filas entre páginas.
+        query.order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
         .all()
@@ -904,6 +907,29 @@ def delete_folder_endpoint(
                     status_code=403,
                     detail="No tiene permisos para mover documentos a la carpeta destino",
                 )
+
+        # El registro va ANTES del borrado: la FK tiene que resolver contra una
+        # carpeta que todavía existe. Al borrarla, el `ondelete="SET NULL"` deja
+        # la fila con folder_id nulo, así que este evento no vuelve a aparecer en
+        # la actividad de ninguna carpeta — y está bien, la carpeta ya no está.
+        # Queda recuperable por entity_id, y el nombre queda en el metadata para
+        # que la traza sea legible sin la fila borrada.
+        create_audit_log(
+            session=session,
+            document_id=None,
+            folder_id=folder.id,
+            user_id=user_id,
+            action="folder.deleted",
+            entity_type="folder",
+            entity_id=folder.id,
+            metadata_json=json.dumps(
+                {
+                    "name": folder.name,
+                    "path": folder.path,
+                    "moved_documents_to": move_documents_to or None,
+                }
+            ),
+        )
 
         delete_folder(
             session=session,

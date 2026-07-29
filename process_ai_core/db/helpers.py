@@ -682,11 +682,12 @@ def create_audit_log(
         AuditLog creado
     """
     if folder_id is None and document_id is not None:
-        folder_id = (
-            session.query(Document.folder_id)
-            .filter(Document.id == document_id)
-            .scalar()
-        )
+        # `session.get` pega en el identity map: quien audita una acción sobre un
+        # documento casi siempre lo tiene cargado en la sesión, así que el caso
+        # normal no cuesta ninguna consulta. Un `query(...).scalar()` iría a la
+        # base siempre, una vez por evento auditado.
+        document = session.get(Document, document_id)
+        folder_id = document.folder_id if document is not None else None
     if document_id is None and folder_id is None:
         raise ValueError("El audit log requiere document_id o folder_id")
 
