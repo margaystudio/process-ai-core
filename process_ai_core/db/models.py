@@ -8,9 +8,9 @@ usando Workspace/Document genéricos en lugar de Client/Process específicos.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, UTC
+from datetime import date, datetime, UTC
 
-from sqlalchemy import String, DateTime, ForeignKey, Text, Integer, Float, Boolean
+from sqlalchemy import String, Date, DateTime, ForeignKey, Text, Integer, Float, Boolean
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -97,6 +97,20 @@ class Document(Base):
         String(50), nullable=False, server_default="procedimiento", default="procedimiento"
     )
 
+    # Codificación documental. Ver ADR-019 y process_ai_core/db/document_codes.py.
+    #
+    # NO SIGNIFICATIVO respecto de la ubicación: no se deriva de la carpeta. Los
+    # "significant numbers" (cada dígito codifica departamento/área) están
+    # desaconsejados en control documental porque son frágiles ante
+    # reorganizaciones — cuando cambia el organigrama, o se renumera todo y se
+    # pierde la trazabilidad, o el código pasa a mentir.
+    #
+    # NUNCA CAMBIA: ni al mover de carpeta, ni al reclasificar el tipo. Un
+    # procedimiento que pasa a instructivo sigue siendo PR-0042; el tipo actual
+    # vive en `document_type`. Un código que nunca cambia es un código que nunca
+    # miente. Nullable solo para filas previas a la migración 0014.
+    code: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+
     # Nombre del documento
     name: Mapped[str] = mapped_column(String(200))
     description: Mapped[str] = mapped_column(Text, default="")
@@ -126,6 +140,27 @@ class Document(Base):
         "polymorphic_identity": "document",
         "polymorphic_on": "domain",
     }
+
+
+class DocumentCodeCounter(Base):
+    """
+    Secuencial de la codificación documental, por workspace y prefijo.
+
+    Vive en su propia tabla y no se calcula con `MAX(code)` a propósito: un
+    contador monótono nunca reutiliza un número aunque se borre el documento que
+    lo tenía. Reciclar códigos haría que dos documentos distintos hayan sido
+    "PR-0042" en momentos distintos, y un archivo documental no puede permitirse
+    eso. Ver process_ai_core/db/document_codes.py.
+    """
+
+    __tablename__ = "document_code_counters"
+
+    workspace_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("workspaces.id", ondelete="CASCADE"), primary_key=True
+    )
+    prefix: Mapped[str] = mapped_column(String(8), primary_key=True)
+    #: Último valor entregado (el próximo código usa next_value + 1).
+    next_value: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
 
 class Process(Document):
@@ -649,6 +684,17 @@ class DocumentVersion(Base):
     
     # Indicador de versión actual
     is_current: Mapped[bool] = mapped_column(default=False, index=True)
+
+    # Vigencia de ESTA aprobación, fijada en el momento de aprobar.
+    #
+    # No es una política del workspace: una política es mutable y por eso no se
+    # puede imprimir. Fijada al aprobar es un hecho consumado, y como tal entra
+    # legítimamente al acta de la portada. Resuelve el problema del papel
+    # offline: una copia impresa sin red no tiene forma de saber si el documento
+    # sigue vigente, pero sí puede llevar impresa la fecha hasta la que la
+    # aprobación se comprometió. Es lo que ISO 9001 espera para revisión
+    # periódica. Solo se setea en versiones APPROVED.
+    validity_until: Mapped[date | None] = mapped_column(Date, nullable=True)
 
     # Artefacto de auditoría: PDF congelado al aprobar (Fase B).
     # Solo se setea en versiones APPROVED. El PDF vive en object storage bajo la

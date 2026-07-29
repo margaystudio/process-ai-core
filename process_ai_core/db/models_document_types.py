@@ -45,6 +45,13 @@ class DocumentType(Base):
     key: Mapped[str] = mapped_column(String(50), nullable=False)
     label: Mapped[str] = mapped_column(String(200), nullable=False)
 
+    # Prefijo de la codificación documental de este tipo (PR, IT, PO…).
+    # El tipo documental cambia mucho menos que el organigrama, por eso es
+    # semántica aceptable en el código (ADR-019). Cambiarlo NO reescribe los
+    # códigos ya asignados: los documentos existentes conservan el suyo para
+    # siempre, y el prefijo nuevo aplica solo a los que se creen desde entonces.
+    code_prefix: Mapped[str | None] = mapped_column(String(8), nullable=True)
+
     # Texto inyectado al prompt de generación de este tipo.
     prompt_text: Mapped[str] = mapped_column(Text, nullable=False, default="")
     # Toggles de comportamiento (allowlist en domains.document_types.BEHAVIOR_KEYS).

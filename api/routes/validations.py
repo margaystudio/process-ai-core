@@ -35,7 +35,7 @@ from ._freeze import freeze_approved_pdf
 from process_ai_core.semantic.pipeline import trigger_semantic_pipeline_for_version
 import logging
 import json
-from datetime import datetime, UTC
+from datetime import date, datetime, UTC
 
 logger = logging.getLogger(__name__)
 
@@ -157,6 +157,12 @@ def create_document_validation(
 
 class ValidationApproveRequest(BaseModel):
     observations: Optional[str] = ""
+    #: Hasta cuándo se compromete la vigencia de ESTA aprobación. Si viene None
+    #: se calcula con el default del workspace. Queda congelada en el acta.
+    validity_until: Optional[date] = None
+    #: Aprobar sin comprometer vencimiento. Distinto de no mandar el campo: acá
+    #: la decisión es explícita y la portada omite la fila en vez de inventar una.
+    sin_vencimiento: bool = False
 
 
 class ValidationRejectDirectRequest(BaseModel):
@@ -271,6 +277,8 @@ def approve_document_validation_direct(
             session=session,
             validation_id=version.validation_id,
             approver_id=user_id,
+            validity_until=request.validity_until,
+            skip_validity=request.sin_vencimiento,
         )
         # Congelar el PDF aprobado como artefacto de auditoría (best-effort).
         freeze_approved_pdf(session, approved_version)

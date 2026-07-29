@@ -17,6 +17,8 @@ from typing import Dict, Any
 
 from sqlalchemy.orm import Session
 
+from process_ai_core.export.markdown_html import render_frozen_html
+
 logger = logging.getLogger(__name__)
 
 from .models import (
@@ -414,6 +416,7 @@ def create_process_document(
     detail_level: str = "",
     context_text: str = "",
     document_type: str = "procedimiento",
+    code: str | None = None,
 ) -> Process:
     """
     Crea un Process (hereda de Document).
@@ -450,6 +453,12 @@ def create_process_document(
         context_text=context_text,
     )
     session.add(process)
+    # El código se asigna al crear y no cambia nunca (ADR-019). flush() primero
+    # para que el documento exista antes de consultar la unicidad del código.
+    session.flush()
+    from process_ai_core.db.document_codes import assign_document_code
+
+    assign_document_code(session, process, override=code)
     return process
 
 
@@ -788,7 +797,11 @@ def get_or_create_draft(
     content_markdown = "# Nuevo documento"
     content_type = "manual_edit"
     supersedes_version_id = None
-    
+    # Default para el DRAFT nuevo sin origen. Las ramas de abajo lo pisan con el
+    # HTML de la versión clonada, que ya es consistente con SU markdown: acá se
+    # copian los dos juntos, nunca uno sin el otro.
+    content_html = render_frozen_html(content_markdown)
+
     if source_version_id:
         # Clonar versión específica
         source_version = session.query(DocumentVersion).filter_by(id=source_version_id).first()
@@ -837,8 +850,8 @@ def get_or_create_draft(
                 content_type = rejected.content_type
                 supersedes_version_id = rejected.id
                 content_html = getattr(rejected, "content_html", None)
-            else:
-                content_html = None
+            # Sin APPROVED ni REJECTED de dónde clonar: queda el default de
+            # arriba, que ya es el HTML de "# Nuevo documento".
 
     # Crear nueva versión DRAFT
     draft_version = DocumentVersion(
@@ -1080,10 +1093,47 @@ def cancel_submission(
     return version
 
 
+#: Meses de vigencia por defecto si nadie elige una fecha. 24 es el ciclo de
+#: revisión habitual de un sistema de gestión documental. Se puede sobreescribir
+#: por workspace (metadata_json.governance.default_validity_months) o en el
+#: propio acto de aprobar.
+DEFAULT_VALIDITY_MONTHS = 24
+
+
+def workspace_default_validity_months(session: Session, workspace_id: str) -> int:
+    """Meses de vigencia por defecto del workspace, o el global."""
+    import json as _json
+
+    ws = session.query(Workspace).filter_by(id=workspace_id).first()
+    if not ws:
+        return DEFAULT_VALIDITY_MONTHS
+    try:
+        meta = _json.loads(ws.metadata_json) if ws.metadata_json else {}
+        valor = (meta.get("governance") or {}).get("default_validity_months")
+        if isinstance(valor, int) and 0 < valor <= 240:
+            return valor
+    except (ValueError, AttributeError):
+        pass
+    return DEFAULT_VALIDITY_MONTHS
+
+
+def _add_months(base, meses: int):
+    """Suma meses a una fecha sin dependencias externas (sin dateutil)."""
+    mes = base.month - 1 + meses
+    anio = base.year + mes // 12
+    mes = mes % 12 + 1
+    import calendar
+
+    dia = min(base.day, calendar.monthrange(anio, mes)[1])
+    return base.replace(year=anio, month=mes, day=dia)
+
+
 def approve_version(
     session: Session,
     validation_id: str,
     approver_id: str | None = None,
+    validity_until=None,
+    skip_validity: bool = False,
 ) -> DocumentVersion:
     """
     Aprueba una versión IN_REVIEW (cambia a APPROVED y marca como current).
@@ -1141,6 +1191,20 @@ def approve_version(
     version.version_status = "APPROVED"
     version.approved_at = datetime.now(UTC)
     version.approved_by = approver_id
+
+    # Vigencia: se fija ACÁ, en el acto de aprobar, y queda congelada con el
+    # resto del acta. No es una política del workspace —eso sería mutable y por
+    # lo tanto no imprimible—; el workspace solo aporta el valor por defecto que
+    # se propone al aprobador. `skip_validity` permite aprobar sin comprometer
+    # vencimiento (queda NULL y la portada omite la fila).
+    if not skip_validity:
+        if validity_until is not None:
+            version.validity_until = validity_until
+        else:
+            documento = session.query(Document).filter_by(id=version.document_id).first()
+            if documento:
+                meses = workspace_default_validity_months(session, documento.workspace_id)
+                version.validity_until = _add_months(version.approved_at.date(), meses)
     version.is_current = True
     
     # Actualizar validación
@@ -1437,6 +1501,9 @@ def create_document_version(
         content_type=content_type,
         content_json=content_json,
         content_markdown=content_markdown,
+        # HTML congelado junto con el markdown (ver render_frozen_html): esta
+        # versión nace APPROVED, así que su render se congela enseguida.
+        content_html=render_frozen_html(content_markdown),
         approved_at=datetime.now(UTC),
         approved_by=approved_by,
         validation_id=validation_id,

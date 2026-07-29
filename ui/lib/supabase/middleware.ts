@@ -63,7 +63,11 @@ export async function updateSession(request: NextRequest) {
   } = await supabase.auth.getUser()
 
   // Rutas que no requieren sesión activa
-  const publicPaths = ['/auth', '/invitations/accept']
+  // /verificar/* es público a propósito: es el destino del QR impreso en la
+  // portada de cada PDF aprobado, y quien lo escanea puede ser un contratista o
+  // un inspector sin cuenta. La página muestra lo mínimo sin sesión y el detalle
+  // completo si la hay. Ver api/routes/verification.py.
+  const publicPaths = ['/auth', '/invitations/accept', '/verificar']
   const isPublicPath = publicPaths.some((p) => request.nextUrl.pathname.startsWith(p))
 
   if (!user && !isPublicPath) {
