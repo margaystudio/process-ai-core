@@ -10,13 +10,29 @@ Este endpoint maneja:
 import json
 import uuid
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Query
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from process_ai_core.db.helpers import create_folder, get_folders_by_workspace, get_folder_by_id, update_folder, delete_folder
-from process_ai_core.db.models import Document, DocumentType, Folder, FolderPermission, OperationalRole
+from process_ai_core.db.helpers import (
+    create_audit_log,
+    create_audit_log_best_effort,
+    create_folder,
+    delete_folder,
+    get_folder_by_id,
+    get_folders_by_workspace,
+    update_folder,
+)
+from process_ai_core.db.models import (
+    AuditLog,
+    Document,
+    DocumentType,
+    Folder,
+    FolderPermission,
+    OperationalRole,
+    User,
+)
 from process_ai_core.db.models_semantic import DocumentRelation
 from api.dependencies import get_db, get_current_user_id
 from api.dependencies import is_superadmin
@@ -64,6 +80,27 @@ def _assert_folder_in_active_workspace(folder_workspace_id: str, active_workspac
 
 def _provided_fields(model) -> set[str]:
     return set(getattr(model, "model_fields_set", getattr(model, "__fields_set__", set())))
+
+
+def _nombre_visible(actor: User) -> str:
+    """
+    Cómo se identifica al autor de una acción en la actividad de una carpeta.
+
+    Nunca el email. El email es además el usuario de login, así que un endpoint
+    que lista los mails de todos los que tocaron una carpeta entrega el padrón de
+    cuentas del workspace a cualquiera que pueda ver esa carpeta — y nadie pidió
+    eso: la pregunta que la actividad responde es "quién hizo esto", y el nombre
+    la responde igual de bien.
+
+    El fallback tampoco es la parte local del mail. En un workspace todos conocen
+    el dominio, así que "jperez" es el mail con un paso de reconstrucción en el
+    medio: filtra lo mismo, disimulado. Se usa un prefijo del id, que distingue a
+    dos usuarios sin nombre entre sí —que es lo único que hace falta para leer
+    una traza— y no tiene forma de credencial. Un admin puede mapearlo si
+    necesita el dato real.
+    """
+    nombre = (actor.name or "").strip()
+    return nombre or f"Usuario {actor.id[:8]}"
 
 
 def _folder_metadata(folder: Folder) -> dict:
@@ -201,6 +238,18 @@ def create_folder_endpoint(
         )
 
         session.flush()
+        # Organizativo: crear una carpeta no afirma nada que después haya que
+        # sostener. Si el audit log falla, la carpeta se crea igual.
+        create_audit_log_best_effort(
+            session=session,
+            document_id=None,
+            folder_id=folder.id,
+            user_id=user_id,
+            action="folder.created",
+            entity_type="folder",
+            entity_id=folder.id,
+            metadata_json=json.dumps({"name": folder.name}),
+        )
 
         return FolderResponse(
             id=folder.id,
@@ -395,8 +444,97 @@ def update_folder_permissions(
                     operational_role_id=rid,
                 )
             )
+    # Gobernanza, y por eso aborta: cambiar quién puede ver una carpeta es
+    # exactamente el tipo de hecho que una auditoría necesita poder reconstruir
+    # ("¿desde cuándo este rol tenía acceso?"). Un cambio de permisos sin
+    # registro deja al sistema sin forma de responder esa pregunta. No está en
+    # la lista corta de aprobar/rechazar/borrar, pero es de esa familia y no de
+    # la de renombrar.
+    create_audit_log(
+        session=session,
+        document_id=None,
+        folder_id=folder.id,
+        user_id=user_id,
+        action="folder.permissions_updated",
+        entity_type="folder",
+        entity_id=folder.id,
+        changes_json=json.dumps(
+            {
+                "inherits_permissions": will_inherit,
+                "operational_role_ids": requested_role_ids,
+            }
+        ),
+    )
     session.commit()
     return {"message": "Permisos actualizados", "folder_id": folder_id}
+
+
+@router.get("/{folder_id}/activity")
+def get_folder_activity(
+    folder_id: str,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    user_id: str = Depends(get_current_user_id),
+    session: Session = Depends(get_db),
+    ctx: WorkspaceSessionContext = Depends(get_workspace_context),
+):
+    """Actividad auditada de la carpeta, paginada y aislada por workspace."""
+    folder = get_folder_by_id(session, folder_id)
+    if not folder:
+        raise HTTPException(status_code=404, detail=f"Carpeta {folder_id} no encontrada")
+
+    workspace_id = resolve_tenant_workspace_id(ctx)
+    _assert_folder_in_active_workspace(folder.workspace_id, workspace_id, folder_id)
+    _require_workspace_member(session, user_id, workspace_id)
+    if not can_view_folder(session, user_id, workspace_id, folder_id):
+        raise HTTPException(
+            status_code=403,
+            detail="No tiene permisos para acceder a esta carpeta",
+        )
+
+    query = (
+        session.query(AuditLog, User, Document)
+        .outerjoin(User, User.id == AuditLog.user_id)
+        .outerjoin(Document, Document.id == AuditLog.document_id)
+        .filter(AuditLog.folder_id == folder_id)
+    )
+    total = query.count()
+    rows = (
+        # El `id` desempata: `created_at` lo pone Python (datetime.utcnow), así
+        # que un lote puede producir varias filas con el mismo instante. Con el
+        # orden ambiguo, LIMIT/OFFSET repite o saltea filas entre páginas.
+        query.order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+
+    return {
+        "items": [
+            {
+                "id": log.id,
+                "action": log.action,
+                "entity_type": log.entity_type,
+                "entity_id": log.entity_id,
+                "document": (
+                    {"id": document.id, "name": document.name}
+                    if document is not None
+                    else None
+                ),
+                "actor": (
+                    {"id": actor.id, "name": _nombre_visible(actor)}
+                    if actor is not None
+                    else None
+                ),
+                "created_at": log.created_at.isoformat(),
+            }
+            for log, actor, document in rows
+        ],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": (total + page_size - 1) // page_size,
+    }
 
 
 @router.get("/{folder_id}/stats")
@@ -656,6 +794,15 @@ def update_folder_endpoint(
                     ),
                 )
 
+        provided = _provided_fields(request)
+        previous_values = {
+            field: getattr(existing, field, None)
+            for field in provided
+            if field != "metadata"
+        }
+        if "metadata" in provided:
+            previous_values["metadata"] = _folder_metadata(existing)
+
         folder = update_folder(
             session=session,
             folder_id=folder_id,
@@ -672,7 +819,6 @@ def update_folder_endpoint(
             metadata=request.metadata,
         )
 
-        provided = _provided_fields(request)
         if "icon" in provided:
             folder.icon = request.icon
         if "default_document_type" in provided:
@@ -681,6 +827,29 @@ def update_folder_endpoint(
             folder.tyto_enabled = request.tyto_enabled
 
         session.flush()
+        current_values = {
+            field: getattr(folder, field, None)
+            for field in provided
+            if field != "metadata"
+        }
+        if "metadata" in provided:
+            current_values["metadata"] = _folder_metadata(folder)
+        # Organizativo: renombrar, mover o reconfigurar una carpeta. Nadie audita
+        # una biblioteca por sus nombres de estante. Si el audit log falla, el
+        # cambio se guarda igual.
+        create_audit_log_best_effort(
+            session=session,
+            document_id=None,
+            folder_id=folder.id,
+            user_id=user_id,
+            action="folder.updated",
+            entity_type="folder",
+            entity_id=folder.id,
+            changes_json=json.dumps(
+                {"before": previous_values, "after": current_values},
+                default=str,
+            ),
+        )
 
         return FolderResponse(
             id=folder.id,
@@ -771,6 +940,33 @@ def delete_folder_endpoint(
                     status_code=403,
                     detail="No tiene permisos para mover documentos a la carpeta destino",
                 )
+
+        # Gobernanza, y por eso aborta: borrar es irreversible y sin registro no
+        # queda ni rastro de que la carpeta existió. Si no se puede auditar, no
+        # se borra.
+        #
+        # El registro va ANTES del borrado: la FK tiene que resolver contra una
+        # carpeta que todavía existe. Al borrarla, el `ondelete="SET NULL"` deja
+        # la fila con folder_id nulo, así que este evento no vuelve a aparecer en
+        # la actividad de ninguna carpeta — y está bien, la carpeta ya no está.
+        # Queda recuperable por entity_id, y el nombre queda en el metadata para
+        # que la traza sea legible sin la fila borrada.
+        create_audit_log(
+            session=session,
+            document_id=None,
+            folder_id=folder.id,
+            user_id=user_id,
+            action="folder.deleted",
+            entity_type="folder",
+            entity_id=folder.id,
+            metadata_json=json.dumps(
+                {
+                    "name": folder.name,
+                    "path": folder.path,
+                    "moved_documents_to": move_documents_to or None,
+                }
+            ),
+        )
 
         delete_folder(
             session=session,

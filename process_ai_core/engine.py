@@ -66,12 +66,19 @@ def generate_validated_document_json(
     user_message_prefix = DEFAULT_DOCUMENT_USER_PREFIX
     last_error: str | None = None
 
+    # Si el builder expone un esquema estricto, el proveedor garantiza la FORMA
+    # del JSON y el reintento correctivo queda solo para el caso "salió vacío".
+    # Los builders que no lo expongan siguen por json_object, igual que antes.
+    obtener_schema = getattr(builder, "get_response_format", None)
+    response_format = obtener_schema() if callable(obtener_schema) else None
+
     for attempt in range(max_retries + 1):
         json_str = generate_document_json(
             prompt=prompt,
             system_prompt=system_prompt,
             user_message_prefix=user_message_prefix,
             temperature=temperature,
+            response_format=response_format,
         )
 
         try:

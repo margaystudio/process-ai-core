@@ -146,6 +146,7 @@ def _to_document_response(
         folder_id=doc.folder_id,
         domain=getattr(doc, "domain", "process"),
         document_type=getattr(doc, "document_type", "procedimiento"),
+        code=getattr(doc, "code", None),
         version_number=version_number,
         name=doc.name,
         description=doc.description,
@@ -543,6 +544,8 @@ def update_document(
                     detail="No tiene acceso para mover documentos a la carpeta destino"
                 )
 
+        carpeta_origen = doc.folder_id
+
         # Actualizar campos básicos
         if request.name is not None:
             doc.name = request.name
@@ -550,9 +553,31 @@ def update_document(
             doc.description = request.description
         if request.status is not None:
             doc.status = request.status
-        if request.folder_id is not None:
+        if request.folder_id is not None and request.folder_id != carpeta_origen:
+            # Mover NO genera versión nueva: una versión es un cambio de
+            # contenido aprobado, y versionar por mover contaminaría el historial
+            # de aprobaciones —que es lo que mira un auditor— con eventos que no
+            # son aprobaciones. El movimiento queda en el audit log.
+            doc.folder_id = request.folder_id
+            from process_ai_core.db.helpers import create_audit_log
+
+            create_audit_log(
+                session=session,
+                document_id=document_id,
+                user_id=user_id,
+                action="document.moved",
+                entity_type="document",
+                entity_id=document_id,
+                metadata_json=json.dumps(
+                    {"from_folder_id": carpeta_origen, "to_folder_id": request.folder_id}
+                ),
+            )
+        elif request.folder_id is not None:
             doc.folder_id = request.folder_id
         if request.document_type is not None:
+            # Reclasificar cambia el TIPO, nunca el código: un procedimiento que
+            # pasa a instructivo sigue siendo PR-0042. El tipo actual vive en el
+            # sistema; el código es la identidad estable del documento (ADR-019).
             doc.document_type = request.document_type
 
         # Actualizar campos específicos según el tipo

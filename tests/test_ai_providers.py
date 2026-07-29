@@ -83,8 +83,13 @@ def test_generate_document_json_delegates(monkeypatch):
     captured = {}
 
     class _Stub:
-        def complete_json(self, *, system, user, temperature):
-            captured.update(system=system, user=user, temperature=temperature)
+        # `response_format` es parte de la interfaz desde que la generación del
+        # documento usa Structured Outputs: el proveedor garantiza la forma.
+        def complete_json(self, *, system, user, temperature, response_format=None):
+            captured.update(
+                system=system, user=user, temperature=temperature,
+                response_format=response_format,
+            )
             return '{"x": 1}'
 
     monkeypatch.setattr(lc, "get_llm_provider", lambda tier="strong": _Stub())

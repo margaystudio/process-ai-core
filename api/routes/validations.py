@@ -35,7 +35,7 @@ from ._freeze import freeze_approved_pdf
 from process_ai_core.semantic.pipeline import trigger_semantic_pipeline_for_version
 import logging
 import json
-from datetime import datetime, UTC
+from datetime import date, datetime, UTC
 
 logger = logging.getLogger(__name__)
 
@@ -157,6 +157,25 @@ def create_document_validation(
 
 class ValidationApproveRequest(BaseModel):
     observations: Optional[str] = ""
+    #: Hasta cuándo se compromete la vigencia de ESTA aprobación. Si viene None
+    #: se calcula con el default del workspace. Queda congelada en el acta.
+    validity_until: Optional[date] = None
+    #: Aprobar sin comprometer vencimiento. Distinto de no mandar el campo: acá
+    #: la decisión es explícita y la portada omite la fila en vez de inventar una.
+    sin_vencimiento: bool = False
+    #: No congelar el PDF dentro de este request. Default False: una aprobación
+    #: individual sigue saliendo con su artefacto listo.
+    #:
+    #: Sirve para el lote. Congelar cuesta un render + una subida (~0,5 s en
+    #: local con un documento mínimo, más en Cloud Run con portada, TOC e
+    #: imágenes), y en un lote secuencial de 50 eso son minutos sin cancelación.
+    #:
+    #: Diferir es seguro porque el acta está snapshotteada en la versión
+    #: (migración 0017): congelar más tarde produce el MISMO documento, byte a
+    #: byte. Y el artefacto no queda librado a que alguien abra el PDF: lo toma
+    #: el barrido (tools/freeze_pending_pdfs.py) o la primera apertura, lo que
+    #: pase antes.
+    defer_freeze: bool = False
 
 
 class ValidationRejectDirectRequest(BaseModel):
@@ -271,9 +290,18 @@ def approve_document_validation_direct(
             session=session,
             validation_id=version.validation_id,
             approver_id=user_id,
+            validity_until=request.validity_until,
+            skip_validity=request.sin_vencimiento,
         )
         # Congelar el PDF aprobado como artefacto de auditoría (best-effort).
-        freeze_approved_pdf(session, approved_version)
+        if not request.defer_freeze:
+            freeze_approved_pdf(session, approved_version)
+        else:
+            logger.info(
+                "Aprobación de %s con freeze diferido; el artefacto lo produce el "
+                "barrido o la primera apertura del PDF",
+                approved_version.id,
+            )
         session.commit()
         session.refresh(doc)
 

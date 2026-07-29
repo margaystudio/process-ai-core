@@ -19,6 +19,7 @@ from .keys import (
     version_asset_key,
     version_pdf_key,
     version_prefix,
+    workspace_branding_key,
     workspace_prefix,
 )
 from .sync import sync_run_dir_to_storage
@@ -32,6 +33,7 @@ __all__ = [
     "workspace_usage_bytes",
     "workspace_usage_gb",
     "workspace_prefix",
+    "workspace_branding_key",
     "version_prefix",
     "version_pdf_key",
     "version_asset_key",

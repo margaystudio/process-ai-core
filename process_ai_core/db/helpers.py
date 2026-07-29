@@ -17,6 +17,8 @@ from typing import Dict, Any
 
 from sqlalchemy.orm import Session
 
+from process_ai_core.export.markdown_html import render_frozen_html
+
 logger = logging.getLogger(__name__)
 
 from .models import (
@@ -414,6 +416,7 @@ def create_process_document(
     detail_level: str = "",
     context_text: str = "",
     document_type: str = "procedimiento",
+    code: str | None = None,
 ) -> Process:
     """
     Crea un Process (hereda de Document).
@@ -450,6 +453,12 @@ def create_process_document(
         context_text=context_text,
     )
     session.add(process)
+    # El código se asigna al crear y no cambia nunca (ADR-019). flush() primero
+    # para que el documento exista antes de consultar la unicidad del código.
+    session.flush()
+    from process_ai_core.db.document_codes import assign_document_code
+
+    assign_document_code(session, process, override=code)
     return process
 
 
@@ -652,8 +661,9 @@ def reject_validation(
 
 def create_audit_log(
     session: Session,
-    document_id: str,
+    document_id: str | None,
     action: str,
+    folder_id: str | None = None,
     run_id: str | None = None,
     user_id: str | None = None,
     entity_type: str | None = None,
@@ -662,11 +672,26 @@ def create_audit_log(
     metadata_json: str = "{}",
 ) -> AuditLog:
     """
-    Crea un registro de auditoría.
-    
+    Crea un registro de auditoría que la operación NO puede darse el lujo de perder.
+
+    Esta versión propaga: si el audit log falla, se cae la operación entera. Usala
+    cuando lo que se está haciendo es un HECHO DE GOBERNANZA — aprobar, rechazar,
+    borrar un documento o una carpeta, cambiar quién puede ver qué. En esos casos
+    el valor de la operación ES la traza: una aprobación sin registro es peor que
+    ninguna aprobación, porque el sistema queda afirmando algo que no puede
+    sostener.
+
+    Para lo ORGANIZATIVO —crear, renombrar o mover una carpeta— usá
+    `create_audit_log_best_effort`. Una carpeta renombrada sin registrar no
+    debilita ninguna afirmación de gobernanza, y hacer del audit log un punto
+    único de falla para todo significa que nadie puede ordenar su biblioteca si
+    el logging tiene un problema.
+
     Args:
         session: Sesión de base de datos
-        document_id: ID del documento
+        document_id: ID del documento (opcional para eventos de carpeta)
+        folder_id: ID de la carpeta. Para eventos de documento se resuelve
+            automáticamente si no se proporciona.
         action: Acción realizada (created, updated, validated, rejected, etc.)
         run_id: ID del run (opcional)
         user_id: ID del usuario (opcional)
@@ -678,9 +703,20 @@ def create_audit_log(
     Returns:
         AuditLog creado
     """
+    if folder_id is None and document_id is not None:
+        # `session.get` pega en el identity map: quien audita una acción sobre un
+        # documento casi siempre lo tiene cargado en la sesión, así que el caso
+        # normal no cuesta ninguna consulta. Un `query(...).scalar()` iría a la
+        # base siempre, una vez por evento auditado.
+        document = session.get(Document, document_id)
+        folder_id = document.folder_id if document is not None else None
+    if document_id is None and folder_id is None:
+        raise ValueError("El audit log requiere document_id o folder_id")
+
     audit_log = AuditLog(
         id=str(uuid.uuid4()),
         document_id=document_id,
+        folder_id=folder_id,
         run_id=run_id,
         user_id=user_id,
         action=action,
@@ -691,6 +727,40 @@ def create_audit_log(
     )
     session.add(audit_log)
     return audit_log
+
+
+def create_audit_log_best_effort(session: Session, **kwargs) -> AuditLog | None:
+    """
+    Registra un evento ORGANIZATIVO sin poder tumbar la operación de negocio.
+
+    Devuelve el AuditLog o None si no se pudo registrar. El criterio para elegir
+    entre esta y `create_audit_log` está en el docstring de aquella.
+
+    Dos detalles que no son opcionales:
+
+    - **El SAVEPOINT.** En Postgres, una sentencia que falla aborta la
+      transacción entera. Atrapar la excepción en Python no la reanima: sin
+      `begin_nested()`, "no abortar" seria mentira — la operacion de negocio se
+      caeria igual, al primer flush siguiente y con un error que no dice nada.
+    - **El flush previo.** Asienta lo del negocio ANTES de abrir el savepoint. Si
+      no, el flush de adentro arrastraría también los cambios pendientes de la
+      operación, y un error de negocio terminaría tragado por este `except` —
+      justo al revés de lo que queremos.
+    """
+    session.flush()
+    try:
+        with session.begin_nested():
+            audit_log = create_audit_log(session=session, **kwargs)
+            session.flush()
+        return audit_log
+    except Exception as exc:
+        logger.warning(
+            "No se pudo registrar el evento organizativo %r (la operación sigue "
+            "siendo válida): %s",
+            kwargs.get("action"),
+            exc,
+        )
+        return None
 
 
 def get_or_create_draft(
@@ -788,7 +858,11 @@ def get_or_create_draft(
     content_markdown = "# Nuevo documento"
     content_type = "manual_edit"
     supersedes_version_id = None
-    
+    # Default para el DRAFT nuevo sin origen. Las ramas de abajo lo pisan con el
+    # HTML de la versión clonada, que ya es consistente con SU markdown: acá se
+    # copian los dos juntos, nunca uno sin el otro.
+    content_html = render_frozen_html(content_markdown)
+
     if source_version_id:
         # Clonar versión específica
         source_version = session.query(DocumentVersion).filter_by(id=source_version_id).first()
@@ -837,8 +911,8 @@ def get_or_create_draft(
                 content_type = rejected.content_type
                 supersedes_version_id = rejected.id
                 content_html = getattr(rejected, "content_html", None)
-            else:
-                content_html = None
+            # Sin APPROVED ni REJECTED de dónde clonar: queda el default de
+            # arriba, que ya es el HTML de "# Nuevo documento".
 
     # Crear nueva versión DRAFT
     draft_version = DocumentVersion(
@@ -1080,10 +1154,47 @@ def cancel_submission(
     return version
 
 
+#: Meses de vigencia por defecto si nadie elige una fecha. 24 es el ciclo de
+#: revisión habitual de un sistema de gestión documental. Se puede sobreescribir
+#: por workspace (metadata_json.governance.default_validity_months) o en el
+#: propio acto de aprobar.
+DEFAULT_VALIDITY_MONTHS = 24
+
+
+def workspace_default_validity_months(session: Session, workspace_id: str) -> int:
+    """Meses de vigencia por defecto del workspace, o el global."""
+    import json as _json
+
+    ws = session.query(Workspace).filter_by(id=workspace_id).first()
+    if not ws:
+        return DEFAULT_VALIDITY_MONTHS
+    try:
+        meta = _json.loads(ws.metadata_json) if ws.metadata_json else {}
+        valor = (meta.get("governance") or {}).get("default_validity_months")
+        if isinstance(valor, int) and 0 < valor <= 240:
+            return valor
+    except (ValueError, AttributeError):
+        pass
+    return DEFAULT_VALIDITY_MONTHS
+
+
+def _add_months(base, meses: int):
+    """Suma meses a una fecha sin dependencias externas (sin dateutil)."""
+    mes = base.month - 1 + meses
+    anio = base.year + mes // 12
+    mes = mes % 12 + 1
+    import calendar
+
+    dia = min(base.day, calendar.monthrange(anio, mes)[1])
+    return base.replace(year=anio, month=mes, day=dia)
+
+
 def approve_version(
     session: Session,
     validation_id: str,
     approver_id: str | None = None,
+    validity_until=None,
+    skip_validity: bool = False,
 ) -> DocumentVersion:
     """
     Aprueba una versión IN_REVIEW (cambia a APPROVED y marca como current).
@@ -1141,6 +1252,25 @@ def approve_version(
     version.version_status = "APPROVED"
     version.approved_at = datetime.now(UTC)
     version.approved_by = approver_id
+
+    # Vigencia: se fija ACÁ, en el acto de aprobar, y queda congelada con el
+    # resto del acta. No es una política del workspace —eso sería mutable y por
+    # lo tanto no imprimible—; el workspace solo aporta el valor por defecto que
+    # se propone al aprobador. `skip_validity` permite aprobar sin comprometer
+    # vencimiento (queda NULL y la portada omite la fila).
+    # El acta se congela ACÁ, junto con el resto de los hechos de la aprobación.
+    from process_ai_core.db.signatories import snapshot_acta_fields
+
+    snapshot_acta_fields(session, version)
+
+    if not skip_validity:
+        if validity_until is not None:
+            version.validity_until = validity_until
+        else:
+            documento = session.query(Document).filter_by(id=version.document_id).first()
+            if documento:
+                meses = workspace_default_validity_months(session, documento.workspace_id)
+                version.validity_until = _add_months(version.approved_at.date(), meses)
     version.is_current = True
     
     # Actualizar validación
@@ -1437,6 +1567,9 @@ def create_document_version(
         content_type=content_type,
         content_json=content_json,
         content_markdown=content_markdown,
+        # HTML congelado junto con el markdown (ver render_frozen_html): esta
+        # versión nace APPROVED, así que su render se congela enseguida.
+        content_html=render_frozen_html(content_markdown),
         approved_at=datetime.now(UTC),
         approved_by=approved_by,
         validation_id=validation_id,

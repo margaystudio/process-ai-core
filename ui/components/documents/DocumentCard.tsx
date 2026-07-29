@@ -82,6 +82,11 @@ export default function DocumentCard({
       <div className="flex items-start justify-between">
         <div className="flex-1">
           <div className="mb-2 flex items-center gap-2">
+            {document.code && (
+              <span className="font-mono text-xs font-semibold text-ink-400">
+                {document.code}
+              </span>
+            )}
             <h3 className="text-h3 text-ink-900">{document.name}</h3>
             {onStatusClick ? (
               <button

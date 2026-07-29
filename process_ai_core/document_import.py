@@ -14,7 +14,9 @@ from pathlib import Path
 
 from sqlalchemy.orm import Session
 
+from process_ai_core.db.document_codes import assign_document_code
 from process_ai_core.db.models import DocumentVersion, Folder, Process
+from process_ai_core.export.markdown_html import render_frozen_html
 from process_ai_core.media import _extract_text_from_document
 from process_ai_core.storage import get_storage
 from process_ai_core.storage.keys import version_source_file_key
@@ -118,6 +120,8 @@ def create_imported_document(
     )
     session.add(process)
     session.flush()
+    # Mismo código estable que para los documentos generados (ADR-019).
+    assign_document_code(session, process)
 
     version_status = "DRAFT" if requires_approval else "APPROVED"
     now = datetime.now(UTC)
@@ -131,7 +135,10 @@ def create_imported_document(
         content_type="imported",
         content_json=content_json,
         content_markdown=content_markdown,
-        content_html=None,
+        # Congelado desde la creación, igual que en el pipeline. Para un .pdf
+        # importado no se usa (el artefacto es el archivo original), pero para
+        # .docx/.md/.txt este HTML es lo que se va a imprimir.
+        content_html=render_frozen_html(content_markdown),
         approved_at=None if requires_approval else now,
         approved_by=None if requires_approval else user_id,
         validation_id=None,

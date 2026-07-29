@@ -3,7 +3,8 @@
 import { useState, useEffect, useRef } from 'react'
 import Image from 'next/image'
 import { X } from 'lucide-react'
-import { getVersionPreviewPdfUrl } from '@/lib/api'
+import { getVersionPdfUrl, isFrozenVersionStatus } from '@/lib/api'
+import type { VersionPdfTarget } from '@/hooks/usePdfViewer'
 import { authFetch, getAuthHeaders } from '@/lib/api-auth'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
@@ -19,8 +20,11 @@ interface ArtifactViewerModalProps {
   runId?: string
   filename?: string
   type: 'json' | 'markdown' | 'pdf'
-  /** Cuando está definido, para type 'pdf' se usa esta URL (PDF del borrador actual) en lugar del artifact del run. */
-  versionPreviewPdf?: { documentId: string; versionId: string } | null
+  /**
+   * Cuando está definido, para type 'pdf' se sirve el PDF de esa versión en
+   * lugar del artifact del run: el congelado si está APPROVED, si no el preview.
+   */
+  versionPreviewPdf?: VersionPdfTarget | null
 }
 
 export default function ArtifactViewerModal({
@@ -61,7 +65,11 @@ export default function ArtifactViewerModal({
 
         let absoluteUrl: string
         if (type === 'pdf' && versionPreviewPdf) {
-          absoluteUrl = getVersionPreviewPdfUrl(versionPreviewPdf.documentId, versionPreviewPdf.versionId)
+          absoluteUrl = getVersionPdfUrl(
+            versionPreviewPdf.documentId,
+            versionPreviewPdf.versionId,
+            versionPreviewPdf.versionStatus
+          )
         } else if (artifactUrl) {
           // URL ya firmada que viene del backend — usarla directamente.
           absoluteUrl = artifactUrl.startsWith('http') ? artifactUrl : `${API_URL}${artifactUrl}`
@@ -72,15 +80,23 @@ export default function ArtifactViewerModal({
 
         if (type === 'pdf') {
           setPdfFrameLoading(true)
-          const urlWithCacheBust = `${absoluteUrl}${absoluteUrl.includes('?') ? '&' : '?'}t=${Date.now()}`
-          // El endpoint preview-pdf de nuestra API exige el header Authorization (JWT):
+          // El PDF congelado se sirve con `private, no-cache` + ETag: el navegador
+          // lo guarda y revalida en cada apertura, resolviendo en 304 sin cuerpo.
+          // Cache-bustearlo con ?t= rompería eso (cada URL sería una entrada
+          // nueva) y volvería a bajar el PDF entero, así que solo se bustea el
+          // preview regenerado. `cache: 'default'` es el modo que revalida.
+          const isFrozen = Boolean(versionPreviewPdf) && isFrozenVersionStatus(versionPreviewPdf?.versionStatus)
+          const pdfRequestUrl = isFrozen
+            ? absoluteUrl
+            : `${absoluteUrl}${absoluteUrl.includes('?') ? '&' : '?'}t=${Date.now()}`
+          // El endpoint de PDF de nuestra API exige el header Authorization (JWT):
           // un <iframe>/fetch con solo cookies devuelve "Missing Authorization header".
           // Las URLs firmadas de storage (artifactUrl) NO deben llevar el header
           // (rompería el CORS del signed URL), por eso solo se agrega para versionPreviewPdf.
           const pdfHeaders = versionPreviewPdf ? await getAuthHeaders() : undefined
           try {
-            const response = await authFetch(urlWithCacheBust, {
-              cache: 'no-store',
+            const response = await authFetch(pdfRequestUrl, {
+              cache: isFrozen ? 'default' : 'no-store',
               credentials: 'include',
               headers: pdfHeaders,
               signal: abortController.signal,
@@ -138,7 +154,7 @@ export default function ArtifactViewerModal({
     // artifactUrl es un prop primitivo (string) y versionPreviewPdf viene de
     // useState en usePdfViewer (referencia estable salvo que cambie de verdad):
     // agregarlos no altera cuándo corre este efecto en la práctica.
-  }, [isOpen, runId, filename, type, artifactUrl, versionPreviewPdf, versionPreviewPdf?.documentId, versionPreviewPdf?.versionId])
+  }, [isOpen, runId, filename, type, artifactUrl, versionPreviewPdf, versionPreviewPdf?.documentId, versionPreviewPdf?.versionId, versionPreviewPdf?.versionStatus])
 
   useEffect(() => {
     if (error) {

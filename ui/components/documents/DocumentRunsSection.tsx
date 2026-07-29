@@ -39,7 +39,7 @@ interface DocumentRunsSectionProps {
   onGenerateNewVersion: () => void
   isGenerating: boolean
   // abrir artefactos
-  onOpenVersionPreviewPdf: (documentId: string, versionId: string) => void
+  onOpenVersionPreviewPdf: (documentId: string, versionId: string, versionStatus?: string | null) => void
   onOpenArtifactFromRun: (url: string, type: 'pdf' | 'markdown' | 'json') => void
 }
 
@@ -178,7 +178,7 @@ export function DocumentRunsSection({
                       onClick={() => {
                         const rv = getRelevantPdfVersion(run.run_id)
                         if (rv) {
-                          onOpenVersionPreviewPdf(documentId, rv.id)
+                          onOpenVersionPreviewPdf(documentId, rv.id, rv.version_status)
                         } else {
                           onOpenArtifactFromRun(run.artifacts.pdf!, 'pdf')
                         }

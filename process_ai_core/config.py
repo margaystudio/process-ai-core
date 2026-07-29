@@ -110,6 +110,12 @@ class Settings:
     # URL base de la API (para construir URLs absolutas en HTML/PDF)
     api_base_url: str = "http://localhost:8000"
 
+    # Base pública de la página donde se verifica la vigencia de una versión.
+    # Es la URL que va en el QR de la portada del PDF, así que apunta a la UI, no
+    # a la API. Vacío ⇒ se deriva de api_base_url (sirve en local; en prod se
+    # setea al dominio del tenant).
+    document_verification_base_url: str = ""
+
     # Firma de URLs de artefactos (HMAC-SHA256)
     # En producción DEBE setearse con ARTIFACT_SIGNING_SECRET; vacío solo se acepta en local/test.
     artifact_signing_secret: str = ""
@@ -154,6 +160,95 @@ class Settings:
     # rechazo"). El score es similitud coseno (con embeddings) u overlap léxico
     # (fallback), ambos en 0–1. Primer corte conservador; ajustar con uso real.
     tyto_relevance_threshold: float = 0.15
+
+
+# ── Render reproducible de PDFs ───────────────────────────────────────────────
+#
+# El PDF de una versión aprobada es un artefacto de auditoría: se guarda en
+# object storage y su SHA-256 queda persistido en `document_versions.pdf_sha256`.
+# Para que ese hash tenga sentido, el mismo contenido tiene que producir SIEMPRE
+# los mismos bytes. El enemigo es la fecha de creación que los motores de PDF
+# embeben en el archivo: cambia por segundo y cambia el hash.
+#
+# SOURCE_DATE_EPOCH es el contrato estándar de reproducible-builds para fijarla.
+# Se setea UNA vez por proceso y con un valor CONSTANTE — nunca derivado de la
+# versión ni de su approved_at — por dos razones:
+#
+#   1. `os.environ` es global al proceso y los handlers corren en un threadpool.
+#      Dos renders concurrentes con valores distintos se pisarían. Con un valor
+#      constante el pisarse es inofensivo (todos escriben lo mismo) y no hace
+#      falta un lock global que serialice todo el rendering.
+#   2. Un valor que varía por versión reintroduce exactamente el problema que
+#      esto viene a resolver.
+#
+# Valor elegido: 0 → 1970-01-01T00:00:00Z. A propósito un sentinel evidente:
+# quien abra las propiedades del PDF y lea "01/01/1970" entiende que esa fecha
+# no significa nada. NO la "arregles" poniendo la fecha real — la fecha de
+# aprobación con valor probatorio vive en `document_versions.approved_at` y se
+# imprime en la portada del documento, no en la metadata del archivo.
+PDF_SOURCE_DATE_EPOCH = "0"
+
+
+def is_production_environment() -> bool:
+    """True fuera de local/test. Mismo criterio que api/artifact_signing.py."""
+    return os.getenv("ENVIRONMENT", "local") not in ("local", "test")
+
+
+def resolve_verification_base_url() -> str:
+    """
+    Base pública de la página de verificación de vigencia.
+
+    En producción NO cae al fallback y falla ruidoso. La razón es que esta URL se
+    imprime en el QR de un PDF que POR DISEÑO no se puede reescribir: si se
+    aprueba un documento con `api_base_url` apuntando a una URL efímera de Cloud
+    Run (https://api-xyz-uc.a.run.app), esa URL queda grabada para siempre en el
+    artefacto y deja de resolver el día que cambie el dominio. Un arranque que
+    falla se arregla en minutos; un PDF congelado con una URL muerta, nunca.
+
+    En local/test sí cae a `api_base_url`, que es la misma máquina.
+    """
+    settings = get_settings()
+    base = (settings.document_verification_base_url or "").strip().rstrip("/")
+    if base:
+        return base
+
+    if is_production_environment():
+        raise RuntimeError(
+            "DOCUMENT_VERIFICATION_BASE_URL no está configurado. Es obligatorio "
+            "fuera de local/test: esa URL se imprime en el QR de cada PDF "
+            "aprobado y el artefacto no se puede reescribir después. Seteala al "
+            "dominio público estable de la UI (ej. https://process.tudominio.com)."
+        )
+    return (settings.api_base_url or "").strip().rstrip("/")
+
+
+def apply_reproducible_render_env() -> None:
+    """
+    Fija en el entorno del proceso las variables que hacen reproducible el render
+    de PDFs. Idempotente y segura entre threads: siempre escribe el mismo valor.
+
+    Efecto medido por motor (ver tests/test_pdf_reproducibility.py):
+
+    - WeasyPrint (único motor de salida desde Fase B): ya es determinístico por
+      sí solo — no escribe /CreationDate ni /ID salvo que se lo pidan. NO lee
+      SOURCE_DATE_EPOCH: setearla no cambia sus bytes. Se deja porque es barata
+      y porque la variable es el contrato estándar: si una versión futura del
+      motor empieza a embeber la fecha, ya está cubierto.
+    - Pandoc + xelatex: era el camino de Markdown y SÍ necesitaba esta variable
+      (sin ella cada render daba bytes distintos). Ese camino se eliminó — todo
+      el Markdown se convierte a HTML antes de renderizar. Se documenta acá
+      porque es el motivo por el que la variable existe en este código.
+
+    FORCE_SOURCE_DATE es lo que pdftex/luatex necesitan para honrar
+    SOURCE_DATE_EPOCH; ya no hay motor LaTeX en el camino, pero se setea igual
+    por si algún proceso auxiliar lo usa.
+
+    Se sobrescribe cualquier valor externo a propósito: algunos CI exportan
+    SOURCE_DATE_EPOCH con el timestamp del build, y eso haría que un PDF
+    recongelado después de un deploy no coincidiera con el anterior.
+    """
+    os.environ["SOURCE_DATE_EPOCH"] = PDF_SOURCE_DATE_EPOCH
+    os.environ["FORCE_SOURCE_DATE"] = "1"
 
 
 def _env_bool(name: str, *, default: bool) -> bool:
@@ -205,6 +300,7 @@ def get_settings() -> Settings:
     return Settings(
         openai_api_key=os.getenv("OPENAI_API_KEY", ""),
         api_base_url=os.getenv("API_BASE_URL", "http://localhost:8000"),
+        document_verification_base_url=os.getenv("DOCUMENT_VERIFICATION_BASE_URL", ""),
         artifact_signing_secret=os.getenv("ARTIFACT_SIGNING_SECRET", ""),
         artifact_url_ttl_seconds=int(os.getenv("ARTIFACT_URL_TTL_SECONDS", "900")),
         storage_backend=os.getenv("STORAGE_BACKEND", "local"),

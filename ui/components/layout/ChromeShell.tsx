@@ -102,13 +102,16 @@ export default function ChromeShell({ children }: { children: React.ReactNode })
           active: active('/documents/new'),
           onClick: go('/documents/new'),
         },
-        {
-          label: 'Importar documentación',
-          icon: <Upload />,
-          // No tiene ruta propia — se abre modal desde Biblioteca
-          active: false,
-          onClick: go('/workspace'),
-        },
+        ...(canAdminister
+          ? [
+              {
+                label: 'Importar documentación',
+                icon: <Upload />,
+                active: active('/import'),
+                onClick: go('/import'),
+              },
+            ]
+          : []),
       ],
     },
     {

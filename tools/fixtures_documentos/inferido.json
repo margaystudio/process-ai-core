@@ -1,0 +1,58 @@
+{
+  "schema_version": 2,
+  "process_name": "Recepción de combustible (con inferencias)",
+  "objetivo": "Verificar que el volumen descargado coincida con el remito del proveedor.",
+  "pasos": [
+    {
+      "order": 1,
+      "actor": "Encargado",
+      "action": "Mide el tanque antes de la descarga.",
+      "input": "Varilla de medición",
+      "output": "Medición inicial",
+      "confianza": "relevado"
+    },
+    {
+      "order": 2,
+      "actor": "Encargado",
+      "action": "Mide el tanque al terminar y compara con el remito.",
+      "input": "Remito",
+      "output": "Diferencia registrada",
+      "confianza": "relevado"
+    },
+    {
+      "order": 3,
+      "actor": "Auditor interno",
+      "action": "Concilia las diferencias del mes contra las facturas.",
+      "input": "Remitos del mes",
+      "output": "Informe de conciliación",
+      "confianza": "inferido"
+    }
+  ],
+  "actores": [
+    {
+      "rol": "Encargado",
+      "responsabilidad": "Controla la descarga de punta a punta.",
+      "confianza": "relevado"
+    },
+    {
+      "rol": "Auditor interno",
+      "responsabilidad": "Revisa las diferencias acumuladas del mes.",
+      "confianza": "inferido"
+    }
+  ],
+  "frecuencia": "Dos veces por semana, según el cronograma del proveedor.",
+  "oportunidades": "Un registro fotográfico de la varilla dejaría evidencia del control.",
+  "campos_inferidos": [
+    "frecuencia",
+    "oportunidades"
+  ],
+  "riesgos": [
+    {
+      "riesgo": "Diferencia de volumen no detectada por medición imprecisa",
+      "control_actual": "",
+      "evidencia": "",
+      "criticidad": "alta",
+      "confianza": "inferido"
+    }
+  ]
+}

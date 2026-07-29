@@ -20,7 +20,8 @@ import {
   patchDocumentWithAI,
   getDocumentAuditLog,
   getDocumentVersions,
-  getVersionPreviewPdfUrl,
+  getVersionPdfUrl,
+  isFrozenVersionStatus,
   cancelDocumentSubmission,
   submitVersionForReview,
   getUser,
@@ -273,14 +274,17 @@ export default function DocumentDetailPage() {
 
   const previewVersion = getRelevantPdfVersion()
 
-  // El endpoint de preview-pdf exige auth (Bearer) y un <iframe src> NO puede
+  // El endpoint de PDF exige auth (Bearer) y un <iframe src> NO puede
   // mandar ese header → 401. Lo fetcheamos con el token y lo servimos como blob URL.
+  // Si la versión está APPROVED se pide el artefacto congelado (sin re-render de
+  // WeasyPrint y cacheable); si es editable, el preview regenerado.
   useEffect(() => {
     const version = getRelevantPdfVersion()
     if (!version) {
       setPdfBlobUrl(null)
       return
     }
+    const isFrozen = isFrozenVersionStatus(version.version_status)
     let cancelled = false
     let objectUrl: string | null = null
     ;(async () => {
@@ -289,9 +293,9 @@ export default function DocumentDetailPage() {
         const token = await getAccessToken()
         const headers: HeadersInit = {}
         if (token) headers['Authorization'] = `Bearer ${token}`
-        const res = await authFetch(getVersionPreviewPdfUrl(documentId, version.id), {
+        const res = await authFetch(getVersionPdfUrl(documentId, version.id, version.version_status), {
           headers,
-          cache: 'no-store',
+          cache: isFrozen ? 'default' : 'no-store',
         })
         if (!res.ok) {
           if (!cancelled) setPdfBlobUrl(null)
@@ -346,13 +350,26 @@ export default function DocumentDetailPage() {
     setIsEditing(false)
   }
 
+  // Qué cambió en esta versión, según el autor. Va al historial de versiones
+  // impreso en el PDF, así que se pide acá —cuando el autor todavía tiene
+  // presente qué tocó— y no al aprobar, que es otra persona y otro momento.
+  const [cambiosPrincipales, setCambiosPrincipales] = useState('')
+
   async function handleSubmitForReview() {
     if (!draftVersion || !userId || !selectedWorkspaceId) return
     await withLoading(async () => {
       try {
         setIsSubmittingForReview(true)
         setError(null)
-        await submitVersionForReview(documentId, draftVersion.id, userId, selectedWorkspaceId)
+        await submitVersionForReview(
+          documentId,
+          draftVersion.id,
+          userId,
+          selectedWorkspaceId,
+          [],
+          cambiosPrincipales.trim()
+        )
+        setCambiosPrincipales('')
         const [updatedDoc, updatedVersions, updatedValidations] = await Promise.all([
           getDocument(documentId),
           getDocumentVersions(documentId),
@@ -616,6 +633,33 @@ export default function DocumentDetailPage() {
             Borrador guardado. Usá <strong>Ver PDF</strong> para ver los cambios o{' '}
             <strong>Enviar a revisión</strong> cuando estés listo.
           </span>
+        </div>
+      )}
+
+      {/* Cambios principales: se piden al AUTOR, antes de enviar a revisión.
+          Quedan impresos en el historial de versiones del PDF aprobado, y el
+          aprobador los ve en la pantalla de revisión antes de decidir. */}
+      {actions.canSubmitForReview && draftVersion && !isEditing && (
+        <div className="mb-4 rounded-lg border border-ink-200 bg-white px-5 py-4">
+          <label
+            htmlFor="cambios-principales"
+            className="block text-sm font-semibold text-ink-800"
+          >
+            Cambios principales de esta versión
+          </label>
+          <p className="mt-0.5 text-xs text-ink-500">
+            Se imprime en el historial de versiones del documento aprobado. Opcional, pero
+            es lo que va a leer quien consulte por qué cambió.
+          </p>
+          <textarea
+            id="cambios-principales"
+            value={cambiosPrincipales}
+            onChange={(e) => setCambiosPrincipales(e.target.value)}
+            rows={2}
+            maxLength={500}
+            placeholder="Ej.: Se incorpora el arqueo de vales de flota y el control cruzado con el reporte de surtidores."
+            className="mt-2 w-full rounded-[9px] border border-line-input bg-surface px-3 py-2 text-[13px] text-ink-800 placeholder:text-ink-400"
+          />
         </div>
       )}
 
