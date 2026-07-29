@@ -44,3 +44,6 @@ ops/**/*.config.toml
 
 # Backups locales previos al cutover de infra (no versionar)
 *.pre-cutover.bak
+
+# Salida de tools/generar_documentos_muestra.py (se regenera en segundos)
+muestras_pdf/
