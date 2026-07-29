@@ -136,7 +136,17 @@ describe('ImportPage', () => {
     await user.click(screen.getByRole('button', { name: 'Aprobar seleccionados (1)' }))
 
     await waitFor(() => {
-      expect(approveDocumentValidation).toHaveBeenCalledWith(importedDocument.id)
+      // El último argumento es `deferFreeze`, y en el lote tiene que ir en true:
+      // congelar el PDF dentro de cada request convierte un lote de 50 en varios
+      // minutos sin cancelación. El artefacto lo produce después el barrido
+      // (tools/freeze_pending_pdfs.py) o la primera apertura.
+      expect(approveDocumentValidation).toHaveBeenCalledWith(
+        importedDocument.id,
+        undefined,
+        undefined,
+        undefined,
+        true
+      )
     })
     expect(await screen.findByText('Aprobado')).toBeInTheDocument()
   })
