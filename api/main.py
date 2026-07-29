@@ -201,5 +201,23 @@ async def health():
         result["semantic"] = {"ok": False, "error": str(exc)}
         result["status"] = "degraded"
 
+    # Versiones aprobadas sin su artefacto de auditoría. Es un contador de cola,
+    # no un error: aprobar en lote difiere el freeze a propósito, y el barrido o
+    # la primera apertura lo resuelven. Lo que importa es la DERIVADA — si no
+    # baja después de correr tools/freeze_pending_pdfs.py, el freeze está
+    # fallando sistemáticamente. Causa más probable desde que la verificación de
+    # integridad aborta el freeze: una evidencia que ya no está en storage.
+    #
+    # No degrada el status a propósito: una cola transitoria es operación normal
+    # y un health en rojo que se prende solo con cada lote deja de mirarse.
+    try:
+        from process_ai_core.db.database import get_db_session
+        from api.routes._freeze import count_versions_pending_freeze
+
+        with get_db_session() as _session:
+            result["approved_versions_pending_freeze"] = count_versions_pending_freeze(_session)
+    except Exception as exc:  # pragma: no cover - defensivo
+        result["approved_versions_pending_freeze"] = {"error": str(exc)}
+
     return result
 

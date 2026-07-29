@@ -188,3 +188,110 @@ def freeze_approved_pdf(session: Session, version: DocumentVersion, api_base: st
             getattr(version, "id", "?"), exc,
         )
         return False
+
+
+# ── Barrido de pendientes ────────────────────────────────────────────────────
+#
+# El freeze puede quedar pendiente por dos caminos legítimos: una aprobación con
+# `defer_freeze=True` (lote), o un freeze que falló al aprobar. El GET del PDF
+# congela bajo demanda, pero eso deja un agujero: si nadie abre nunca el PDF de
+# un documento aprobado, el artefacto de auditoría NO EXISTE. Para un sistema de
+# gobernanza eso no es aceptable — el artefacto tiene que existir aunque nadie lo
+# mire, porque su razón de ser es estar disponible el día que alguien pregunte.
+
+
+def count_versions_pending_freeze(session: Session, workspace_id: str | None = None) -> int:
+    """
+    Cuántas versiones APPROVED no tienen todavía su PDF congelado.
+
+    Es la métrica que avisa si el freeze está fallando sistemáticamente. Un valor
+    que sube y no baja después de correr el barrido no es backlog: es que el
+    render viene fallando. Ojo con leerla como ruido — desde que la verificación
+    de integridad ABORTA el freeze cuando falta una evidencia, un pico acá puede
+    ser justamente que se está evitando publicar un PDF con imágenes faltantes.
+    """
+    query = session.query(DocumentVersion).filter(
+        DocumentVersion.version_status == "APPROVED",
+        DocumentVersion.pdf_storage_key.is_(None),
+    )
+    if workspace_id is not None:
+        query = query.join(Document, Document.id == DocumentVersion.document_id).filter(
+            Document.workspace_id == workspace_id
+        )
+    return query.count()
+
+
+def freeze_pending_versions(
+    session: Session,
+    *,
+    limit: int = 50,
+    workspace_id: str | None = None,
+    dry_run: bool = False,
+) -> dict:
+    """
+    Congela hasta `limit` versiones APPROVED que no tengan PDF.
+
+    Idempotente y seguro de correr en paralelo con el freeze bajo demanda:
+
+    - `SKIP LOCKED` esquiva las filas que otro proceso ya tiene tomadas por el
+      `with_for_update()` del GET del PDF, en vez de bloquearse detrás de ellas.
+      Dos barridos simultáneos se reparten el trabajo en vez de pelearlo.
+    - Se re-chequea `pdf_storage_key` DESPUÉS de tomar el lock: si el ganador de
+      la carrera ya congeló, esta pasada no re-renderiza.
+    - `freeze_approved_pdf` ya es idempotente por su cuenta.
+
+    Cada versión va en su propia transacción: un documento con una evidencia
+    faltante aborta SU freeze y el barrido sigue con el resto, en vez de tirar
+    abajo el lote entero.
+    """
+    candidatas = (
+        session.query(DocumentVersion.id)
+        .filter(
+            DocumentVersion.version_status == "APPROVED",
+            DocumentVersion.pdf_storage_key.is_(None),
+        )
+    )
+    if workspace_id is not None:
+        candidatas = candidatas.join(
+            Document, Document.id == DocumentVersion.document_id
+        ).filter(Document.workspace_id == workspace_id)
+
+    ids = [fila[0] for fila in candidatas.order_by(DocumentVersion.created_at).limit(limit).all()]
+
+    resultado = {"candidatas": len(ids), "congeladas": 0, "salteadas": 0, "fallidas": 0}
+    if dry_run:
+        resultado["ids"] = ids
+        return resultado
+
+    for version_id in ids:
+        try:
+            version = (
+                session.query(DocumentVersion)
+                .filter_by(id=version_id)
+                .populate_existing()
+                .with_for_update(skip_locked=True)
+                .one_or_none()
+            )
+            if version is None:
+                # La tiene tomada el freeze bajo demanda: es suya, no nuestra.
+                resultado["salteadas"] += 1
+                session.rollback()
+                continue
+            if version.pdf_storage_key:
+                resultado["salteadas"] += 1
+                session.rollback()
+                continue
+
+            if freeze_approved_pdf(session, version):
+                session.commit()
+                resultado["congeladas"] += 1
+            else:
+                session.rollback()
+                resultado["fallidas"] += 1
+                logger.warning("Barrido: no se pudo congelar la versión %s", version_id)
+        except Exception as exc:
+            session.rollback()
+            resultado["fallidas"] += 1
+            logger.warning("Barrido: error congelando la versión %s: %s", version_id, exc)
+
+    return resultado

@@ -1397,7 +1397,16 @@ export async function approveDocumentValidation(
    * `sinVencimiento` ⇒ se aprueba sin comprometer fecha.
    */
   validityUntil?: string | null,
-  sinVencimiento?: boolean
+  sinVencimiento?: boolean,
+  /**
+   * No congelar el PDF dentro de este request. Para aprobación por lote: el
+   * freeze cuesta un render + una subida, y en un lote secuencial eso son
+   * minutos. El artefacto lo produce después el barrido
+   * (tools/freeze_pending_pdfs.py) o la primera apertura del PDF, lo que pase
+   * antes. Es seguro porque el acta está congelada en la versión: congelar más
+   * tarde da el mismo documento.
+   */
+  deferFreeze?: boolean
 ): Promise<ValidationDecisionResponse> {
   // Obtener token de autenticación
   const { getAuthHeaders } = await import('@/lib/api-auth')
@@ -1412,6 +1421,7 @@ export async function approveDocumentValidation(
       observations: observations || '',
       validity_until: validityUntil || null,
       sin_vencimiento: Boolean(sinVencimiento),
+      defer_freeze: Boolean(deferFreeze),
     }),
   });
 

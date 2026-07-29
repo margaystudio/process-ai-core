@@ -267,7 +267,19 @@ export default function ImportPage() {
     for (const item of selected) {
       updateItem(item.id, { status: 'approving', error: null })
       try {
-        await approveDocumentValidation((item.document as Document).id)
+        // deferFreeze: el lote no congela el PDF dentro de cada request.
+        // Congelar cuesta un render + una subida; en un lote secuencial son
+        // minutos sin cancelación. El artefacto lo produce el barrido
+        // (tools/freeze_pending_pdfs.py) o la primera apertura, lo que pase
+        // antes — y sale idéntico, porque el acta ya está congelada en la
+        // versión.
+        await approveDocumentValidation(
+          (item.document as Document).id,
+          undefined,
+          undefined,
+          undefined,
+          true
+        )
         updateItem(item.id, {
           status: 'approved',
           selected: false,
