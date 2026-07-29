@@ -5,12 +5,16 @@ Se extrajeron del módulo monolítico original (documents.py) para que crud,
 runs, content y versions puedan reutilizarlos sin duplicar lógica.
 """
 
+import logging
 import re
 from typing import Optional
 
 from fastapi import HTTPException
 
 from api.artifact_signing import sign_artifact_url
+from process_ai_core.export.markdown_html import markdown_to_html, strip_latex_artifacts
+
+logger = logging.getLogger(__name__)
 
 
 def _assert_doc_in_active_workspace(doc_workspace_id: str, active_workspace_id: str, document_id: str) -> None:
@@ -19,27 +23,28 @@ def _assert_doc_in_active_workspace(doc_workspace_id: str, active_workspace_id: 
         raise HTTPException(status_code=404, detail=f"Documento {document_id} no encontrado")
 
 
-_LATEX_ARTIFACT_RE = re.compile(
-    r"\\(?:FloatBarrier|clearpage|newpage|pagebreak|vspace\{[^}]*\}|hspace\{[^}]*\}|noindent|medskip|bigskip|smallskip)",
-    re.IGNORECASE,
-)
-
-
-def _strip_latex_artifacts(text: str) -> str:
-    """Elimina comandos LaTeX que no tienen equivalente HTML y quedarían como texto basura."""
-    return _LATEX_ARTIFACT_RE.sub("", text)
+# Alias del core: la conversión markdown→HTML es ahora la puerta de entrada del
+# único motor de PDF, así que la implementación vive en process_ai_core.export
+# para que el core no dependa de api/. Ver process_ai_core/export/markdown_html.py.
+_strip_latex_artifacts = strip_latex_artifacts
 
 
 def _markdown_to_html(md: str) -> str:
-    """Convierte Markdown a HTML para precarga del editor manual."""
-    # Limpiar artefactos LaTeX antes de convertir (no tienen sentido en HTML)
-    md = _strip_latex_artifacts(md or "")
+    """
+    Convierte Markdown a HTML para precarga del editor manual.
+
+    Tolera un fallo de la librería devolviendo texto escapado: acá el HTML es
+    solo lo que se precarga en el editor, y dejar al usuario sin pantalla es peor
+    que mostrarle el markdown plano. El camino del PDF NO usa este fallback
+    (`markdown_to_html` lanza), porque ahí un HTML degradado se congelaría como
+    artefacto de auditoría.
+    """
     try:
-        import markdown
-        return markdown.markdown(md, extensions=["extra", "nl2br", "tables", "sane_lists"])
+        return markdown_to_html(md)
     except Exception:
+        logger.warning("Falló la conversión markdown→HTML para el editor; se usa texto plano")
         import html as html_mod
-        return "".join(f"<p>{html_mod.escape(line)}</p>" for line in md.splitlines())
+        return "".join(f"<p>{html_mod.escape(line)}</p>" for line in (md or "").splitlines())
 
 
 def _rewrite_img_src_to_absolute(

@@ -22,7 +22,23 @@ dependencies = [
     "python-jose[cryptography]>=3.3.0",
     "email-validator>=2.0.0",
     "markdown>=3.5.0",
-    "weasyprint>=60.0",
+    # WeasyPrint NO es una dependencia cualquiera: es el único motor de salida y
+    # su versión es parte del contrato del artefacto de auditoría. El PDF de una
+    # versión aprobada tiene su SHA-256 registrado en document_versions; si un
+    # rebuild trae otro major, el layout cambia y un re-freeze produciría un PDF
+    # distinto del que tiene el hash guardado.
+    #
+    # Antes decía `>=60.0` sin techo, y el contenedor corría 69.0 mientras local
+    # tenía 68.1 — dos motores distintos para el mismo artefacto. El techo va en
+    # el major siguiente, no dos majores más adelante: un rango como `>=68.1,<70`
+    # permitiría exactamente la divergencia que esto viene a cerrar.
+    #
+    # Para subir de major: verificar reproducibilidad (tests/test_pdf_reproducibility.py)
+    # y comparar visualmente un PDF antes/después, porque cambia la paginación.
+    "weasyprint>=69.0,<70",
+    # QR de verificación de la portada del PDF. `[pil]` porque se genera como
+    # PNG para embeberlo como data URI (ver process_ai_core/export/qr.py).
+    "qrcode[pil]>=7.4,<9",
     "pypdf>=4.0.0",
     "python-docx>=1.0.0",
     "pytesseract>=0.3.10",

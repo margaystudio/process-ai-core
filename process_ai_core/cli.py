@@ -9,7 +9,7 @@ Punto de entrada mínimo (CLI "simple") para ejecutar el flujo end-to-end del co
 3) Construir un prompt consolidado para el LLM.
 4) Pedir al LLM un JSON estructurado (ProcessDocument).
 5) Parsear ese JSON a modelos de dominio.
-6) Renderizar un Markdown final (y opcionalmente PDF via Pandoc).
+6) Renderizar un Markdown final (y opcionalmente PDF via WeasyPrint).
 
 Este archivo está pensado para:
 - demo local rápida,
@@ -47,7 +47,7 @@ def main() -> None:
     - Descubre insumos en `./input/`.
     - Enriquece insumos para el prompt (transcripción/copia de imágenes/etc.).
     - Genera JSON con el LLM.
-    - Renderiza Markdown (y opcionalmente PDF con Pandoc).
+    - Renderiza Markdown (y opcionalmente PDF con WeasyPrint).
     - Persiste outputs en `settings.output_dir`.
 
     Raises
@@ -95,13 +95,13 @@ def main() -> None:
     print(f"✅ JSON generado en: {json_path.resolve()}")
     print(f"✅ Documento generado en: {md_path.resolve()}")
 
-    # 6) Export PDF (Pandoc) - en el mismo flujo pero encapsulado
+    # 6) Export PDF (WeasyPrint) - en el mismo flujo pero encapsulado
     try:
         export_pdf(run_dir=output_dir, md_path=md_path, pdf_name=pdf_name)
         print(f"📄 PDF generado en: {pdf_path.resolve()}")
     except Exception as e:
-        print(f"⚠️ No se pudo generar el PDF con Pandoc. Motivo: {e}")
-        print("   Tip: instalá pandoc (brew install pandoc) y reintentá.")
+        print(f"⚠️ No se pudo generar el PDF con WeasyPrint. Motivo: {e}")
+        print("   Tip: revisá que WeasyPrint y sus librerías de sistema estén instaladas.")
 
 
 if __name__ == "__main__":
