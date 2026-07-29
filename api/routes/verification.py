@@ -139,6 +139,12 @@ def verify_document_version(
             # Para contrastar contra el PDF que la persona tiene en la mano.
             "pdf_sha256": version.pdf_sha256,
             "version_vigente_number": vigente.version_number if vigente else None,
+            # Sin el id, decir "existe una versión más nueva" es dejar a la
+            # persona con el problema y sin la salida: no tiene forma de llegar
+            # a ella desde el teléfono. Con el id, la página enlaza directo a su
+            # verificación. No filtra nada: la vista pública de esa versión es
+            # la misma que la de esta.
+            "version_vigente_id": vigente.id if vigente else None,
             "version_vigente_approved_at": (
                 vigente.approved_at.isoformat() if vigente and vigente.approved_at else None
             ),
