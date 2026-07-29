@@ -51,6 +51,22 @@ if not SCHEMA:
     SCHEMA = "process_ai"
 
 
+def _try_ddl(conn, ddl: str) -> bool:
+    """
+    DDL opcional dentro de un savepoint (ver el mismo helper en 0005).
+
+    Sin `begin_nested()`, la sentencia que falla aborta la transacción entera y
+    atrapar la excepción no la reanima: revienta la siguiente, con un error que
+    señala al lugar equivocado.
+    """
+    try:
+        with conn.begin_nested():
+            conn.execute(text(ddl))
+        return True
+    except Exception:
+        return False
+
+
 def _has_extension(conn, name: str) -> bool:
     return (
         conn.execute(
@@ -97,32 +113,24 @@ def upgrade() -> None:
     )
 
     if has_vector:
-        try:
-            conn.execute(
-                text(
-                    f"CREATE INDEX IF NOT EXISTS ix_knowledge_objects_name_embedding_hnsw "
-                    f'ON "{SCHEMA}".knowledge_objects USING hnsw (name_embedding vector_cosine_ops)'
-                )
-            )
-        except Exception:
-            # pgvector < 0.5 no soporta hnsw; el matching funciona igual (seq scan).
-            pass
+        # pgvector < 0.5 no soporta hnsw; el matching funciona igual (seq scan).
+        _try_ddl(
+            conn,
+            f"CREATE INDEX IF NOT EXISTS ix_knowledge_objects_name_embedding_hnsw "
+            f'ON "{SCHEMA}".knowledge_objects USING hnsw (name_embedding vector_cosine_ops)',
+        )
 
     # Índice trgm sobre la EXPRESIÓN (normalized_name::text): el único que el planner
     # elige para el shortlist con `%` (ver docstring). Requiere pg_trgm.
     if _has_extension(conn, "pg_trgm"):
         trgm_schema = _extension_schema(conn, "pg_trgm")
         opclass = f'"{trgm_schema}".gin_trgm_ops' if trgm_schema else "gin_trgm_ops"
-        try:
-            conn.execute(
-                text(
-                    f"CREATE INDEX IF NOT EXISTS ix_knowledge_objects_name_trgm_txt "
-                    f'ON "{SCHEMA}".knowledge_objects '
-                    f"USING gin ((normalized_name::text) {opclass})"
-                )
-            )
-        except Exception:
-            pass
+        _try_ddl(
+            conn,
+            f"CREATE INDEX IF NOT EXISTS ix_knowledge_objects_name_trgm_txt "
+            f'ON "{SCHEMA}".knowledge_objects '
+            f"USING gin ((normalized_name::text) {opclass})",
+        )
 
 
 def downgrade() -> None:
