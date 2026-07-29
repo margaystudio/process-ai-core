@@ -13,7 +13,7 @@ interface DocumentBodyCardProps {
   documentId: string
   /** Versión cuyo PDF debe mostrarse (DRAFT manual_edit > IN_REVIEW > APPROVED > DRAFT). */
   version: DocumentVersion | null
-  /** URL del PDF ya calculada por el caller (getVersionPreviewPdfUrl). */
+  /** Blob URL del PDF ya resuelta por el caller (getVersionPdfUrl + authFetch). */
   pdfUrl: string | null
 }
 

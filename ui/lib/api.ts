@@ -198,6 +198,8 @@ export interface DocumentMetadata {
 }
 
 export interface Document {
+  /** Codificación documental estable (ej. PR-0042). No cambia nunca — ADR-019. */
+  code?: string | null;
   id: string;
   workspace_id: string;
   folder_id?: string;
@@ -1340,7 +1342,14 @@ export interface ValidationDecisionResponse {
  */
 export async function approveDocumentValidation(
   documentId: string,
-  observations?: string
+  observations?: string,
+  /**
+   * Vigencia comprometida en ESTE acto de aprobación. Queda congelada en el acta
+   * del PDF. `undefined` ⇒ el backend usa el default del workspace;
+   * `sinVencimiento` ⇒ se aprueba sin comprometer fecha.
+   */
+  validityUntil?: string | null,
+  sinVencimiento?: boolean
 ): Promise<ValidationDecisionResponse> {
   // Obtener token de autenticación
   const { getAuthHeaders } = await import('@/lib/api-auth')
@@ -1351,7 +1360,11 @@ export async function approveDocumentValidation(
   const response = await authFetch(`${API_URL}/api/v1/documents/${documentId}/validate/approve`, {
     method: 'POST',
     headers,
-    body: JSON.stringify({ observations: observations || '' }),
+    body: JSON.stringify({
+      observations: observations || '',
+      validity_until: validityUntil || null,
+      sin_vencimiento: Boolean(sinVencimiento),
+    }),
   });
 
   if (!response.ok) {
@@ -1467,16 +1480,60 @@ export interface DocumentVersion {
   rejected_at: string | null;
   rejected_by: string | null;
   is_current: boolean;
+  /** Hasta cuándo se comprometió la vigencia de esta aprobación (fijada al aprobar). */
+  validity_until?: string | null;
   created_by: string | null; // Usuario que creó la versión
   created_at: string;
 }
 
 /**
- * URL del PDF de una versión (fuente de verdad: content_html si existe, si no content_markdown).
- * Usar para "Ver PDF" del documento/versión actual; no modifica artefactos del run.
+ * URL del PDF REGENERADO de una versión editable (DRAFT / IN_REVIEW / REJECTED):
+ * se renderiza en cada request desde content_html (si existe) o content_markdown.
+ * No modifica artefactos del run.
+ *
+ * Para versiones APPROVED usar getVersionFrozenPdfUrl: este endpoint redirige
+ * (307) a ese, porque regenerar rompería el hash registrado del artefacto.
  */
 export function getVersionPreviewPdfUrl(documentId: string, versionId: string): string {
   return `${API_URL}/api/v1/documents/${documentId}/versions/${versionId}/preview-pdf`;
+}
+
+/**
+ * URL del PDF CONGELADO de una versión aprobada: los bytes exactos que se
+ * subieron a storage al aprobarla, con su SHA-256 registrado como ETag.
+ *
+ * El backend responde `private, no-cache`: el navegador lo cachea pero revalida
+ * en cada apertura (304 sin cuerpo). Es a propósito — el artefacto no cambia,
+ * pero el permiso para verlo sí, y así se re-verifica en cada apertura. Por eso
+ * esta URL NO debe llevar cache-buster.
+ */
+export function getVersionFrozenPdfUrl(documentId: string, versionId: string): string {
+  return `${API_URL}/api/v1/documents/${documentId}/versions/${versionId}/pdf`;
+}
+
+/**
+ * True si el PDF de una versión con este estado es un artefacto inmutable.
+ *
+ * Solo APPROVED: OBSOLETE puede tener PDF congelado (si en su momento se
+ * aprobó) o no, y el backend resuelve ese caso redirigiendo desde preview-pdf.
+ * Pedirle el congelado directo daría 404 en las que nunca se congelaron.
+ */
+export function isFrozenVersionStatus(versionStatus?: string | null): boolean {
+  return versionStatus === 'APPROVED';
+}
+
+/**
+ * URL del PDF correcto para una versión según su estado: el artefacto congelado
+ * si está aprobada, el preview regenerado si sigue siendo editable.
+ */
+export function getVersionPdfUrl(
+  documentId: string,
+  versionId: string,
+  versionStatus?: string | null,
+): string {
+  return isFrozenVersionStatus(versionStatus)
+    ? getVersionFrozenPdfUrl(documentId, versionId)
+    : getVersionPreviewPdfUrl(documentId, versionId);
 }
 
 /**

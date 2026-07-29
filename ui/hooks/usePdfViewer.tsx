@@ -3,12 +3,22 @@
 import { useCallback, useState } from 'react'
 import { Document, getDocumentRuns, getDocumentVersions } from '@/lib/api'
 
+/**
+ * Versión cuyo PDF se va a mostrar. `versionStatus` decide el endpoint: APPROVED
+ * sirve el artefacto congelado de storage; el resto regenera el preview.
+ */
+export interface VersionPdfTarget {
+  documentId: string
+  versionId: string
+  versionStatus?: string | null
+}
+
 interface ViewerModalState {
   isOpen: boolean
   /** URL ya firmada del artifact (viene del backend). */
   artifactUrl: string
   type: 'json' | 'markdown' | 'pdf'
-  versionPreviewPdf: { documentId: string; versionId: string } | null
+  versionPreviewPdf: VersionPdfTarget | null
 }
 
 /** Props para pasar con spread a <ArtifactViewerModal {...modalProps} />. */
@@ -17,7 +27,7 @@ export interface PdfViewerModalProps {
   onClose: () => void
   artifactUrl: string
   type: 'json' | 'markdown' | 'pdf'
-  versionPreviewPdf: { documentId: string; versionId: string } | null
+  versionPreviewPdf: VersionPdfTarget | null
 }
 
 interface UsePdfViewerReturn {
@@ -27,8 +37,11 @@ interface UsePdfViewerReturn {
   openArtifact: (document: Document, artifactType: 'json' | 'markdown' | 'pdf', artifactPath?: string) => Promise<void>
   /** Abre un artifact directamente desde una URL ya firmada que viene del backend. */
   openArtifactFromRun: (artifactUrl: string, type: 'json' | 'markdown' | 'pdf') => void
-  /** Abre el PDF del borrador actual (incluye edición manual). Usa el mismo modal; la petición va con cookies. */
-  openVersionPreviewPdf: (documentId: string, versionId: string) => void
+  /**
+   * Abre el PDF de una versión en el modal. Con `versionStatus === 'APPROVED'`
+   * sirve el artefacto congelado; si no, regenera el preview del borrador.
+   */
+  openVersionPreviewPdf: (documentId: string, versionId: string, versionStatus?: string | null) => void
   closeModal: () => void
   /**
    * Props para <ArtifactViewerModal {...modalProps} />.
@@ -75,7 +88,8 @@ export function usePdfViewer(): UsePdfViewerReturn {
   /**
    * Abre el PDF más actualizado:
    * - Si hay DRAFT con edición manual → usa preview-pdf (tiene el contenido editado)
-   * - Si no, IN_REVIEW/APPROVED → usa preview-pdf de esa versión
+   * - Si no, IN_REVIEW → usa preview-pdf de esa versión
+   * - Si no, APPROVED → sirve el PDF congelado (artefacto de auditoría, sin re-render)
    * - Si no hay versiones → fallback al process.pdf del run original
    */
   const openLatestPdf = async (document: Document) => {
@@ -92,7 +106,11 @@ export function usePdfViewer(): UsePdfViewerReturn {
           isOpen: true,
           artifactUrl: '',
           type: 'pdf',
-          versionPreviewPdf: { documentId: document.id, versionId: relevant.id },
+          versionPreviewPdf: {
+            documentId: document.id,
+            versionId: relevant.id,
+            versionStatus: relevant.version_status,
+          },
         })
       } else {
         await openPdf(document)
@@ -167,13 +185,17 @@ export function usePdfViewer(): UsePdfViewerReturn {
     })
   }
 
-  /** Abre el PDF de la versión actual (borrador con edición manual) en el mismo modal. */
-  const openVersionPreviewPdf = (documentId: string, versionId: string) => {
+  /** Abre el PDF de una versión concreta en el mismo modal. */
+  const openVersionPreviewPdf = (
+    documentId: string,
+    versionId: string,
+    versionStatus?: string | null
+  ) => {
     setViewerModal({
       isOpen: true,
       artifactUrl: '',
       type: 'pdf',
-      versionPreviewPdf: { documentId, versionId },
+      versionPreviewPdf: { documentId, versionId, versionStatus },
     })
   }
 

@@ -8,9 +8,8 @@ Edición de contenido de un documento:
 import json
 import logging
 from pathlib import Path
-from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Body, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Body, Depends, File, HTTPException, UploadFile
 from fastapi.responses import Response
 
 from process_ai_core.db.database import get_db_session
@@ -22,9 +21,11 @@ from process_ai_core.db.helpers import (
     get_or_create_draft,
 )
 from process_ai_core.config import get_settings
-from process_ai_core.export import export_pdf_from_content
+
+from process_ai_core.export.markdown_html import render_frozen_html
 
 from api.routes._branding import get_workspace_pdf_branding
+from api.routes._document_context import build_document_context
 from api.routes._run_paths import run_dir as _run_dir
 from api.artifact_signing import sign_artifact_url
 from api.dependencies import get_current_user_id
@@ -149,6 +150,11 @@ def update_document_content(
         # Actualizar versión DRAFT (mismo version_id en PUTs seguidos)
         draft_version.content_json = content_json
         draft_version.content_markdown = markdown
+        # Regenerar el HTML junto con el markdown: el DRAFT puede venir de
+        # get_or_create_draft, que hereda el content_html de la versión anterior.
+        # Si no se regenera, el PDF imprimiría el HTML VIEJO mientras el markdown
+        # ya cambió — el contenido y su representación quedarían desfasados.
+        draft_version.content_html = render_frozen_html(markdown)
         draft_version.content_type = "manual_edit"
 
         # Crear audit log
@@ -249,63 +255,9 @@ def get_editable_content(
         }
 
 
-def _generate_draft_pdf_background(
-    content_html: str,
-    run_id: Optional[str],
-    document_id: str,
-    workspace_id: Optional[str],
-    output_dir: str,
-    api_base: str,
-) -> None:
-    """Genera y guarda draft_preview.pdf en segundo plano. No lanza excepciones."""
-    try:
-        html_for_pdf = _rewrite_img_src_to_absolute(content_html, run_id, api_base, workspace_id=workspace_id)
-        branding = None
-        with get_db_session() as session:
-            branding = get_workspace_pdf_branding(session, workspace_id)
-        pdf_dir: Optional[Path] = None
-        if run_id and workspace_id:
-            candidate = _run_dir(workspace_id, run_id)
-            if candidate.exists():
-                pdf_dir = candidate
-        if pdf_dir is None:
-            base = Path(output_dir)
-            if workspace_id:
-                base = base / "workspaces" / workspace_id
-            pdf_dir = base / "documents" / document_id
-            pdf_dir.mkdir(parents=True, exist_ok=True)
-
-        # Evita servir un PDF viejo si esta generación falla.
-        stale_pdf = pdf_dir / "draft_preview.pdf"
-        if stale_pdf.exists():
-            try:
-                stale_pdf.unlink()
-            except OSError:
-                pass
-
-        export_pdf_from_content(
-            content=html_for_pdf,
-            format="html",
-            run_dir=pdf_dir,
-            pdf_name="draft_preview.pdf",
-            base_url=api_base,
-            branding=branding,
-        )
-        logger.info("PDF del borrador guardado en %s/draft_preview.pdf", pdf_dir)
-        tmp_html = pdf_dir / "content.html"
-        if tmp_html.exists():
-            try:
-                tmp_html.unlink()
-            except OSError:
-                pass
-    except Exception as exc:
-        logger.warning("No se pudo guardar el PDF del borrador en background: %s", exc)
-
-
 @router.put("/{document_id}/editable")
 def save_editable_content(
     document_id: str,
-    background_tasks: BackgroundTasks,
     content_html: str = Body(..., embed=True),
     user_id: str = Depends(get_current_user_id),
     ctx: WorkspaceSessionContext = Depends(get_workspace_context),
@@ -353,7 +305,6 @@ def save_editable_content(
 
         draft.content_html = content_html
         draft.content_type = "manual_edit"
-        draft_run_id = getattr(draft, "run_id", None)
         draft_id = draft.id
         draft_version_number = draft.version_number
         create_audit_log(
@@ -369,17 +320,10 @@ def save_editable_content(
         from datetime import datetime, timezone
         now_iso = datetime.now(timezone.utc).isoformat()
 
-        # Generar PDF en segundo plano para no bloquear la respuesta
-        settings = get_settings()
-        background_tasks.add_task(
-            _generate_draft_pdf_background,
-            content_html=content_html,
-            run_id=draft_run_id,
-            document_id=document_id,
-            workspace_id=doc.workspace_id,
-            output_dir=settings.output_dir,
-            api_base=settings.api_base_url.rstrip("/"),
-        )
+        # Nota: acá se generaba draft_preview.pdf en background en cada guardado.
+        # Nadie lo leía (el preview del borrador se regenera on-demand en
+        # GET .../preview-pdf), así que era un render de WeasyPrint tirado a la basura
+        # por cada tecleo guardado del editor.
 
         return {
             "version_id": draft_id,
@@ -727,18 +671,28 @@ Responde SOLO con el JSON corregido, sin texto adicional.
         # Generar PDF
         pdf_generated = False
         pdf_branding = None
+        pdf_document_context = None
         with get_db_session() as branding_session:
             doc_for_branding = branding_session.query(Document).filter_by(id=document_id).first()
             pdf_branding = get_workspace_pdf_branding(
                 branding_session,
                 doc_for_branding.workspace_id if doc_for_branding else None,
             )
+            if doc_for_branding:
+                # Sin versión: este process.pdf se genera ANTES de que el DRAFT
+                # que lo va a contener exista (se crea más abajo, en la
+                # transacción). Van solo los datos ciertos del documento; el
+                # contexto completo lo arma el freeze al aprobar.
+                pdf_document_context = build_document_context(
+                    branding_session, doc_for_branding
+                )
         try:
             export_pdf(
                 run_dir=output_dir,
                 md_path=md_path,
                 pdf_name="process.pdf",
                 branding=pdf_branding,
+                document_context=pdf_document_context,
             )
             pdf_generated = True
             logger.info("PDF generado exitosamente")
@@ -823,6 +777,10 @@ Responde SOLO con el JSON corregido, sin texto adicional.
                 draft.run_id = new_run_id
                 draft.content_json = json_content
                 draft.content_markdown = markdown_content
+                # Igual que arriba: el DRAFT reutilizado puede traer HTML de la
+                # versión anterior. Sin regenerarlo, el patch por IA cambiaría el
+                # markdown y el PDF seguiría mostrando el contenido sin patchear.
+                draft.content_html = render_frozen_html(markdown_content)
                 draft.content_type = "ai_patch"
                 session.flush()
 

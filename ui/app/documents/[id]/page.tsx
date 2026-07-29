@@ -20,7 +20,8 @@ import {
   patchDocumentWithAI,
   getDocumentAuditLog,
   getDocumentVersions,
-  getVersionPreviewPdfUrl,
+  getVersionPdfUrl,
+  isFrozenVersionStatus,
   cancelDocumentSubmission,
   submitVersionForReview,
   getUser,
@@ -273,14 +274,17 @@ export default function DocumentDetailPage() {
 
   const previewVersion = getRelevantPdfVersion()
 
-  // El endpoint de preview-pdf exige auth (Bearer) y un <iframe src> NO puede
+  // El endpoint de PDF exige auth (Bearer) y un <iframe src> NO puede
   // mandar ese header → 401. Lo fetcheamos con el token y lo servimos como blob URL.
+  // Si la versión está APPROVED se pide el artefacto congelado (sin re-render de
+  // WeasyPrint y cacheable); si es editable, el preview regenerado.
   useEffect(() => {
     const version = getRelevantPdfVersion()
     if (!version) {
       setPdfBlobUrl(null)
       return
     }
+    const isFrozen = isFrozenVersionStatus(version.version_status)
     let cancelled = false
     let objectUrl: string | null = null
     ;(async () => {
@@ -289,9 +293,9 @@ export default function DocumentDetailPage() {
         const token = await getAccessToken()
         const headers: HeadersInit = {}
         if (token) headers['Authorization'] = `Bearer ${token}`
-        const res = await authFetch(getVersionPreviewPdfUrl(documentId, version.id), {
+        const res = await authFetch(getVersionPdfUrl(documentId, version.id, version.version_status), {
           headers,
-          cache: 'no-store',
+          cache: isFrozen ? 'default' : 'no-store',
         })
         if (!res.ok) {
           if (!cancelled) setPdfBlobUrl(null)
