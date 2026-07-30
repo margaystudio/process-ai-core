@@ -56,61 +56,6 @@ def _get_workspace_branding_color(workspace: Workspace, key: str) -> str | None:
     return color
 
 
-@router.post("")
-def create_user(
-    email: str,
-    name: str,
-):
-    """
-    Crea un nuevo usuario.
-    
-    Args:
-        email: Email del usuario (único)
-        name: Nombre del usuario
-    
-    Returns:
-        Datos del usuario creado
-    """
-    with get_db_session() as session:
-        try:
-            # Verificar que el email no exista
-            existing = session.query(User).filter_by(email=email).first()
-            if existing:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Ya existe un usuario con el email '{email}'"
-                )
-            
-            user = User(
-                email=email,
-                name=name,
-            )
-            session.add(user)
-            session.flush()
-            
-            return {
-                "id": user.id,
-                "email": user.email,
-                "name": user.name,
-                "created_at": user.created_at.isoformat(),
-            }
-        
-        except HTTPException:
-            raise
-        except IntegrityError as e:
-            session.rollback()
-            raise HTTPException(
-                status_code=400,
-                detail=f"Error al crear usuario: {str(e)}"
-            ) from e
-        except Exception as e:
-            session.rollback()
-            raise HTTPException(
-                status_code=500,
-                detail=f"Error interno: {str(e)}"
-            ) from e
-
-
 @router.get("")
 def list_users():
     """
@@ -522,8 +467,18 @@ def check_user_permission(
 
 
 class UpdateUserProfileRequest(BaseModel):
-    """Request para actualizar perfil de usuario."""
-    name: str | None = None
+    """Request para actualizar el teléfono del usuario.
+
+    **No incluye `name` a propósito.** El nombre lo edita el usuario en el Hub y
+    llega acá por `sync_workspace_access`, que hace upsert desde el
+    `session/context` de Workspace. Si el módulo también dejara editarlo, el dato
+    local se separaría del canónico y no volvería a converger: el sync pisa lo
+    que escribió el usuario, o al revés, según quién llegue último.
+    Ver `margay-dev-agent/knowledge/11-directorio-de-usuarios.md`.
+
+    El teléfono sí es del módulo: tiene su propio flujo de verificación
+    (`phone_verified`, `phone_verified_at`).
+    """
     phone_e164: str | None = None
 
 
@@ -535,16 +490,18 @@ def update_user_profile(
     session: Session = Depends(get_db),
 ):
     """
-    Actualiza el perfil de un usuario (nombre, teléfono).
-    
+    Actualiza el teléfono de un usuario.
+
+    El nombre NO se edita acá: es propiedad de Workspace y se edita en el Hub.
+
     Args:
         user_id: ID del usuario (debe coincidir con el usuario autenticado)
-        request: Datos a actualizar (name, phone_e164 opcionales)
+        request: Datos a actualizar (phone_e164)
         authenticated_user_id: ID del usuario autenticado (del token JWT)
-    
+
     Returns:
         Datos del usuario actualizado
-    
+
     Raises:
         403: Si el user_id de la URL no coincide con el usuario autenticado
         404: Si el usuario no existe
@@ -554,11 +511,11 @@ def update_user_profile(
             status_code=403,
             detail="You can only update your own profile"
         )
-    
-    if request.name is None and request.phone_e164 is None:
+
+    if request.phone_e164 is None:
         raise HTTPException(
             status_code=400,
-            detail="Debe enviar al menos un campo a actualizar (name o phone_e164)"
+            detail="Debe enviar phone_e164"
         )
 
     if request.phone_e164 is not None:
@@ -577,10 +534,8 @@ def update_user_profile(
         )
     
     from datetime import datetime, UTC
-    if request.name is not None:
-        user.name = request.name
-    if request.phone_e164 is not None:
-        user.phone_e164 = request.phone_e164.strip() or None
+    # `user.name` NO se toca: lo escribe sync_workspace_access desde Workspace.
+    user.phone_e164 = request.phone_e164.strip() or None
     user.updated_at = datetime.now(UTC)
     
     session.commit()

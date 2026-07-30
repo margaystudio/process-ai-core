@@ -1,0 +1,59 @@
+# Postgres local para los tests de integración.
+#
+# Por qué: 19 de los 53 archivos de test usan `get_db_session()` — la sesión real
+# de la app — y por lo tanto la `DATABASE_URL` del `.env`, que apunta al Supabase
+# sandbox COMPARTIDO en eu-central-1. Medido desde Montevideo: 240 ms de RTT,
+# ~3,7 s por conexión nueva, 244 ms por query. La suite tardaba 20:50 con solo 48 s
+# de CPU real: el 96 % del tiempo era espera de red. Además ese churn de conexiones
+# satura el pooler y rompe los tests de los otros módulos (a OMS lo tira con
+# ConnectionResetError).
+#
+# Ver `knowledge/12-testing.md` del repo margay-dev-agent.
+#
+# Uso:
+#   ./tools/dev_db.sh up        # levanta + aplica las migraciones + escribe .env.test
+#   ./tools/dev_db.sh fresh     # borra todo y rearma desde cero
+#   ./tools/dev_db.sh down
+#
+# Imagen: pgvector sobre Postgres 17 (misma major que Supabase) porque la
+# migración 0005 crea `vector(1536)` e índices hnsw, y 0011 la columna
+# `name_embedding`. Sin la extensión las migraciones no fallan pero degradan la
+# columna a TEXT, y entonces el hot path SQL de la capa semántica queda sin
+# probar. La imagen incluye los contrib estándar, así que pg_trgm también está.
+
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    container_name: margay-process-ai-db
+    # Para no tener que acordarse de nada: el contenedor vuelve solo cuando
+    # arranca Docker (reinicio de la máquina, de Docker Desktop). `unless-stopped`
+    # y no `always` para que un `dev_db.sh down` explícito se respete.
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: process_ai
+      POSTGRES_PASSWORD: process_ai
+      POSTGRES_DB: process_ai
+    ports:
+      # 55433 para no chocar ni con un Postgres del sistema en 5432 ni con el
+      # de margay-crm, que usa 55432.
+      - "55433:5432"
+    volumes:
+      - process_ai_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U process_ai -d process_ai"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+    command:
+      # Tuning para tests: la durabilidad no importa, la velocidad sí.
+      # NUNCA en prod.
+      - postgres
+      - -c
+      - fsync=off
+      - -c
+      - synchronous_commit=off
+      - -c
+      - full_page_writes=off
+
+volumes:
+  process_ai_pgdata:

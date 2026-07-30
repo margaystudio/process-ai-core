@@ -71,7 +71,8 @@ class Workspace(Base):
     context_folders: Mapped[list["ContextFolder"]] = relationship("ContextFolder", back_populates="workspace", cascade="all, delete-orphan")
     context_files: Mapped[list["ContextFile"]] = relationship("ContextFile", back_populates="workspace", cascade="all, delete-orphan")
     subscription: Mapped["WorkspaceSubscription | None"] = relationship("WorkspaceSubscription", back_populates="workspace", uselist=False)
-    invitations: Mapped[list["WorkspaceInvitation"]] = relationship("WorkspaceInvitation", foreign_keys="WorkspaceInvitation.workspace_id")
+    # Sin `invitations`: las invitaciones son del Hub (`workspace.tenant_invitations`).
+    # El modelo local existió sin que ninguna ruta lo expusiera nunca.
 
 
 class Document(Base):
@@ -325,20 +326,27 @@ class Folder(Base):
 
 class User(Base):
     """
-    Usuario del sistema (autenticación/autorización).
-    
-    Soporta autenticación local y externa (OAuth/SSO).
+    Proyección local del usuario de Workspace.
+
+    **No es una fuente de identidad.** Process AI no autentica: el login vive en el
+    Hub y los JWT los emite Supabase. Esta tabla la llena `sync_workspace_access`
+    (`api/workspace_client.py`) por request, a partir del `session/context` de
+    Workspace — escritura al leer, ver
+    `margay-dev-agent/knowledge/11-directorio-de-usuarios.md`.
+
+    Por eso NO hay `password_hash`: existió como columna pero nunca autenticó nada
+    (no había ruta de login ni verificación; se escribía siempre en ""). Se eliminó
+    para que nadie la lea como que existe auth local.
     """
     __tablename__ = "users"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     email: Mapped[str] = mapped_column(String(200), unique=True, index=True)
     name: Mapped[str] = mapped_column(String(200))
-    password_hash: Mapped[str] = mapped_column(String(255), default="")  # Para autenticación local
-    
-    # Autenticación externa (OAuth/SSO)
-    external_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)  # ID en el proveedor externo
-    auth_provider: Mapped[str | None] = mapped_column(String(50), nullable=True, default="local")  # "local" | "google" | "microsoft" | "okta" | "auth0"
+
+    # Vínculo con la identidad de la plataforma
+    external_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)  # Supabase Auth UUID (sub del JWT)
+    auth_provider: Mapped[str | None] = mapped_column(String(50), nullable=True, default="local")  # write-only: siempre "supabase" por el sync. Nada ramifica sobre él.
     auth_metadata_json: Mapped[str] = mapped_column(Text, default="{}")  # Tokens, refresh tokens, etc.
 
     # Metadata del usuario (preferencias, etc.)
@@ -827,43 +835,6 @@ class WorkspaceSubscription(Base):
     plan: Mapped["SubscriptionPlan"] = relationship("SubscriptionPlan", back_populates="subscriptions")
 
 
-class WorkspaceInvitation(Base):
-    """
-    Invitación para unirse a un workspace (B2B).
-    
-    Permite que admins/superadmins inviten usuarios a unirse a un workspace.
-    """
-    __tablename__ = "workspace_invitations"
-
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
-    workspace_id: Mapped[str] = mapped_column(String(36), ForeignKey("workspaces.id"), index=True)
-    invited_by_user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), index=True)
-    
-    # Datos de la invitación
-    email: Mapped[str] = mapped_column(String(200), index=True)
-    role_id: Mapped[str] = mapped_column(String(36), ForeignKey("roles.id"), index=True)
-    token: Mapped[str] = mapped_column(String(64), unique=True, index=True)  # Token único para aceptar
-    
-    # Estado
-    status: Mapped[str] = mapped_column(String(20))  # "pending" | "accepted" | "expired" | "cancelled"
-    
-    # Expiración
-    expires_at: Mapped[datetime] = mapped_column(DateTime)
-    
-    # Aceptación
-    accepted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    accepted_by_user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id"), nullable=True)
-    
-    # Mensaje opcional
-    message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    
-    # Relaciones
-    workspace: Mapped["Workspace"] = relationship("Workspace", foreign_keys=[workspace_id], overlaps="invitations")
-    invited_by: Mapped["User"] = relationship("User", foreign_keys=[invited_by_user_id])
-    role: Mapped["Role"] = relationship("Role", foreign_keys=[role_id])
-    accepted_by: Mapped["User | None"] = relationship("User", foreign_keys=[accepted_by_user_id])
 
 
 # Capa semántica (knowledge_objects, document_relations, document_chunks, evidence).

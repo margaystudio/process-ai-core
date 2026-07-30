@@ -82,7 +82,6 @@ def _make_user(session, external_id: str | None = None, email: str | None = None
         name="Test User",
         external_id=external_id or _uid(),
         auth_provider="supabase",
-        password_hash="",
     )
     session.add(u)
     session.flush()
@@ -151,7 +150,7 @@ class TestGetOrCreateLocalUser:
 
     def test_links_existing_user_by_email(self, session):
         """Si el usuario existe por email pero sin external_id, lo vincula."""
-        existing = User(email="link@test.com", name="Old", external_id=None, password_hash="")
+        existing = User(email="link@test.com", name="Old", external_id=None)
         session.add(existing)
         session.flush()
 

@@ -46,6 +46,9 @@ DYNAMIC_TABLES = [
     "validations",
     "artifacts",
     "runs",
+    # workspace_invitations: eliminada en la migración 0019 (las invitaciones son
+    # del Hub). Se deja listada para que el reset funcione contra bases que
+    # todavía no aplicaron la 0019 — get_all_tables() filtra las inexistentes.
     "workspace_invitations",
     "workspace_subscriptions",
     "workspace_memberships",
