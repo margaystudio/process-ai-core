@@ -18,6 +18,7 @@ del otro lado dejaría el agujero abierto.
 from __future__ import annotations
 
 import io
+import re
 import uuid
 
 import pytest
@@ -296,32 +297,61 @@ def test_el_artefacto_de_run_hereda_el_permiso_del_documento(escenario):
 # ── Ningún camino sin autenticación ──────────────────────────────────────────
 
 
-def test_ninguna_ruta_que_sirva_archivos_queda_sin_autenticacion():
+#: Formas de ruta que sirven bytes de un archivo. Si aparece una nueva con esta
+#: forma, el test de abajo la encuentra sola y exige que también pida sesión.
+_SUFIJOS_DE_ARCHIVO = ("/assets/{filename}", "/editor-images/{filename}")
+
+#: El endpoint de artefactos de run no termina en un sufijo fijo (su último
+#: segmento es una ruta libre), así que se reconoce por prefijo.
+_PREFIJO_ARTEFACTOS = "/api/v1/artifacts/"
+
+
+def _rutas_que_sirven_archivos(app) -> list[str]:
     """
-    Estructural, y a propósito: el requisito no es "estos tres endpoints tienen
-    auth" sino "no queda NINGÚN camino que devuelva un archivo sin autenticar".
-    Un endpoint nuevo que sirva bytes y se olvide del Depends rompe este test.
+    Rutas de archivo declaradas por la app, según su esquema OpenAPI.
+
+    Se enumera por OpenAPI y no recorriendo `app.routes` a propósito. La primera
+    versión de este test leía `route.path` de cada entrada de `app.routes`, y en
+    Starlette 1.x `include_router` dejó de aplanar las sub-rutas: mete un
+    `_IncludedRouter` opaco, sin `.path` ni `.routes`. El test no encontraba
+    NINGUNA ruta y pasaba a ser un test que no probaba nada — salvo que la
+    aserción final de "revisadas == 3" lo hizo fallar ruidosamente, que es
+    justamente para lo que estaba.
+
+    El esquema OpenAPI es contrato público y no cambió entre versiones.
     """
-    from api.dependencies import get_current_user_id
+    return sorted(
+        ruta
+        for ruta in app.openapi()["paths"]
+        if ruta.startswith(_PREFIJO_ARTEFACTOS)
+        or any(ruta.endswith(sufijo) for sufijo in _SUFIJOS_DE_ARCHIVO)
+    )
+
+
+def test_ninguna_ruta_que_sirva_archivos_responde_sin_autenticacion():
+    """
+    El requisito no es "estos tres endpoints tienen un Depends" sino "no queda
+    NINGÚN camino que devuelva un archivo sin autenticar". Por eso se verifica el
+    COMPORTAMIENTO —un GET real sin Authorization— y no la presencia de un objeto
+    en la lista de dependencias: un Depends puede estar y no aplicar, y un
+    endpoint nuevo con esta forma de ruta queda cubierto sin tocar el test.
+    """
+    from fastapi.testclient import TestClient
+
     from api.main import app
 
-    rutas_de_archivos = (
-        "/assets/{filename}",
-        "/editor-images/{filename}",
-        "/api/v1/artifacts/{run_id}/{filename:path}",
-    )
-    revisadas = 0
-    for route in app.routes:
-        path = getattr(route, "path", "")
-        if not any(path.endswith(sufijo) for sufijo in rutas_de_archivos):
-            continue
-        revisadas += 1
-        dependencias = {
-            d.call for d in route.dependant.dependencies if getattr(d, "call", None)
-        }
-        assert get_current_user_id in dependencias, f"{path} no exige autenticación"
+    rutas = _rutas_que_sirven_archivos(app)
+    assert rutas == [
+        "/api/v1/artifacts/{run_id}/{filename}",
+        "/api/v1/documents/{document_id}/editor-images/{filename}",
+        "/api/v1/documents/{document_id}/versions/{version_id}/assets/{filename}",
+    ], "cambió el set de rutas que sirven archivos"
 
-    assert revisadas == len(rutas_de_archivos), "cambió el set de rutas de archivos"
+    cliente = TestClient(app)
+    for ruta in rutas:
+        url = re.sub(r"\{[^}]+\}", "x", ruta)
+        respuesta = cliente.get(url)
+        assert respuesta.status_code == 401, f"{url} respondió {respuesta.status_code}"
 
 
 def test_los_endpoints_ya_no_aceptan_token_en_la_url():
