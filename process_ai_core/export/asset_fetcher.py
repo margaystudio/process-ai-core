@@ -64,6 +64,16 @@ _EDITOR_IMAGE_RE = re.compile(
     r"^/?api/v1/documents/(?P<document_id>[^/]+)/editor-images/(?P<filename>[^/]+)$"
 )
 
+# Imágenes que son assets de UNA VERSIÓN: hoy, las que trae adentro un PDF
+# importado. Viven bajo la clave canónica de la versión
+# (workspaces/{ws}/documents/{doc}/versions/{ver}/assets/{archivo}), que es
+# inmutable como la versión misma — a diferencia de editor-uploads, que es del
+# documento y cambia.
+_VERSION_ASSET_RE = re.compile(
+    r"^/?api/v1/documents/(?P<document_id>[^/]+)/versions/(?P<version_id>[^/]+)"
+    r"/assets/(?P<filename>[^/]+)$"
+)
+
 
 class AssetResolutionError(RuntimeError):
     """Un asset referenciado por el documento no se pudo resolver."""
@@ -124,6 +134,15 @@ class StorageAssetFetcher:
 
         if not self.workspace_id:
             raise AssetResolutionError("sin workspace_id no se puede resolver el asset")
+
+        version_asset = _VERSION_ASSET_RE.match(rel)
+        if version_asset:
+            from process_ai_core.storage.keys import version_prefix
+
+            prefijo = version_prefix(
+                self.workspace_id, version_asset["document_id"], version_asset["version_id"]
+            )
+            return get_storage().get(f"{prefijo}/assets/{version_asset['filename']}")
 
         editor = _EDITOR_IMAGE_RE.match(rel)
         if editor:

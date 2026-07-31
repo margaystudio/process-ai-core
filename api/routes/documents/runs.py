@@ -28,7 +28,7 @@ from api.models.requests import ProcessRunResponse
 from api.routes._branding import get_workspace_pdf_branding
 from api.routes._document_context import build_document_context
 from api.routes._run_paths import run_dir as _run_dir
-from api.artifact_signing import sign_artifact_url
+from api.artifact_urls import artifact_path
 from api.dependencies import get_current_user_id
 from api.workspace_client import (
     WorkspaceSessionContext,
@@ -88,7 +88,7 @@ def get_document_runs(
             except Exception:
                 existing_keys = set()
             artifact_dict = {
-                atype: sign_artifact_url(run.id, filename, doc_workspace_id)
+                atype: artifact_path(run.id, filename)
                 for atype, filename in artifact_files.items()
                 if run_artifact_key(doc_workspace_id, run.id, filename) in existing_keys
             }
@@ -370,11 +370,11 @@ async def create_document_run(
 
             # Construir URLs firmadas para los artefactos
             artifacts = {
-                "json": sign_artifact_url(run_id, "process.json", doc.workspace_id),
-                "markdown": sign_artifact_url(run_id, "process.md", doc.workspace_id),
+                "json": artifact_path(run_id, "process.json"),
+                "markdown": artifact_path(run_id, "process.md"),
             }
             if pdf_generated:
-                artifacts["pdf"] = sign_artifact_url(run_id, "process.pdf", doc.workspace_id)
+                artifacts["pdf"] = artifact_path(run_id, "process.pdf")
 
             # Crear versión IN_REVIEW automáticamente.
             # Los artefactos del run (json/md/pdf/assets) viven en object storage bajo

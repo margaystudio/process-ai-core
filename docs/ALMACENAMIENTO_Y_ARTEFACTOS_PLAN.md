@@ -172,8 +172,9 @@ Foco en lo que toca auditoría y multi-tenancy (no cobertura exhaustiva):
   mismo contrato (`put`/`get`/`signed_url`/`delete`/`exists`) — un solo set de tests parametrizado.
 - **Inmutabilidad + hash:** al aprobar, el PDF se sube una vez; `pdf_sha256` coincide con el byte
   stream subido; re-aprobar o regenerar no muta el PDF de una versión ya `APPROVED`.
-- **Aislamiento multi-tenant:** las claves canónicas incluyen `workspace_id`; un workspace no puede
-  resolver una signed URL de otro (test sobre la firma HMAC de `artifact_signing.py` + clave).
+- **Aislamiento multi-tenant:** las claves canónicas incluyen `workspace_id`, que se resuelve del
+  contexto del request autenticado y nunca de la URL. (Antes esto se verificaba sobre la firma HMAC
+  de `artifact_signing.py`; la firma se eliminó — ver `api/artifact_urls.py`.)
 - **Referencias estables (Fase C):** `asset://{id}` resuelve a la clave correcta; el md/json de una
   versión no apunta a paths del `run_id`.
 - **Manifiesto (Fase D):** tras un run, `input_manifest_json` queda poblado con sha256 por fuente y

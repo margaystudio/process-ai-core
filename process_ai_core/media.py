@@ -133,34 +133,52 @@ def _ffmpeg_extract_audio(video_path: Path, out_audio: Path) -> None:
     subprocess.run(cmd, check=True, capture_output=True, text=True)
 
 
+def pdf_text_or_ocr(contenido, data: bytes, nombre: str) -> str:
+    """
+    Texto de un PDF ya extraído, con caída a OCR si el PDF está escaneado.
+
+    Recibe el `PdfContent` en vez de extraerlo para que el llamador que además
+    necesita las imágenes no tenga que abrir el PDF dos veces.
+
+    La caída a OCR es una decisión POR CONTENIDO —el PDF es una foto y no tiene
+    texto que extraer—, no por qué extractor usar. Por eso sobrevive a la
+    unificación de motores: no es un segundo camino para el mismo insumo, es el
+    único camino posible para un insumo distinto.
+    """
+    if contenido.looks_scanned:
+        return _ocr_pdf_fallback(data, nombre, contenido.text)
+    return contenido.text
+
+
 def _extract_text_from_document(path: Path) -> str:
     """
     Extrae texto de un archivo de documento según su extensión.
-    Soporta: .txt, .md (UTF-8), .pdf (pypdf), .docx (python-docx).
+    Soporta: .txt, .md (UTF-8), .pdf (PyMuPDF), .docx (python-docx).
     .doc (Word binario) no está soportado; usar .docx.
+
+    Por qué PyMuPDF y no pypdf para los PDF
+    ----------------------------------------
+    Es el mismo motor que ubica las imágenes (`pdf_images.extract_pdf_content`),
+    y tiene que serlo: si el texto lo extrajera uno y las posiciones las diera
+    otro, no habría garantía de que la imagen quede donde el texto dice.
+
+    Antes convivían los dos, y la consecuencia era peor que la redundancia: el
+    MISMO PDF producía texto derivado distinto según si tenía o no una imagen que
+    pasara el filtro de tamaño. Una captura de 55 pt iba por pypdf y una de 57 pt
+    por PyMuPDF, y los dos no coinciden en espaciados, ligaduras ni manejo de
+    columnas. Un umbral de tamaño de imagen decidiendo qué extractor de texto se
+    usa es una costura de determinismo en la ingesta — y `content_html` es entrada
+    congelada del artefacto de auditoría, de la misma clase que la versión del
+    motor de render, las fuentes o el conversor de markdown.
     """
     ext = path.suffix.lower()
     if ext in (".txt", ".md"):
         return path.read_text(encoding="utf-8")
     if ext == ".pdf":
-        from pypdf import PdfReader
-        reader = PdfReader(path)
-        parts = []
-        for page in reader.pages:
-            text = page.extract_text()
-            if text:
-                parts.append(text)
-        pypdf_text = "\n\n".join(parts)
+        from .pdf_images import extract_pdf_content
 
-        # PDF escaneado: pypdf no lee texto de imágenes. Si el promedio de
-        # caracteres por página es muy bajo, intentamos OCR sobre las páginas
-        # rasterizadas. Si el OCR no está disponible, degradamos devolviendo el
-        # texto de pypdf (aunque sea vacío): nunca rompemos la importación.
-        num_pages = len(reader.pages) or 1
-        avg_chars_per_page = len(pypdf_text.strip()) / num_pages
-        if avg_chars_per_page < get_settings().ocr_pdf_min_chars_per_page:
-            return _ocr_pdf_fallback(path, pypdf_text)
-        return pypdf_text
+        data = path.read_bytes()
+        return pdf_text_or_ocr(extract_pdf_content(data, nombre=path.name), data, path.name)
     if ext == ".docx":
         from docx import Document as DocxDocument
         doc = DocxDocument(path)
@@ -176,47 +194,129 @@ def _extract_text_from_document(path: Path) -> str:
     )
 
 
-def _ocr_pdf_fallback(path: Path, pypdf_text: str) -> str:
+def _ocr_pdf_fallback(data: bytes, nombre: str, texto_extraido: str) -> str:
     """
     Intenta OCR sobre un PDF (presuntamente escaneado) usando el OCR provider
     del repo, que rasteriza las páginas con PyMuPDF y las pasa por Tesseract.
 
     Degradación: si no hay OCR disponible (binario de Tesseract ausente, sin
-    configurar, o cualquier fallo), loguea un warning y devuelve el texto de
-    pypdf (aunque sea vacío). Nunca lanza: el import no debe romperse por OCR.
+    configurar, o cualquier fallo), loguea un warning y devuelve el texto que ya
+    se había extraído (aunque sea vacío). Nunca lanza: el import no debe romperse
+    por OCR.
 
     Args:
-        path: Ruta al PDF.
-        pypdf_text: Texto ya extraído por pypdf (fallback si el OCR falla).
+        data: Bytes del PDF.
+        nombre: Nombre del archivo, para los logs.
+        texto_extraido: Texto que devolvió la extracción normal (fallback si el
+            OCR falla).
 
     Returns:
-        Texto del OCR si tuvo éxito; si no, el texto de pypdf.
+        Texto del OCR si tuvo éxito; si no, el texto ya extraído.
     """
     try:
         from .ai.factory import get_ocr_provider
 
         provider = get_ocr_provider()
-        ocr_text = provider.extract_text(path.read_bytes(), content_type="application/pdf")
+        ocr_text = provider.extract_text(data, content_type="application/pdf")
         if ocr_text and ocr_text.strip():
-            logger.info(
-                "PDF escaneado '%s': OCR extrajo %d caracteres.",
-                path.name,
-                len(ocr_text),
-            )
+            logger.info("PDF escaneado '%s': OCR extrajo %d caracteres.", nombre, len(ocr_text))
             return ocr_text
         logger.warning(
-            "PDF escaneado '%s': el OCR no devolvió texto; se usa el texto de pypdf.",
-            path.name,
+            "PDF escaneado '%s': el OCR no devolvió texto; se usa el texto extraído.", nombre
         )
-        return pypdf_text
+        return texto_extraido
     except Exception as exc:  # noqa: BLE001 — OCR es best-effort, jamás rompe el import
         logger.warning(
-            "PDF escaneado '%s': OCR no disponible (%s); se usa el texto de pypdf "
+            "PDF escaneado '%s': OCR no disponible (%s); se usa el texto extraído "
             "(puede estar vacío).",
-            path.name,
+            nombre,
             exc,
         )
-        return pypdf_text
+        return texto_extraido
+
+
+#: Marca de origen de un asset de imagen que salió de un PDF de entrada. Es lo
+#: que distingue a las imágenes "asignables a un paso" de la evidencia suelta que
+#: aportó el usuario (que ya tiene su propia sección en el documento).
+ORIGEN_PDF = "pdf"
+
+
+def _promote_pdf_images(
+    asset: RawAsset,
+    pdf_path: Path,
+    output_assets: Path,
+) -> List[EnrichedAsset]:
+    """
+    Convierte las imágenes de contenido de un PDF de entrada en assets del run.
+
+    Cada imagen se escribe bajo `assets/pdf_{asset_id}/` (que es de donde las lee
+    el renderer y lo que `sync_run_dir_to_storage` sube a object storage) y viaja
+    con su contexto textual: el texto que la rodeaba en el PDF, que es lo que le
+    permite al modelo decidir qué paso ilustra.
+
+    Best-effort: si algo falla, el PDF sigue aportando su texto y el run continúa
+    sin sus imágenes.
+    """
+    from .pdf_images import describe_image, extract_pdf_images, figure_title
+
+    try:
+        candidatas = extract_pdf_images(pdf_path.read_bytes(), nombre=pdf_path.name)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "No se pudieron extraer las imágenes de '%s' (%s); el PDF aporta solo texto.",
+            pdf_path.name, exc,
+        )
+        return []
+
+    if not candidatas:
+        return []
+
+    destino = output_assets / f"pdf_{asset.id}"
+    destino.mkdir(parents=True, exist_ok=True)
+
+    salida: List[EnrichedAsset] = []
+    for imagen in candidatas:
+        nombre_archivo = imagen.filename(asset.id)
+        (destino / nombre_archivo).write_bytes(imagen.data)
+        render_path = f"assets/{destino.name}/{nombre_archivo}"
+
+        descripcion = describe_image(imagen, nombre=pdf_path.name)
+        titulo = figure_title(imagen, descripcion)
+        img_id = f"{asset.id}_img{imagen.order:02d}"
+
+        salida.append(
+            EnrichedAsset(
+                id=img_id,
+                kind="image",
+                raw_path=str(destino / nombre_archivo),
+                metadata={
+                    "titulo": titulo,
+                    "origen": ORIGEN_PDF,
+                    "source_document": asset.id,
+                    "pagina": str(imagen.page),
+                    "contexto": imagen.context,
+                    "descripcion": descripcion.descripcion if descripcion else "",
+                    "path": render_path,
+                },
+                # Lo que ve el modelo: dónde estaba la imagen y qué la rodea. La
+                # ruta va igual porque el resumen de activos la referencia, pero
+                # el modelo NO escribe markdown de imágenes (ver prompts.py).
+                extracted_text=(
+                    f"[IMAGEN:{img_id}] titulo='{titulo}' archivo='{render_path}' "
+                    f"origen='{pdf_path.name}' pagina={imagen.page}"
+                    + (f"\nContexto en el documento: {imagen.context}" if imagen.context else "")
+                    + (
+                        f"\nQué muestra (descripción automática, sin validar): "
+                        f"{descripcion.descripcion}"
+                        if descripcion and descripcion.descripcion
+                        else ""
+                    )
+                ),
+            )
+        )
+
+    print(f"🖼️  {pdf_path.name}: {len(salida)} imagen(es) promovidas a assets del run")
+    return salida
 
 
 def _ffmpeg_frame_at_time(video_path: Path, t_s: float, out_img: Path) -> None:
@@ -395,6 +495,14 @@ def enrich_assets(
                     extracted_text=extracted,
                 )
             )
+            # Un PDF puede ser UNA PARTE del insumo, no el procedimiento entero:
+            # el manual del POS junto a la entrevista y las notas. Sus capturas
+            # son la evidencia de pasos concretos, así que se promueven a assets
+            # de imagen del run. De ahí en adelante ya funciona todo lo que
+            # existe: el modelo dice qué paso ilustra cada una, y el pipeline de
+            # assets las inserta.
+            if text_path.suffix.lower() == ".pdf":
+                enriched.extend(_promote_pdf_images(a, text_path, output_assets))
             continue
 
         # ----------------------------

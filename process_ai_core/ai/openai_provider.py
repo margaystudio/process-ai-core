@@ -352,6 +352,81 @@ class OpenAIProvider:
             "notes": str(data.get("notes", "")).strip(),
         }
 
+    def describe_image(
+        self,
+        *,
+        data: bytes,
+        mime_type: str = "image/png",
+        context: str = "",
+        model: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        Describe una imagen para que su contenido exista en la capa semántica.
+
+        Tyto indexa TEXTO. Si el paso clave de un procedimiento es una captura de
+        qué celdas completar, sin esta descripción esa información no existe en
+        el índice y Tyto nunca va a poder responderla.
+
+        La descripción es INFERENCIA PURA: nadie la escribió ni la validó. Quien
+        la consuma tiene que marcarla como tal (chip "A VALIDAR", ADR-015).
+
+        Returns:
+            `{"titulo": str, "descripcion": str}` — vacíos si el modelo no
+            devolvió nada utilizable.
+        """
+        vision_model = model or self._model_text
+        b64 = base64.b64encode(data).decode("ascii")
+
+        instruccion = (
+            "Describí esta imagen para que alguien que NO la ve pueda entender qué "
+            "muestra y usarla en un procedimiento operativo.\n"
+            "Devolvé SOLO JSON válido con el esquema:\n"
+            '{"titulo": string, "descripcion": string}\n\n'
+            "- titulo: una línea corta (máx. 10 palabras) que nombre la imagen.\n"
+            "- descripcion: 2 a 4 oraciones. Si es una captura de pantalla o una "
+            "planilla, decí qué pantalla/planilla es, qué campos o celdas se ven y "
+            "qué valores o acciones aparecen. Transcribí los rótulos legibles.\n"
+            "- No inventes nada que no se vea en la imagen. No opines."
+        )
+        if context.strip():
+            instruccion += (
+                "\n\nTexto del documento alrededor de la imagen (contexto, no es la "
+                f"imagen):\n{context.strip()[:1200]}"
+            )
+
+        with _openai_call("chat.completions (describe_image)"):
+            completion = self.client.chat.completions.create(
+                model=vision_model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "Sos un asistente que describe imágenes de documentación "
+                            "operativa. Respondés solo JSON."
+                        ),
+                    },
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": instruccion},
+                            {
+                                "type": "image_url",
+                                "image_url": {"url": f"data:{mime_type};base64,{b64}"},
+                            },
+                        ],
+                    },
+                ],
+                response_format={"type": "json_object"},
+                temperature=0.0,
+            )
+
+        raw = completion.choices[0].message.content or "{}"
+        data_json = json.loads(raw)
+        return {
+            "titulo": str(data_json.get("titulo", "")).strip(),
+            "descripcion": str(data_json.get("descripcion", "")).strip(),
+        }
+
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------

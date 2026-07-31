@@ -27,7 +27,7 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Sequence, TypedDict
 
-from .assets_json import inject_assets_into_json
+from .assets_json import assign_referenced_images_to_steps, inject_assets_into_json
 from .core.abstractions import DocumentBuilder, DocumentRenderer
 from .domain_models import EnrichedAsset, RawAsset
 from .llm_client import DEFAULT_DOCUMENT_USER_PREFIX, generate_document_json
@@ -217,6 +217,12 @@ def run_documentation_pipeline(
     # 4) Parsear (específico del dominio). Se parsea ANTES de enriquecer el JSON con
     #    imágenes para que el modelo del dominio no dependa del bloque `assets`.
     doc = builder.parse_document(json_str)
+
+    # 4.a) Ubicar en su paso las imágenes que el modelo referenció por número.
+    #      Las capturas de video ya vienen con paso asignado desde `enrich_assets`;
+    #      las que salieron de un PDF de entrada las ubica el modelo, que es el
+    #      único que puede saber qué paso ilustra cada una.
+    images_by_step = assign_referenced_images_to_steps(doc, enriched, images_by_step)
 
     # 4.b) Enriquecer el JSON con las imágenes estructuradas (imagen↔paso + evidencia)
     #      para que el content_json sea consumible por el RAG / asistente.

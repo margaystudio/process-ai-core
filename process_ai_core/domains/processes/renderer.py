@@ -39,10 +39,11 @@ def _norm_asset_path(p: str) -> str:
     return p
 
 
-#: Marca visible de contenido inferido y no validado. Se pinta como chip en el
-#: PDF (el CSS lo resuelve por el texto). La escala viene de ADR-015: lo inferido
-#: es 🔴 y necesita validación humana antes de tratarse como hecho.
-CHIP_A_VALIDAR = "`A VALIDAR`"
+#: Marca visible de contenido inferido y no validado. Se movió a
+#: `core.inference` porque dejó de ser de este dominio: también la llevan las
+#: descripciones de imagen generadas con visión. Se re-exporta acá para no
+#: romper los call-sites que la importan desde el renderer.
+from ...core.inference import CHIP_A_VALIDAR  # noqa: E402  (re-export)
 
 
 def _t(valor) -> str:
@@ -53,6 +54,21 @@ def _t(valor) -> str:
 def _chip_campo(doc, campo: str) -> str:
     """Chip para un campo de texto que el modelo declaró como inferido."""
     return f" {CHIP_A_VALIDAR}" if doc.es_inferido(campo) else ""
+
+
+def _descripcion_de_captura(img: Dict[str, str]) -> str:
+    """
+    Pie de la captura con su descripción automática, o "" si no tiene.
+
+    Va en el cuerpo del documento y no como `alt` de la imagen porque el `alt` no
+    se imprime ni se indexa: el punto de describir la imagen es que su contenido
+    exista en la capa semántica, y lo que Tyto indexa es el markdown. Lleva el
+    chip porque es inferencia sin validar, como cualquier otro contenido inferido.
+    """
+    descripcion = (img.get("description") or "").strip()
+    if not descripcion:
+        return ""
+    return f"{descripcion} {CHIP_A_VALIDAR}\n\n"
 
 
 def _chip(confianza: str) -> str:
@@ -119,7 +135,13 @@ def render_markdown(
                         print(f"⚠️  Imagen no encontrada: {img_full_path} (ruta en markdown: {path})")
                         continue
                 cap_title = (img.get("title") or "").strip() or f"Captura paso {step_n}"
-                valid.append({"path": path, "title": cap_title})
+                valid.append(
+                    {
+                        "path": path,
+                        "title": cap_title,
+                        "description": (img.get("description") or "").strip(),
+                    }
+                )
             if valid:
                 captures_clean[step_n] = valid
 
@@ -265,6 +287,7 @@ def render_markdown(
                 img_title = img.get("title", "").strip() or "Captura adicional"
                 lines.append(f"**{img_title}**\n\n")
                 lines.append(f"![{img_title}]({img['path']})\n\n")
+                lines.append(_descripcion_de_captura(img))
 
         # Pasos 1..N: con ancla para link desde pasos
         for step_n in sorted(k for k in captures_clean.keys() if k != 0):
@@ -278,6 +301,7 @@ def render_markdown(
                 lines.append(f"**{img_title}**\n\n")
                 # Imagen con alt text descriptivo
                 lines.append(f"![{img_title}]({img['path']})\n\n")
+                lines.append(_descripcion_de_captura(img))
             # Separador visual entre pasos (opcional, ayuda a la legibilidad)
             lines.append("---\n\n")
 

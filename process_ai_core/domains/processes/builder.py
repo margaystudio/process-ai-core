@@ -105,15 +105,23 @@ class ProcessBuilder:
 
         # --- IMÁGENES (referencia) ---
         if imagenes:
+            # La numeración sale de una función pura del orden de la lista, la
+            # misma que usa el engine para resolver lo que el modelo devuelve.
+            # Ver `assets_json.number_image_assets`.
+            from ...assets_json import number_image_assets
+
             parts.append("=== IMAGENES DISPONIBLES (REFERENCIA) ===")
             parts.append(
                 "Reglas:\n"
                 "- Si se proveen imagenes, usalas como evidencia (sin inventar contenido).\n"
-                "- En los pasos, referencialas como '(ver evidencia visual)' o '(ver captura)' cuando aplique.\n"
-                "- NO generes Markdown de imágenes en la respuesta JSON: el sistema las inserta en el Markdown final.\n"
+                "- Para decir que una imagen ilustra un paso, poné su NÚMERO en el campo\n"
+                "  'imagenes' de ese paso (por ejemplo: \"imagenes\": [2]). Una imagen puede\n"
+                "  no corresponder a ningún paso: en ese caso no la referencies.\n"
+                "- NO generes Markdown de imágenes ni rutas de archivo en la respuesta JSON:\n"
+                "  el sistema las inserta en el Markdown final.\n"
             )
             parts.append("")
-            for idx, asset in enumerate(imagenes, start=1):
+            for idx, asset in sorted(number_image_assets(enriched_assets).items()):
                 titulo = asset.metadata.get("titulo") or asset.metadata.get("title") or f"Imagen {idx}"
                 parts.append(f"Imagen {idx}: id={asset.id} titulo={titulo}")
                 parts.append(f"Referencia: {asset.extracted_text}")
@@ -180,6 +188,7 @@ class ProcessBuilder:
                 input=p.input,
                 output=p.output,
                 confianza=p.confianza,
+                imagenes=list(p.imagenes),
             )
             for p in schema.pasos
         ]

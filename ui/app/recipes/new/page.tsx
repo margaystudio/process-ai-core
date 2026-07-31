@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { createRecipeRun, getArtifactUrl } from '@/lib/api'
+import { createRecipeRun } from '@/lib/api'
 import { useLoading } from '@/contexts/LoadingContext'
 
 export default function NewRecipePage() {

@@ -191,7 +191,7 @@ cd ui && npx tsc --noEmit
 
 ```bash
 .venv/bin/pytest tests/test_ai_providers.py tests/test_migrations_smoke.py \
-  tests/test_storage.py tests/test_media_document_extraction.py tests/test_artifact_signing.py -q
+  tests/test_storage.py tests/test_media_document_extraction.py tests/test_imagenes_autorizadas.py -q
 ```
 > (`test_migrations_smoke` se saltea si no pasás `ALEMBIC_SMOKE_DATABASE_URL`.)
 **Esperado:** todo **passed** (estos tocan los módulos modificados y no requieren la DB de la suite que falla por el `.env`).

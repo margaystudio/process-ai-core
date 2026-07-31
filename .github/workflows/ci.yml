@@ -50,7 +50,6 @@ jobs:
       SUPABASE_SERVICE_ROLE_KEY: service-role-de-mentira
       WORKSPACE_URL: http://localhost:9   # inalcanzable a propósito
       STORAGE_BACKEND: local
-      ARTIFACT_SIGNING_SECRET: secreto-de-test
 
     steps:
       - uses: actions/checkout@v4

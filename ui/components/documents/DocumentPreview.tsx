@@ -1,9 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { getDocumentRuns } from '@/lib/api'
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+import { useEffect, useRef, useState } from 'react'
+import { fetchArtifactBlobUrl, getDocumentRuns } from '@/lib/api'
 
 interface DocumentPreviewProps {
   documentId: string
@@ -13,31 +11,45 @@ export default function DocumentPreview({ documentId }: DocumentPreviewProps) {
   const [pdfUrl, setPdfUrl] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const blobUrlRef = useRef<string | null>(null)
 
   useEffect(() => {
+    let cancelled = false
+
     async function loadPdf() {
       try {
         setLoading(true)
         setError(null)
         const runs = await getDocumentRuns(documentId)
         if (runs.length > 0 && runs[0].artifacts.pdf) {
-          // Convertir URL relativa a absoluta
-          const relativeUrl = runs[0].artifacts.pdf
-          const absoluteUrl = relativeUrl.startsWith('http') 
-            ? relativeUrl 
-            : `${API_URL}${relativeUrl}`
-          setPdfUrl(absoluteUrl)
-        } else {
+          // fetch autenticado + blob URL: el endpoint de artifacts exige
+          // Authorization, un <iframe src> directo daría 401.
+          const blobUrl = await fetchArtifactBlobUrl(runs[0].artifacts.pdf)
+          if (cancelled) {
+            URL.revokeObjectURL(blobUrl)
+            return
+          }
+          blobUrlRef.current = blobUrl
+          setPdfUrl(blobUrl)
+        } else if (!cancelled) {
           setError('No hay PDF disponible')
         }
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Error cargando PDF')
+        if (!cancelled) setError(err instanceof Error ? err.message : 'Error cargando PDF')
       } finally {
-        setLoading(false)
+        if (!cancelled) setLoading(false)
       }
     }
 
     loadPdf()
+
+    return () => {
+      cancelled = true
+      if (blobUrlRef.current) {
+        URL.revokeObjectURL(blobUrlRef.current)
+        blobUrlRef.current = null
+      }
+    }
   }, [documentId])
 
   return (
@@ -67,4 +79,3 @@ export default function DocumentPreview({ documentId }: DocumentPreviewProps) {
     </div>
   )
 }
-

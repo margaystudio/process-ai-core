@@ -24,7 +24,7 @@ from process_ai_core.upload_validation import ALLOWED_UPLOAD_EXTENSIONS
 
 from ..models.requests import ProcessMode, ProcessRunResponse
 from ._branding import get_run_pdf_branding, get_workspace_pdf_branding
-from ..artifact_signing import sign_artifact_url
+from ..artifact_urls import artifact_path
 from api.workspace_client import (
     WorkspaceSessionContext,
     get_workspace_context,
@@ -288,11 +288,11 @@ async def create_process_run(
 
             # Construir URLs firmadas para los artefactos
             artifacts = {
-                "json": sign_artifact_url(run_id, "process.json", workspace_id),
-                "markdown": sign_artifact_url(run_id, "process.md", workspace_id),
+                "json": artifact_path(run_id, "process.json"),
+                "markdown": artifact_path(run_id, "process.md"),
             }
             if pdf_generated:
-                artifacts["pdf"] = sign_artifact_url(run_id, "process.pdf", workspace_id)
+                artifacts["pdf"] = artifact_path(run_id, "process.pdf")
 
             # SOLO AHORA crear Document, Run y Artifacts en BD (transacción atómica)
             # Si algo falla aquí, el pipeline ya se ejecutó exitosamente
@@ -517,12 +517,12 @@ def get_process_run(
     from process_ai_core.storage import get_storage, run_artifact_key
 
     artifacts = {
-        "json": sign_artifact_url(run_id, "process.json", workspace_id),
-        "markdown": sign_artifact_url(run_id, "process.md", workspace_id),
+        "json": artifact_path(run_id, "process.json"),
+        "markdown": artifact_path(run_id, "process.md"),
     }
     try:
         if get_storage().exists(run_artifact_key(workspace_id, run_id, "process.pdf")):
-            artifacts["pdf"] = sign_artifact_url(run_id, "process.pdf", workspace_id)
+            artifacts["pdf"] = artifact_path(run_id, "process.pdf")
     except Exception:
         # La existencia del PDF es best-effort; su ausencia no rompe la respuesta.
         pass
@@ -604,7 +604,7 @@ def generate_pdf_from_run(run_id: str):
         from process_ai_core.storage import sync_run_dir_to_storage
         sync_run_dir_to_storage(workspace_id_for_signing, run_id, run_dir)
 
-        pdf_url = sign_artifact_url(run_id, "process.pdf", workspace_id_for_signing)
+        pdf_url = artifact_path(run_id, "process.pdf")
 
         return {
             "run_id": run_id,

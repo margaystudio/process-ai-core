@@ -36,5 +36,4 @@ DATABASE_SCHEMA = "process_ai"
 
 [secrets]
 OPENAI_API_KEY = "process-ai-openai-api-key:latest"
-ARTIFACT_SIGNING_SECRET = "process-ai-artifact-signing-secret:latest"
 SUPABASE_SERVICE_ROLE_KEY = "process-ai-supabase-service-role-key:latest"

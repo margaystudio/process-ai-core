@@ -2,19 +2,19 @@
 
 import { useState, useEffect, useRef } from 'react'
 import Image from 'next/image'
-import { X } from 'lucide-react'
-import { getVersionPdfUrl, isFrozenVersionStatus } from '@/lib/api'
+import { AlertCircle, Download, ExternalLink, Loader2, X } from 'lucide-react'
+import { downloadVersionPdf, fetchArtifact, getVersionPdfUrl, isFrozenVersionStatus } from '@/lib/api'
 import type { VersionPdfTarget } from '@/hooks/usePdfViewer'
-import { authFetch, getAuthHeaders } from '@/lib/api-auth'
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+import { Button, buttonVariants } from '@/shared/ui/components/button'
+import { cn } from '@/shared/ui/cn'
 
 interface ArtifactViewerModalProps {
   isOpen: boolean
   onClose: () => void
   /**
-   * URL ya firmada del artifact (viene del backend). Usar cuando se dispone de ella.
-   * Si no se provee, se usa runId + filename como fallback (deprecated).
+   * Ruta del artifact (viene del backend, ej. `/api/v1/artifacts/{run_id}/process.pdf`).
+   * Requiere sesión: se pide con `fetchArtifact` (fetch autenticado), nunca como
+   * `src`/`href` directo. Si no se provee, se usa runId + filename como fallback (deprecated).
    */
   artifactUrl?: string
   runId?: string
@@ -41,6 +41,10 @@ export default function ArtifactViewerModal({
   const [error, setError] = useState<string | null>(null)
   const [pdfUrl, setPdfUrl] = useState<string | null>(null)
   const [pdfFrameLoading, setPdfFrameLoading] = useState(false)
+  const [downloading, setDownloading] = useState(false)
+  // Separado de `error` (que oculta el visor): un fallo al descargar no debe
+  // tapar el PDF que ya se está mostrando, solo avisar junto al botón.
+  const [downloadError, setDownloadError] = useState<string | null>(null)
   const blobUrlRef = useRef<string | null>(null)
 
   useEffect(() => {
@@ -49,6 +53,7 @@ export default function ArtifactViewerModal({
       setPdfUrl(null)
       setPdfFrameLoading(false)
       setError(null)
+      setDownloadError(null)
       if (blobUrlRef.current) {
         URL.revokeObjectURL(blobUrlRef.current)
         blobUrlRef.current = null
@@ -71,11 +76,11 @@ export default function ArtifactViewerModal({
             versionPreviewPdf.versionStatus
           )
         } else if (artifactUrl) {
-          // URL ya firmada que viene del backend — usarla directamente.
-          absoluteUrl = artifactUrl.startsWith('http') ? artifactUrl : `${API_URL}${artifactUrl}`
+          // Ruta del artifact que viene del backend (bare path de nuestra API).
+          absoluteUrl = artifactUrl
         } else {
-          // Fallback deprecated: reconstruir desde runId + filename (sin token → 404 en prod).
-          absoluteUrl = `${API_URL}/api/v1/artifacts/${runId}/${filename}`
+          // Fallback deprecated: reconstruir desde runId + filename.
+          absoluteUrl = `/api/v1/artifacts/${runId}/${filename}`
         }
 
         if (type === 'pdf') {
@@ -89,16 +94,13 @@ export default function ArtifactViewerModal({
           const pdfRequestUrl = isFrozen
             ? absoluteUrl
             : `${absoluteUrl}${absoluteUrl.includes('?') ? '&' : '?'}t=${Date.now()}`
-          // El endpoint de PDF de nuestra API exige el header Authorization (JWT):
-          // un <iframe>/fetch con solo cookies devuelve "Missing Authorization header".
-          // Las URLs firmadas de storage (artifactUrl) NO deben llevar el header
-          // (rompería el CORS del signed URL), por eso solo se agrega para versionPreviewPdf.
-          const pdfHeaders = versionPreviewPdf ? await getAuthHeaders() : undefined
           try {
-            const response = await authFetch(pdfRequestUrl, {
+            // `fetchArtifact` agrega el header Authorization: el endpoint de
+            // artifacts de nuestra API lo exige (401 sin él), y ahora además
+            // verifica el permiso sobre la carpeta del documento del run.
+            const response = await fetchArtifact(pdfRequestUrl, {
               cache: isFrozen ? 'default' : 'no-store',
               credentials: 'include',
-              headers: pdfHeaders,
               signal: abortController.signal,
             })
 
@@ -127,7 +129,8 @@ export default function ArtifactViewerModal({
             setError(fetchErr instanceof Error ? fetchErr.message : 'Error al cargar el PDF')
           }
         } else {
-          const response = await fetch(absoluteUrl, { signal: abortController.signal })
+          // Mismo endpoint que el PDF: requiere Authorization (fetchArtifact lo agrega).
+          const response = await fetchArtifact(absoluteUrl, { signal: abortController.signal })
           if (!response.ok) {
             throw new Error(`Error al cargar ${filename}`)
           }
@@ -161,6 +164,42 @@ export default function ArtifactViewerModal({
       setPdfFrameLoading(false)
     }
   }, [error])
+
+  /**
+   * Descarga el PDF como archivo.
+   *
+   * Vuelve a pedirlo al backend con `download=1` en lugar de guardar el blob ya
+   * cargado: así el nombre del archivo lo decide el servidor (conserva el
+   * original en los documentos importados) y la descarga pasa por el mismo
+   * camino que la vista — incluido el sello de versión superada.
+   *
+   * Para un artifact de run (URL firmada, sin versión) no hay endpoint con ese
+   * parámetro: se guarda el blob que ya está en memoria.
+   */
+  const handleDownload = async () => {
+    setDownloading(true)
+    setDownloadError(null)
+    try {
+      if (versionPreviewPdf) {
+        await downloadVersionPdf(
+          versionPreviewPdf.documentId,
+          versionPreviewPdf.versionId,
+          versionPreviewPdf.versionStatus,
+        )
+      } else if (pdfUrl) {
+        const link = document.createElement('a')
+        link.href = pdfUrl
+        link.download = filename || 'documento.pdf'
+        document.body.appendChild(link)
+        link.click()
+        link.remove()
+      }
+    } catch (err) {
+      setDownloadError(err instanceof Error ? err.message : 'No se pudo descargar el PDF')
+    } finally {
+      setDownloading(false)
+    }
+  }
 
   if (!isOpen) return null
 
@@ -238,17 +277,42 @@ export default function ArtifactViewerModal({
               </div>
             ) : type === 'pdf' && pdfUrl ? (
               <div className="relative h-full min-h-0 border border-ink-200 rounded-lg overflow-hidden flex flex-col">
-                <div className="flex items-center justify-end gap-3 p-3 border-b border-ink-200 bg-ink-50">
-                  <div className="flex items-center gap-2">
+                <div className="flex flex-col gap-2 border-b border-ink-200 bg-ink-50 p-3">
+                  <div className="flex items-center justify-end gap-2">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      onClick={handleDownload}
+                      disabled={downloading}
+                      aria-busy={downloading}
+                    >
+                      {downloading ? (
+                        <Loader2 className="animate-spin" aria-hidden="true" />
+                      ) : (
+                        <Download aria-hidden="true" />
+                      )}
+                      {downloading ? 'Descargando…' : 'Descargar'}
+                    </Button>
                     <a
                       href={pdfUrl}
                       target="_blank"
                       rel="noreferrer"
-                      className="px-3 py-1.5 text-sm border border-ink-300 rounded-md hover:bg-ink-100"
+                      className={cn(buttonVariants({ variant: 'secondary', size: 'sm' }))}
                     >
+                      <ExternalLink aria-hidden="true" />
                       Abrir en pestaña
                     </a>
                   </div>
+                  {downloadError && (
+                    <div
+                      role="alert"
+                      className="flex items-start gap-2 rounded-lg border border-danger-bd bg-danger-bg p-2 text-sm text-danger"
+                    >
+                      <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                      <span>{downloadError}</span>
+                    </div>
+                  )}
                 </div>
                 <iframe
                   src={pdfViewerSrc ?? undefined}

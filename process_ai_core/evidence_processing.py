@@ -135,11 +135,18 @@ def process_video(path: Path) -> EvidenceResult:
 
 
 def _count_pdf_pages(path: Path) -> int | None:
+    """
+    Cantidad de páginas, solo para metadata. Con PyMuPDF, que es el único motor
+    de PDF de la ingesta: no vale la pena arrastrar un segundo lector para contar.
+    """
     try:
-        from pypdf import PdfReader
+        import fitz
 
-        reader = PdfReader(path)
-        return len(reader.pages)
+        doc = fitz.open(str(path))
+        try:
+            return len(doc)
+        finally:
+            doc.close()
     except Exception:
         return None
 

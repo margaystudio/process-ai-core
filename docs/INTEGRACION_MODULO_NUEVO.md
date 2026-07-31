@@ -35,8 +35,6 @@ SUPABASE_URL=https://nbigcpjmckewuhrqjzrt.supabase.co
 SUPABASE_JWKS_URL=https://nbigcpjmckewuhrqjzrt.supabase.co/auth/v1/.well-known/jwks.json
 WORKSPACE_URL=https://margay-workspace-513594124246.us-central1.run.app
 {MODULE}_APP_KEY=<key registrada en workspace, ej. process_ai>
-ARTIFACT_SIGNING_SECRET=<secreto random, obligatorio en prod>
-ARTIFACT_URL_TTL_SECONDS=900   # opcional, default 900
 ENVIRONMENT=production         # o local/test
 ```
 
@@ -81,8 +79,20 @@ Mapeo de roles macro → roles locales (ajustar según el dominio del módulo):
 - Todo endpoint que recibe un id de recurso por path → verificar que
   `recurso.workspace_id == resolve_tenant_workspace_id(ctx)` → 404 si no coincide.
 - Nunca aceptar `workspace_id` o `user_id` del cliente (query/body). Siempre del contexto.
-- Archivos servidos (PDFs, imágenes generadas) → proteger con URLs firmadas HMAC.
-  Copiar `api/artifact_signing.py` de process-ai-core.
+- Archivos servidos (PDFs, imágenes generadas) → **request autenticado (Bearer) +
+  verificación del permiso sobre la carpeta del documento**. NO URLs firmadas: un
+  token en la dirección es un portador, el servidor no sabe quién lo presenta y
+  con eso el permiso por carpeta no se puede aplicar. process-ai-core tenía
+  `api/artifact_signing.py` y se eliminó justamente por eso.
+
+  El principio —"nada que el navegador pida por su cuenta lleva una credencial en
+  la dirección"— y los dos patrones que lo cumplen están escritos en
+  `api/routes/documents/_helpers.py` de process-ai-core:
+    * archivo suelto que el usuario abre → lo pide la pantalla con fetch + Bearer
+      y lo muestra desde un blob URL;
+    * imagen embebida en contenido → route handler proxy en el front
+      (`ui/app/api/doc-assets/`), que tiene la sesión en cookie y llama a la API
+      con Bearer.
 
 ### 2.8 Verificación final
 ```bash
@@ -184,7 +194,7 @@ Infra: Cloud Run (us-central1), imagen en Artifact Registry `margay-services`,
 service accounts `process-ai-api-sa@margay-platform-prod.iam.gserviceaccount.com`
 y `process-ai-ui-sa@margay-platform-prod.iam.gserviceaccount.com`.
 
-Secretos sensibles (`ARTIFACT_SIGNING_SECRET`, `OPENAI_API_KEY`, etc.) → Secret Manager,
+Secretos sensibles (`OPENAI_API_KEY`, etc.) → Secret Manager,
 referenciados en `ops/api/prod.config.toml` bajo `[secrets]`.
 
 ---
