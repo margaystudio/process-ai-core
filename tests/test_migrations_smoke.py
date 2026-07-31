@@ -1,9 +1,23 @@
 """Smoke test de migraciones Alembic (0.1.2).
 
-Verifica que `alembic upgrade head` levanta el schema del módulo desde cero en un
-Postgres real. Se ejecuta SOLO si se define la variable de entorno
-`ALEMBIC_SMOKE_DATABASE_URL` con una URL de Postgres de prueba; de lo contrario se
-saltea (no rompe la suite que corre con SQLite en memoria).
+Verifica que `alembic upgrade head` levanta el schema del módulo **desde cero** en
+un Postgres real.
+
+POR QUÉ IMPORTA QUE ESTO CORRA SOLO
+-----------------------------------
+Este test existía y estaba skippeado salvo que definieras
+`ALEMBIC_SMOKE_DATABASE_URL`, una variable que en la práctica no seteaba nadie.
+Resultado: el único test que valida la cadena completa nunca corría en local, y
+un bug que solo se ve desde una base vacía llegó al CI.
+
+Fue este: la `0022` importaba el inventario VIVO de `db/id_remap.py`, la `0023`
+renombró una columna, se actualizó el inventario, y la `0022` —que corre antes,
+cuando la columna todavía tiene el nombre viejo— empezó a abortar. Contra una
+base ya migrada no se nota **nunca**; desde cero falla siempre.
+
+Ahora cae solo a `TEST_DATABASE_URL` (la base efímera de `tools/dev_db.sh`), así
+que corre con el resto de la suite sin configurar nada. `ALEMBIC_SMOKE_DATABASE_URL`
+sigue existiendo para apuntarlo a otro lado.
 
 Para no tocar el schema real (`process_ai`) ni el de margay (`workspace`), crea un
 schema descartable y único, corre la migración apuntada a él, valida las tablas y
@@ -24,11 +38,18 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parents[1]
-SMOKE_URL = os.getenv("ALEMBIC_SMOKE_DATABASE_URL")
+
+#: Explícita si está; si no, la base efímera de los tests. Solo Postgres: el
+#: schema descartable que crea este test no existe en SQLite.
+_URL = os.getenv("ALEMBIC_SMOKE_DATABASE_URL") or os.getenv("TEST_DATABASE_URL") or ""
+SMOKE_URL = _URL if _URL.startswith("postgresql") else None
 
 pytestmark = pytest.mark.skipif(
     not SMOKE_URL,
-    reason="Definí ALEMBIC_SMOKE_DATABASE_URL (Postgres) para correr el smoke de migraciones.",
+    reason=(
+        "Se necesita un Postgres. Levantá la base efímera con ./tools/dev_db.sh up "
+        "(escribe TEST_DATABASE_URL en .env.test) o definí ALEMBIC_SMOKE_DATABASE_URL."
+    ),
 )
 
 # Tablas centrales que deben existir tras el baseline.
