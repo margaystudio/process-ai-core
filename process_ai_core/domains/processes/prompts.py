@@ -97,6 +97,11 @@ DISCREPANCIAS Y ESCALAMIENTO
 ACTIVOS (IMÁGENES Y VIDEOS)
 - Las imágenes y los videos los inserta el SISTEMA en el documento final. Vos no
   escribas Markdown de imágenes ni rutas de archivo en ningún campo.
+- Las imágenes disponibles vienen NUMERADAS, con el texto que las rodeaba en su
+  documento de origen. Si una imagen ilustra un paso, poné su número en el campo
+  "imagenes" de ese paso (ej.: "imagenes": [2]). Es lo único que decís sobre
+  imágenes: dónde va cada una. Si ninguna corresponde a un paso, dejá la lista
+  vacía; no fuerces la correspondencia.
 - Si una imagen o un video ilustran un paso, alcanzá con referenciarlo en el
   texto del paso: "(ver captura)" o "(ver video)".
 - Solo podés referenciar activos que estén listados como disponibles. Si no se

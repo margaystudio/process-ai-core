@@ -75,9 +75,10 @@ class BlobStorage(ABC):
         """
         URL temporal directa al blob (cuando el backend lo soporta).
 
-        Nota: el endpoint de artefactos sirve los bytes vía `get()` + firma HMAC
-        propia (api/artifact_signing.py). Este método es para acceso directo
-        opcional; backends que no lo soporten pueden lanzar NotImplementedError.
+        Nota: el endpoint de artefactos sirve los bytes vía `get()`, con el
+        request autenticado y el permiso de carpeta verificado. Este método es
+        para acceso directo opcional; backends que no lo soporten pueden lanzar
+        NotImplementedError.
         """
 
     @abstractmethod

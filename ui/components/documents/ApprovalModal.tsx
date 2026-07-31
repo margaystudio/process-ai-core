@@ -1,11 +1,9 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { X } from 'lucide-react'
-import { Document, getDocumentRuns } from '@/lib/api'
+import { Document, fetchArtifactBlobUrl, getDocumentRuns } from '@/lib/api'
 import { formatDate } from '@/utils/dateFormat'
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
 interface ApprovalModalProps {
   document: Document
@@ -24,30 +22,47 @@ export default function ApprovalModal({
 }: ApprovalModalProps) {
   const [pdfUrl, setPdfUrl] = useState<string | null>(null)
   const [loadingPdf, setLoadingPdf] = useState(true)
+  const [pdfError, setPdfError] = useState<string | null>(null)
+  const blobUrlRef = useRef<string | null>(null)
 
   useEffect(() => {
-    async function loadPdf() {
-      if (!isOpen) return
+    if (!isOpen) return
 
+    let cancelled = false
+
+    async function loadPdf() {
       try {
         setLoadingPdf(true)
+        setPdfError(null)
         const runs = await getDocumentRuns(document.id)
         if (runs.length > 0 && runs[0].artifacts.pdf) {
-          // Convertir URL relativa a absoluta
-          const relativeUrl = runs[0].artifacts.pdf
-          const absoluteUrl = relativeUrl.startsWith('http') 
-            ? relativeUrl 
-            : `${API_URL}${relativeUrl}`
-          setPdfUrl(absoluteUrl)
+          // fetch autenticado + blob URL: el endpoint de artifacts exige
+          // Authorization, un <iframe src> directo daría 401.
+          const blobUrl = await fetchArtifactBlobUrl(runs[0].artifacts.pdf)
+          if (cancelled) {
+            URL.revokeObjectURL(blobUrl)
+            return
+          }
+          blobUrlRef.current = blobUrl
+          setPdfUrl(blobUrl)
         }
       } catch (err) {
+        if (!cancelled) setPdfError(err instanceof Error ? err.message : 'Error cargando PDF')
         console.error('Error cargando PDF:', err)
       } finally {
-        setLoadingPdf(false)
+        if (!cancelled) setLoadingPdf(false)
       }
     }
 
     loadPdf()
+
+    return () => {
+      cancelled = true
+      if (blobUrlRef.current) {
+        URL.revokeObjectURL(blobUrlRef.current)
+        blobUrlRef.current = null
+      }
+    }
   }, [isOpen, document.id])
 
   if (!isOpen) return null
@@ -93,7 +108,9 @@ export default function ApprovalModal({
               />
             ) : (
               <div className="h-96 flex items-center justify-center bg-ink-50">
-                <p className="text-ink-500">No hay PDF disponible para este documento</p>
+                <p className="text-ink-500">
+                  {pdfError || 'No hay PDF disponible para este documento'}
+                </p>
               </div>
             )}
           </div>

@@ -52,11 +52,9 @@ SUPABASE_STORAGE_BUCKET = "process-ai-artifacts"
 OPENAI_MODEL_TEXT = "gpt-4.1-mini"
 OPENAI_MODEL_TRANSCRIBE = "gpt-4o-mini-transcribe"
 OPENAI_MODEL_TRANSCRIBE_TIMESTAMPS = "whisper-1"
-ARTIFACT_URL_TTL_SECONDS = "900"
 
 [secrets]
 # Secret Manager de margay-platform-test (crear estos secrets antes del deploy).
 DATABASE_URL = "process-ai-database-url:latest"
 OPENAI_API_KEY = "process-ai-openai-api-key:latest"
-ARTIFACT_SIGNING_SECRET = "process-ai-artifact-signing-secret:latest"
 SUPABASE_SERVICE_ROLE_KEY = "process-ai-supabase-service-role-key:latest"

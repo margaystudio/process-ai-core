@@ -51,7 +51,6 @@ El backend necesita, además de su config normal:
 WORKSPACE_URL=https://margay-workspace-...   # o el workspace local
 SUPABASE_JWKS_URL=https://nbigcpjmckewuhrqjzrt.supabase.co/auth/v1/.well-known/jwks.json
 PROCESS_AI_APP_KEY=process_ai
-ARTIFACT_SIGNING_SECRET=<cualquier-string-en-local>
 CORS_ORIGINS=https://process.local.margaystudio.io:3240,https://hub.local.margaystudio.io:3001
 ```
 

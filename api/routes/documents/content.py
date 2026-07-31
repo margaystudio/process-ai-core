@@ -9,7 +9,7 @@ import json
 import logging
 from pathlib import Path
 
-from fastapi import APIRouter, Body, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Body, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import Response
 
 from process_ai_core.db.database import get_db_session
@@ -27,7 +27,7 @@ from process_ai_core.export.markdown_html import render_frozen_html
 from api.routes._branding import get_workspace_pdf_branding
 from api.routes._document_context import build_document_context
 from api.routes._run_paths import run_dir as _run_dir
-from api.artifact_signing import sign_artifact_url
+
 from api.dependencies import get_current_user_id
 from api.workspace_client import (
     WorkspaceSessionContext,
@@ -35,12 +35,17 @@ from api.workspace_client import (
     resolve_tenant_workspace_id,
 )
 
+from api.routes._document_access import assert_document_viewable
+
 from ._helpers import (
     _assert_doc_in_active_workspace,
     _looks_like_markdown,
     _markdown_to_html,
-    _rewrite_img_src_to_absolute,
     _strip_latex_artifacts,
+    authorized_file_response,
+    editor_image_path,
+    rewrite_img_src_to_proxy,
+    strip_image_url_tokens,
 )
 
 logger = logging.getLogger(__name__)
@@ -238,12 +243,14 @@ def get_editable_content(
         # Limpiar artefactos LaTeX que puedan haber quedado en content_html de versiones anteriores
         html_content = _strip_latex_artifacts(html_content)
 
-        # Reescribir rutas relativas de imágenes a URLs absolutas (con token firmado)
-        settings = get_settings()
-        api_base = settings.api_base_url.rstrip("/")
+        # Las imágenes se apuntan al proxy del front: el navegador las pide al
+        # mismo origen de la página (con la cookie de sesión) y el proxy llama a
+        # la API con Bearer, que es donde se verifica el permiso de carpeta.
+        # El tenant activo viaja como query param porque un `<img>` no puede
+        # mandar el header `X-Active-Tenant-Id` que usa el resto de la app.
         draft_run_id = getattr(draft, "run_id", None) if draft else None
-        html_content = _rewrite_img_src_to_absolute(
-            html_content, draft_run_id, api_base, workspace_id=doc.workspace_id
+        html_content = rewrite_img_src_to_proxy(
+            html_content, draft_run_id, tenant_id=ctx.tenant.id
         )
 
         return {
@@ -303,7 +310,12 @@ def save_editable_content(
                 detail="Se esperaba HTML; el contenido parece markdown o texto crudo. Guarda desde el editor visual.",
             )
 
-        draft.content_html = content_html
+        # Se guarda la forma canónica de las imágenes: sin host y sin token. El
+        # editor recibió URLs firmadas para poder mostrarlas y devuelve lo que
+        # tiene; persistir eso metería una credencial con vencimiento adentro del
+        # contenido de la versión, que además es entrada congelada del artefacto
+        # de auditoría. Ver `strip_image_url_tokens`.
+        draft.content_html = strip_image_url_tokens(content_html)
         draft.content_type = "manual_edit"
         draft_id = draft.id
         draft_version_number = draft.version_number
@@ -373,38 +385,52 @@ async def upload_editor_image(
         logger.exception("Error guardando imagen del editor")
         raise HTTPException(status_code=500, detail="Error al guardar la imagen") from e
 
-    url = f"/api/v1/documents/{document_id}/editor-images/{name}"
-    return {"url": url}
+    # Ruta canónica, sin credencial adentro: el editor la muestra pidiéndola al
+    # proxy del front, que es de donde ya está cargado el HTML.
+    from ._helpers import PROXY_PREFIX
+
+    return {"url": f"{PROXY_PREFIX}{editor_image_path(document_id, name)}"}
 
 
 @router.get("/{document_id}/editor-images/{filename}")
-def get_editor_image(document_id: str, filename: str):
-    """Sirve una imagen subida por el editor manual (desde object storage)."""
+def get_editor_image(
+    document_id: str,
+    filename: str,
+    request: Request,
+    user_id: str = Depends(get_current_user_id),
+    ctx: WorkspaceSessionContext = Depends(get_workspace_context),
+):
+    """
+    Sirve una imagen subida por el editor manual (desde object storage).
+
+    Request autenticado (Bearer) + permiso sobre la CARPETA del documento, igual
+    que el resto de la API. El navegador no pide acá directamente —un `<img>` no
+    puede mandar el header— sino al proxy del front, que reenvía con la sesión.
+
+    Antes se servía con un token firmado en la URL: un portador que el servidor
+    no podía atribuir a nadie, y con el que el permiso de carpeta no se aplicaba.
+    """
     if ".." in filename or "/" in filename or "\\" in filename:
         raise HTTPException(status_code=400, detail="Nombre de archivo no válido")
 
+    workspace_id = resolve_tenant_workspace_id(ctx)
     with get_db_session() as session:
-        doc = session.query(Document).filter_by(id=document_id).first()
-        if not doc:
-            raise HTTPException(status_code=404, detail="Imagen no encontrada")
-        doc_workspace_id = doc.workspace_id
+        assert_document_viewable(
+            session,
+            session.query(Document).filter_by(id=document_id).first(),
+            workspace_id=workspace_id,
+            user_id=user_id,
+            contexto="La imagen",
+        )
 
     from process_ai_core.storage import get_storage, workspace_prefix
-    key = f"{workspace_prefix(doc_workspace_id)}/editor-uploads/{document_id}/{filename}"
+    key = f"{workspace_prefix(workspace_id)}/editor-uploads/{document_id}/{filename}"
     try:
         content = get_storage().get(key)
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="Imagen no encontrada")
+        raise HTTPException(status_code=404, detail="La imagen no se encontró")
 
-    from pathlib import PurePosixPath
-    ctype_map = {
-        ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
-        ".gif": "image/gif", ".webp": "image/webp",
-    }
-    media_type = ctype_map.get(PurePosixPath(filename).suffix.lower(), "application/octet-stream")
-    return Response(content=content, media_type=media_type, headers={
-        "Content-Disposition": f'inline; filename="{filename}"',
-    })
+    return authorized_file_response(content, filename, request)
 
 
 @router.post("/{document_id}/patch")
@@ -836,11 +862,11 @@ Responde SOLO con el JSON corregido, sin texto adicional.
 
         # Construir URLs firmadas para los artefactos
         artifacts = {
-            "json": sign_artifact_url(new_run_id, "process.json", patch_workspace_id),
-            "markdown": sign_artifact_url(new_run_id, "process.md", patch_workspace_id),
+            "json": artifact_path(new_run_id, "process.json"),
+            "markdown": artifact_path(new_run_id, "process.md"),
         }
         if pdf_generated:
-            artifacts["pdf"] = sign_artifact_url(new_run_id, "process.pdf", patch_workspace_id)
+            artifacts["pdf"] = artifact_path(new_run_id, "process.pdf")
 
         logger.info(f"Patch completado exitosamente, run_id: {new_run_id}")
 

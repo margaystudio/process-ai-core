@@ -863,6 +863,7 @@ export default function DocumentDetailPage() {
           {/* ── Historial y trazabilidad ────────────────────────────────────── */}
           <div className="border-t border-ink-200 pt-8">
             <DocumentHistorySection
+              documentId={documentId}
               versions={versions}
               auditLog={auditLog}
               validations={validations}

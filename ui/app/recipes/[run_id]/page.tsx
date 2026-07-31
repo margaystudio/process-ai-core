@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
-import { getRun, getArtifactUrl } from '@/lib/api'
+import { getRun, getArtifactUrl, downloadArtifact } from '@/lib/api'
 import { useLoading } from '@/contexts/LoadingContext'
 import ArtifactViewerModal from '@/components/processes/ArtifactViewerModal'
 
@@ -11,10 +11,12 @@ export default function RecipeResultPage() {
   const params = useParams()
   const runId = params.run_id as string
   const { withLoading } = useLoading()
-  
+
   const [run, setRun] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [downloading, setDownloading] = useState(false)
+  const [downloadError, setDownloadError] = useState<string | null>(null)
   const [viewerModal, setViewerModal] = useState<{
     isOpen: boolean
     filename: string
@@ -59,6 +61,20 @@ export default function RecipeResultPage() {
 
   const closeModal = () => {
     setViewerModal({ ...viewerModal, isOpen: false })
+  }
+
+  const handleDownloadPdf = async () => {
+    setDownloading(true)
+    setDownloadError(null)
+    try {
+      // fetch autenticado + blob: el endpoint de artifacts exige Authorization,
+      // un <a href download> directo a la API daría 401.
+      await downloadArtifact(`${getArtifactUrl(runId, 'recipe.pdf')}?download=true`, 'recipe.pdf')
+    } catch (err) {
+      setDownloadError(err instanceof Error ? err.message : 'No se pudo descargar el PDF')
+    } finally {
+      setDownloading(false)
+    }
   }
 
   if (loading) {
@@ -144,13 +160,17 @@ export default function RecipeResultPage() {
                       </div>
                     </div>
                   </button>
-                  <a
-                    href={`${getArtifactUrl(runId, 'recipe.pdf')}?download=true`}
-                    download
-                    className="block w-full text-center text-sm text-blue-600 hover:text-blue-800 underline"
+                  <button
+                    type="button"
+                    onClick={handleDownloadPdf}
+                    disabled={downloading}
+                    className="block w-full text-center text-sm text-blue-600 hover:text-blue-800 underline disabled:opacity-50"
                   >
-                    Descargar PDF
-                  </a>
+                    {downloading ? 'Descargando...' : 'Descargar PDF'}
+                  </button>
+                  {downloadError && (
+                    <p className="text-center text-xs text-red-600">{downloadError}</p>
+                  )}
                 </div>
               )}
 

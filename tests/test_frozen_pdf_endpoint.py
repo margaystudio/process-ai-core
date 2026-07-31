@@ -195,6 +195,109 @@ def test_pdf_importado_se_sirve_por_el_mismo_camino(session, storage, monkeypatc
         _cleanup(session, version, ws)
 
 
+# ── Descarga (?download=1) ────────────────────────────────────────────────────
+
+
+def _pdf_de_una_pagina() -> bytes:
+    """PDF real (no un blob de mentira): el sello lo tiene que poder abrir."""
+    import fitz
+
+    doc = fitz.open()
+    doc.new_page().insert_text((60, 100), "Documento aprobado", fontsize=14)
+    salida = doc.tobytes()
+    doc.close()
+    return salida
+
+
+def test_download_cambia_la_disposicion_a_attachment(session, storage, monkeypatch):
+    version, ws = _make_version(session, monkeypatch)
+    key = f"workspaces/{ws.id}/documents/{version.document_id}/versions/{version.id}/document.pdf"
+    storage.put(key, PDF_BYTES, content_type="application/pdf")
+    version.pdf_storage_key = key
+    version.pdf_sha256 = hashlib.sha256(PDF_BYTES).hexdigest()
+    session.flush()
+
+    monkeypatch.setattr(versions_mod, "export_pdf_from_content", _explode)
+
+    try:
+        vista = versions_mod.get_version_frozen_pdf(
+            document_id=version.document_id, version_id=version.id,
+            request=_fake_request(), ctx=None,
+        )
+        descarga = versions_mod.get_version_frozen_pdf(
+            document_id=version.document_id, version_id=version.id,
+            request=_fake_request(), download=True, ctx=None,
+        )
+
+        assert "inline" in vista.headers["content-disposition"]
+        assert "attachment" in descarga.headers["content-disposition"]
+        # Los MISMOS bytes: `download` solo cambia el header.
+        assert descarga.body == vista.body == PDF_BYTES
+        # Y NO comparten ETag: si lo hicieran, pedir la descarga después de haber
+        # abierto el PDF respondería 304 y el navegador reusaría la entrada
+        # cacheada —la que dice `inline`— abriéndolo en vez de guardarlo.
+        assert descarga.headers["etag"] != vista.headers["etag"]
+    finally:
+        _cleanup(session, version, ws)
+
+
+def test_la_descarga_de_una_version_superada_lleva_el_sello(session, storage, monkeypatch):
+    """
+    Es el caso donde el sello más importa: el archivo descargado es el que
+    circula por fuera del sistema, y tiene que decir por sí solo que ya no rige.
+    """
+    import fitz
+
+    version, ws = _make_version(session, monkeypatch, status="OBSOLETE")
+    version.is_current = False
+    pdf_original = _pdf_de_una_pagina()
+    key = f"workspaces/{ws.id}/documents/{version.document_id}/versions/{version.id}/document.pdf"
+    storage.put(key, pdf_original, content_type="application/pdf")
+    version.pdf_storage_key = key
+    version.pdf_sha256 = hashlib.sha256(pdf_original).hexdigest()
+    session.flush()
+
+    # La versión que la superó: sin una vigente no hay nada que sellar.
+    vigente = DocumentVersion(
+        id=f"{version.id}-v4", document_id=version.document_id, version_number=4,
+        version_status="APPROVED", content_type="generated",
+        content_json="{}", content_markdown="# Doc", is_current=True,
+    )
+    session.add(vigente)
+    session.flush()
+
+    try:
+        descarga = versions_mod.get_version_frozen_pdf(
+            document_id=version.document_id, version_id=version.id,
+            request=_fake_request(), download=True, ctx=None,
+        )
+
+        assert "attachment" in descarga.headers["content-disposition"]
+        assert descarga.headers["X-Document-Stamped"] == "superseded"
+        # El sello está en los bytes que se descargan, no solo en un header.
+        doc = fitz.open(stream=descarga.body, filetype="pdf")
+        try:
+            texto = doc[0].get_text()
+        finally:
+            doc.close()
+        assert "VERSIÓN SUPERADA" in texto
+        assert "vigente: v4" in texto
+
+        # El artefacto en storage NO se tocó: su hash registrado sigue valiendo.
+        assert storage.get(key) == pdf_original
+        assert descarga.headers["X-Document-SHA256"] == version.pdf_sha256
+
+        # Y una versión aprobada vigente se descarga SIN sello.
+        aprobada = versions_mod.get_version_frozen_pdf(
+            document_id=version.document_id, version_id=vigente.id,
+            request=_fake_request(), download=True, ctx=None,
+        )
+        assert "X-Document-Stamped" not in aprobada.headers
+    finally:
+        session.query(DocumentVersion).filter_by(id=vigente.id).delete()
+        _cleanup(session, version, ws)
+
+
 # ── APPROVED sin blob: reintento del freeze ───────────────────────────────────
 
 
@@ -305,6 +408,35 @@ def test_preview_pdf_de_obsolete_congelada_redirige_al_congelado(session, storag
             )
         )
         assert response.status_code == 307
+    finally:
+        _cleanup(session, version, ws)
+
+
+def test_la_redireccion_del_preview_no_pierde_el_parametro_de_descarga(
+    session, storage, monkeypatch
+):
+    """
+    Para una versión OBSOLETE la UI pide el preview (no sabe si hay artefacto
+    congelado) y el backend redirige. Si `download` se perdiera en el salto, el
+    archivo se serviría `inline` justo en el caso donde la descarga más importa:
+    el de la versión superada, que es la que lleva el sello.
+    """
+    version, ws = _make_version(session, monkeypatch, status="OBSOLETE")
+    version.pdf_storage_key = "workspaces/x/documents/y/versions/z/document.pdf"
+    session.flush()
+    monkeypatch.setattr(versions_mod, "export_pdf_from_content", _explode)
+
+    try:
+        response = asyncio.run(
+            versions_mod.get_version_preview_pdf(
+                document_id=version.document_id,
+                version_id=version.id,
+                download=True,
+                ctx=None,
+            )
+        )
+        assert response.status_code == 307
+        assert response.headers["location"].endswith("/pdf?download=1")
     finally:
         _cleanup(session, version, ws)
 

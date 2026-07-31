@@ -220,13 +220,27 @@ resolver/tener presente:
   contexto`. Patrón viejo que sobrevivió a 1.4a (que solo migró los workspace_id de query/body).
 - **[de 1.7 — decisión de negocio, no seguridad] 403 vs 404 al acceder a recurso ajeno.**
   RESUELTO en 1.4c/1.4d: se unificó a 404 (no revela existencia entre tenants).
-- **[de 1.4d] Artifacts protegidos con URLs firmadas (HMAC+TTL).** `api/artifact_signing.py`
-  (sign/verify, compare_digest, falla sin secreto en prod). Endpoint exige `?token=`. Pendiente
-  FRONTEND: la UI arma URLs de artifact a mano vía `getArtifactUrl(runId, filename)` (sin token)
-  en ~8 lugares — deben usar la URL YA FIRMADA que devuelve el backend (`run.artifacts.pdf`).
-  Lista en el reporte de 1.4d; reparar en el bloque frontend (1.8). Sin ese fix, los PDFs no
-  cargan en la UI. Nuevas envs: `ARTIFACT_SIGNING_SECRET` (obligatoria en prod),
-  `ARTIFACT_URL_TTL_SECONDS` (default 900) → documentar en `.env.example` (Etapa 2).
+- **[de 1.4d] Artifacts protegidos con URLs firmadas (HMAC+TTL). REVERTIDO — ya no
+  hay firma.** Se hizo en 1.4d (`api/artifact_signing.py`: sign/verify con
+  compare_digest, TTL, falla sin secreto en prod) y se eliminó después, módulo y
+  settings incluidos. El motivo no fue el algoritmo sino lo que un token en la
+  dirección ES: un portador. El servidor validaba la firma y el workspace pero no
+  sabía QUIÉN la presentaba, así que el permiso POR CARPETA no se podía aplicar —
+  cualquier miembro del workspace con el enlace veía material de una carpeta que
+  tenía denegada.
+
+  En su lugar: los artefactos y las imágenes de documento se sirven con
+  `Authorization: Bearer` + verificación del permiso de carpeta
+  (`api/routes/_document_access.py`). Las imágenes embebidas, que las pide el
+  navegador solo, pasan por el proxy del front (`ui/app/api/doc-assets/`). El
+  principio —"nada que el navegador pida por su cuenta lleva una credencial en la
+  dirección"— está escrito en `api/routes/documents/_helpers.py`.
+
+  Se fueron con la firma: `ARTIFACT_SIGNING_SECRET` y `ARTIFACT_URL_TTL_SECONDS`
+  (ya no las declara `Settings`, ni las referencian los `ops/api/*.config.toml`),
+  y el pendiente de frontend que arrastraba este ítem — la UI ya no arma URLs de
+  artifact para poner en un `src`/`href`: las pide con `fetchArtifact` y las
+  muestra desde un blob URL.
 - **[recetas] Dominio "recetas" DESHABILITADO para el MVP.** `recipe_runs` desregistrado de
   `api/main.py` (router comentado + sacado del import). Razón: experimento B2C para otro nicho
   (app mobile, sin workspace/auth) → era un agujero de auth abierto. Código intacto en

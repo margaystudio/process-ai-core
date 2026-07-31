@@ -435,6 +435,95 @@ export function getArtifactUrl(runId: string, filename: string): string {
   return `${API_URL}/api/v1/artifacts/${runId}/${filename}`;
 }
 
+// ============================================================
+// Artifacts: fetch autenticado + blob URL
+// ============================================================
+//
+// PRINCIPIO: "Nada que el navegador pida por su cuenta lleva una credencial en
+// la dirección." Un archivo suelto que el usuario abre a propósito (un PDF de
+// run, un JSON, un Markdown) nunca se referencia con un `<a href>`, un
+// `<iframe src>` ni un `window.open` directo a la API: esas cargas las dispara
+// el NAVEGADOR por su cuenta y no pueden llevar el header `Authorization`. La
+// única forma de que "funcionen solo con la URL" sería poner el token en la
+// URL misma — y eso la vuelve un bearer token portador (cualquiera con el
+// enlace entra, sin importar a quién le revocaron el acceso después).
+//
+// El patrón correcto es siempre: `fetch` autenticado -> `blob` ->
+// `URL.createObjectURL` -> usar ESE blob URL en el `<iframe>`/`<a>`/
+// `window.open`, y `URL.revokeObjectURL` cuando ya no se necesita (unmount o
+// cambio de artifact). `downloadVersionPdf` (arriba) y `ArtifactViewerModal`
+// ya siguen este patrón; `fetchArtifact`/`fetchArtifactBlobUrl` son el atajo
+// para la próxima pantalla que necesite mostrar un archivo.
+//
+// (El otro caso — una imagen EMBEBIDA en contenido editable, ej. el editor
+// manual — es distinto: ahí es el navegador el que dispara el `<img>` solo, sin
+// JS de por medio, y ese caso lo resuelve el proxy del front
+// `ui/app/api/doc-assets/`, no este helper.)
+
+/** true si `url` apunta a nuestra propia API: relativa, o absoluta a NEXT_PUBLIC_API_URL. */
+function isOwnApiUrl(url: string): boolean {
+  return !/^https?:\/\//i.test(url) || url.startsWith(API_URL);
+}
+
+/**
+ * fetch autenticado de un artifact de nuestra API (PDF/JSON/Markdown/imagen).
+ * Agrega el header Authorization SOLO si la URL es de nuestra propia API (ver
+ * `isOwnApiUrl`): nunca a una URL de otro origen (ej. un signed URL de storage
+ * de terceros), porque le rompería el CORS.
+ */
+export async function fetchArtifact(url: string, init?: RequestInit): Promise<Response> {
+  const absoluteUrl = url.startsWith('http') ? url : `${API_URL}${url}`;
+  let headers = init?.headers;
+  if (isOwnApiUrl(absoluteUrl)) {
+    const { getAuthHeaders } = await import('@/lib/api-auth');
+    headers = { ...(await getAuthHeaders({})), ...(headers as Record<string, string> | undefined) };
+  }
+  return authFetch(absoluteUrl, { ...init, headers });
+}
+
+/**
+ * Trae un artifact y lo expone como blob URL (`URL.createObjectURL`), para usar
+ * en `<iframe src>`, `<a href>` o `window.open`. Quien la use es responsable de
+ * revocarla (`URL.revokeObjectURL`) cuando deje de necesitarla.
+ */
+export async function fetchArtifactBlobUrl(url: string, init?: RequestInit): Promise<string> {
+  const response = await fetchArtifact(url, init);
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '');
+    throw new Error(detail || `Error ${response.status} al cargar el archivo`);
+  }
+  const blob = await response.blob();
+  return URL.createObjectURL(blob);
+}
+
+/**
+ * Descarga un artifact de run (PDF/JSON/Markdown) como archivo. Mismo patrón
+ * que `downloadVersionPdf`: fetch autenticado -> blob -> `<a download>`.
+ */
+export async function downloadArtifact(url: string, fallbackName: string): Promise<void> {
+  const response = await fetchArtifact(url);
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '');
+    throw new Error(detail || `No se pudo descargar el archivo (HTTP ${response.status})`);
+  }
+  const disposition = response.headers.get('content-disposition') || '';
+  const match = disposition.match(/filename="?([^"]+)"?/i);
+  const filename = match?.[1] || fallbackName;
+
+  const blob = await response.blob();
+  const blobUrl = URL.createObjectURL(blob);
+  try {
+    const link = document.createElement('a');
+    link.href = blobUrl;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  } finally {
+    URL.revokeObjectURL(blobUrl);
+  }
+}
+
 /**
  * Crea un nuevo workspace (cliente/organización).
  */
@@ -1599,6 +1688,55 @@ export function getVersionPdfUrl(
 }
 
 /**
+ * Descarga el PDF de una versión como archivo (Content-Disposition: attachment).
+ *
+ * Va por `fetch` y no por un `<a href>` porque el endpoint exige el header
+ * Authorization: un link pelado devolvería "Missing Authorization header".
+ *
+ * Importante: pasa por el MISMO endpoint que la vista, así que una versión
+ * superada se descarga CON el sello "VERSIÓN SUPERADA". Es el caso donde más
+ * importa, porque el archivo descargado es el que circula por fuera del sistema.
+ */
+export async function downloadVersionPdf(
+  documentId: string,
+  versionId: string,
+  versionStatus?: string | null,
+  fallbackName = 'documento.pdf',
+): Promise<void> {
+  const base = getVersionPdfUrl(documentId, versionId, versionStatus);
+  const url = `${base}${base.includes('?') ? '&' : '?'}download=1`;
+  const { getAuthHeaders } = await import('@/lib/api-auth');
+  const response = await authFetch(url, {
+    credentials: 'include',
+    headers: await getAuthHeaders(),
+  });
+
+  if (!response.ok) {
+    const detalle = await response.text().catch(() => '');
+    throw new Error(detalle || `No se pudo descargar el PDF (HTTP ${response.status})`);
+  }
+
+  // El nombre lo decide el backend (conserva el del archivo original en los
+  // documentos importados); el fallback es solo por si el header no viaja.
+  const disposition = response.headers.get('content-disposition') || '';
+  const match = disposition.match(/filename="?([^"]+)"?/i);
+  const filename = match?.[1] || fallbackName;
+
+  const blob = await response.blob();
+  const blobUrl = URL.createObjectURL(blob);
+  try {
+    const link = document.createElement('a');
+    link.href = blobUrl;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  } finally {
+    URL.revokeObjectURL(blobUrl);
+  }
+}
+
+/**
  * Obtiene todas las versiones de un documento.
  */
 export async function getDocumentVersions(documentId: string): Promise<DocumentVersion[]> {
@@ -1759,7 +1897,12 @@ export async function saveEditableContent(
 }
 
 /**
- * Sube una imagen para el editor manual. Devuelve la URL para insertar (base + path).
+ * Sube una imagen para el editor manual. Devuelve la URL para insertar en el
+ * `<img>` del editor (Tiptap): es del PROXY del front (`/api/doc-assets/...`,
+ * ver `ui/app/api/doc-assets/`), no de la API — el `<img>` la pide el navegador
+ * solo, sin poder mandarle el header Authorization, así que NO hay que
+ * prefijarla con `NEXT_PUBLIC_API_URL` (eso apuntaría al host de la API, donde
+ * esa ruta no existe). Se usa tal cual la devuelve el backend.
  */
 export async function uploadEditorImage(documentId: string, file: File): Promise<{ url: string }> {
   const { getAccessToken } = await import('@/lib/api-auth');
@@ -1780,7 +1923,7 @@ export async function uploadEditorImage(documentId: string, file: File): Promise
     throw new Error(error.detail || `HTTP ${response.status}`);
   }
   const data = await response.json();
-  return { url: `${API_URL}${data.url}` };
+  return { url: data.url };
 }
 
 /**

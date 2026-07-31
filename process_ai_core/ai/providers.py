@@ -73,6 +73,21 @@ class VisionProvider(Protocol):
         """
         ...
 
+    def describe_image(
+        self,
+        *,
+        data: bytes,
+        mime_type: str = "image/png",
+        context: str = "",
+        model: str | None = None,
+    ) -> dict[str, Any]:
+        """Describe una imagen en texto, para que su contenido se pueda indexar.
+
+        Devuelve `{"titulo": str, "descripcion": str}`. Es inferencia pura: quien
+        la consuma la marca como tal (ADR-015).
+        """
+        ...
+
 
 @runtime_checkable
 class EmbeddingProvider(Protocol):

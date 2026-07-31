@@ -81,6 +81,11 @@ class Step:
     input: str
     output: str
     confianza: str = CONFIANZA_RELEVADO
+    #: Números de las imágenes disponibles que ilustran este paso. Es lo ÚNICO
+    #: que el modelo dice sobre imágenes: la inserción sigue siendo 100% del
+    #: pipeline de assets (ver prompts.py). Un número, no una ruta — el modelo no
+    #: conoce ni inventa rutas de archivo.
+    imagenes: List[int] = field(default_factory=list)
 
 
 @dataclass
@@ -213,11 +218,35 @@ class StepSchema(_ConfianzaMixin):
     action: str = ""
     input: str = ""
     output: str = ""
+    #: Números de las imágenes disponibles que ilustran el paso (ver `Step`).
+    imagenes: List[int] = Field(default_factory=list)
 
     @field_validator("actor", "action", "input", "output", mode="before")
     @classmethod
     def _coerce_text(cls, v: object) -> str:
         return _to_stripped_str(v)
+
+    @field_validator("imagenes", mode="before")
+    @classmethod
+    def _coerce_imagenes(cls, v: object) -> list[int]:
+        """
+        Tolera lo que el modelo suele devolver acá: null, un número suelto, o
+        strings ("2", "Imagen 2"). Lo que no se pueda leer como número se
+        descarta — una referencia rota pegaría una imagen equivocada.
+        """
+        if v is None or v == "":
+            return []
+        if isinstance(v, (int, str)):
+            v = [v]
+        if not isinstance(v, (list, tuple)):
+            return []
+        salida: list[int] = []
+        for item in v:
+            try:
+                salida.append(int(str(item).strip().lower().replace("imagen", "").strip()))
+            except (TypeError, ValueError):
+                continue
+        return salida
 
     @field_validator("order", mode="before")
     @classmethod

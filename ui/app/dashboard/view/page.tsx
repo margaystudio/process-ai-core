@@ -8,6 +8,7 @@ import {
   listApprovedDocuments,
   Document,
   getDocumentRuns,
+  fetchArtifactBlobUrl,
 } from '@/lib/api'
 import DocumentCard from '@/components/documents/DocumentCard'
 import FolderTree from '@/components/processes/FolderTree'
@@ -60,12 +61,16 @@ export default function ViewPage() {
     try {
       const runs = await getDocumentRuns(document.id)
       if (runs.length > 0 && runs[0].artifacts.pdf) {
-        window.open(runs[0].artifacts.pdf, '_blank')
+        // fetch autenticado + blob URL: el endpoint de artifacts exige
+        // Authorization, un window.open directo a la API daría 401. La pestaña
+        // nueva mantiene el blob URL vivo; el navegador lo libera al cerrarla.
+        const blobUrl = await fetchArtifactBlobUrl(runs[0].artifacts.pdf)
+        window.open(blobUrl, '_blank')
       } else {
         alert('No hay PDF disponible para este documento')
       }
     } catch (err) {
-      alert('Error al abrir el documento')
+      alert(err instanceof Error ? err.message : 'Error al abrir el documento')
     }
   }
 

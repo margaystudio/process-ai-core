@@ -35,13 +35,19 @@ from process_ai_core.db.helpers import (
     submit_version_for_review,
 )
 from process_ai_core.config import get_settings
-from process_ai_core.export import export_pdf_from_content, get_export_content
+from process_ai_core.export import (
+    ASSET_BASE_URL,
+    StorageAssetFetcher,
+    export_pdf_from_content,
+    get_export_content,
+)
 from process_ai_core.export.superseded_stamp import stamp_superseded
 from process_ai_core.storage import get_storage
 
 from api.routes._branding import get_workspace_pdf_branding
+from api.routes._document_access import assert_document_viewable
 from api.routes._document_context import build_document_context
-from api.routes._freeze import freeze_approved_pdf
+from api.routes._freeze import _rewrite_img_src_to_assets, freeze_approved_pdf
 from api.routes._run_paths import run_dir as _run_dir
 from api.dependencies import get_current_user_id
 from api.workspace_client import (
@@ -52,8 +58,8 @@ from api.workspace_client import (
 
 from ._helpers import (
     _assert_doc_in_active_workspace,
-    _rewrite_img_src_to_absolute,
     _strip_latex_artifacts,
+    authorized_file_response,
 )
 
 logger = logging.getLogger(__name__)
@@ -157,12 +163,73 @@ def _serves_frozen_pdf(version: DocumentVersion) -> bool:
     return version.version_status == "OBSOLETE" and bool(version.pdf_storage_key)
 
 
+@router.get("/{document_id}/versions/{version_id}/assets/{filename}")
+def get_version_asset(
+    document_id: str,
+    version_id: str,
+    filename: str,
+    request: Request,
+    user_id: str = Depends(get_current_user_id),
+    ctx: WorkspaceSessionContext = Depends(get_workspace_context),
+):
+    """
+    Sirve un asset de una versión: hoy, las imágenes que traía adentro un PDF
+    importado y que quedaron en su representación derivada.
+
+    Request autenticado como cualquier otro (Bearer), y con verificación del
+    permiso sobre la CARPETA del documento. Antes se servía con un token firmado
+    en la URL, que es un portador: el servidor validaba la firma pero no sabía
+    quién la presentaba, así que el permiso por carpeta no se aplicaba y
+    cualquier miembro del workspace con el enlace veía una imagen de una carpeta
+    que tenía denegada.
+
+    Un `<img>` no puede mandar el header `Authorization`; por eso el navegador no
+    pide acá directamente sino al proxy del front, que sí tiene la sesión y llama
+    a este endpoint con Bearer. Ver ui/app/api/doc-assets/[...ruta]/route.ts y el
+    principio escrito en `_helpers.py`.
+
+    El PDF congelado NO pasa por acá: `StorageAssetFetcher` resuelve esta misma
+    ruta leyendo el blob directo de object storage, sin red (ver asset_fetcher.py).
+    """
+    if ".." in filename or "/" in filename or "\\" in filename:
+        raise HTTPException(status_code=400, detail="Nombre de archivo no válido")
+
+    workspace_id = resolve_tenant_workspace_id(ctx)
+    with get_db_session() as session:
+        assert_document_viewable(
+            session,
+            session.query(Document).filter_by(id=document_id).first(),
+            workspace_id=workspace_id,
+            user_id=user_id,
+            contexto="La imagen",
+        )
+        existe_version = (
+            session.query(DocumentVersion.id)
+            .filter_by(id=version_id, document_id=document_id)
+            .first()
+            is not None
+        )
+    if not existe_version:
+        raise HTTPException(status_code=404, detail="La imagen no se encontró")
+
+    from process_ai_core.storage import version_prefix
+
+    key = f"{version_prefix(workspace_id, document_id, version_id)}/assets/{filename}"
+    try:
+        content = get_storage().get(key)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="La imagen no se encontró") from exc
+
+    return authorized_file_response(content, filename, request)
+
+
 @router.get("/{document_id}/versions/{version_id}/pdf")
 def get_version_frozen_pdf(
     document_id: str,
     version_id: str,
     request: Request,
     original: bool = False,
+    download: bool = False,
     ctx: WorkspaceSessionContext = Depends(get_workspace_context),
 ):
     """
@@ -312,8 +379,15 @@ def get_version_frozen_pdf(
     # Comillas rotas en Content-Disposition ⇒ header inválido.
     filename = PurePosixPath(filename.replace("\\", "/")).name.replace('"', "") or "documento.pdf"
 
+    # `download=1` cambia la disposición a `attachment`: el navegador guarda el
+    # archivo en vez de abrirlo. Es el ÚNICO cambio — el sello de versión
+    # superada se decidió arriba y se aplica igual, que es lo que importa:
+    # el archivo descargado es justamente el que circula por fuera del sistema,
+    # así que es donde más importa que diga que ya no está vigente.
+    disposition = "attachment" if download else "inline"
+
     headers = {
-        "Content-Disposition": f'inline; filename="{filename}"',
+        "Content-Disposition": f'{disposition}; filename="{filename}"',
         # `no-cache` NO significa "no guardes": significa "guardá, pero revalidá
         # siempre". El artefacto es inmutable, pero el DERECHO A VERLO no lo es.
         # Con `immutable` el navegador puede servir el PDF hasta un año sin tocar
@@ -336,12 +410,19 @@ def get_version_frozen_pdf(
     # no son los del blob. Se le agrega el sufijo con la versión vigente, que
     # además hace que el ETag cambie solo cuando se aprueba una versión nueva —
     # justo el momento en que el sello pasa a decir otra cosa.
+    #
+    # Lo mismo, por otro motivo, con la disposición: los bytes son los mismos
+    # pero el header no. Si compartieran ETag, pedir la descarga después de haber
+    # abierto el PDF respondería 304 y el navegador podría reusar la entrada
+    # cacheada —la que dice `inline`— y abrirlo en vez de guardarlo.
     if sha256 and sellar:
         etag = f'"{sha256}+sup{vigente_version}"'
     elif sha256:
         etag = f'"{sha256}"'
     else:
         etag = None
+    if etag and download:
+        etag = f'{etag[:-1]}+att"'
 
     if etag:
         headers["ETag"] = etag
@@ -373,6 +454,7 @@ def get_version_frozen_pdf(
 async def get_version_preview_pdf(
     document_id: str,
     version_id: str,
+    download: bool = False,
     ctx: WorkspaceSessionContext = Depends(get_workspace_context),
 ):
     """
@@ -406,9 +488,16 @@ async def get_version_preview_pdf(
         if _serves_frozen_pdf(version):
             # 307 (no 308): la redirección depende del estado de la versión, no
             # es permanente. Mismo origen ⇒ fetch conserva el header Authorization.
-            return RedirectResponse(
-                url=frozen_pdf_path(document_id, version_id), status_code=307
-            )
+            #
+            # `download` se reenvía. Es el camino por el que pasa la descarga de
+            # una versión SUPERADA (para OBSOLETE la UI no sabe si hay artefacto
+            # congelado, así que pide el preview y deja que el backend resuelva):
+            # sin reenviarlo, el parámetro se perdía en la redirección y el
+            # archivo se servía `inline` justamente en el caso que más importa.
+            destino = frozen_pdf_path(document_id, version_id)
+            if download:
+                destino += "?download=1"
+            return RedirectResponse(url=destino, status_code=307)
         try:
             # Siempre HTML: get_export_content normaliza (ver content_source.py).
             content = get_export_content(version)
@@ -441,13 +530,25 @@ async def get_version_preview_pdf(
     # que es justamente lo que el autor/revisor quiere ver mientras edita.
     # Las versiones ya congeladas nunca llegan hasta acá (redirigen arriba).
 
-    # Post-procesar HTML: limpiar artefactos LaTeX y reescribir URLs de imágenes.
-    # Sin condicional de formato: el contenido ya viene normalizado a HTML, que
-    # es lo único sobre lo que estas sustituciones funcionan.
+    # Post-procesar HTML: limpiar artefactos LaTeX y apuntar las imágenes al host
+    # centinela de assets. Sin condicional de formato: el contenido ya viene
+    # normalizado a HTML, que es lo único sobre lo que estas sustituciones
+    # funcionan.
+    #
+    # El preview resuelve sus imágenes igual que el freeze: leyendo los blobs de
+    # object storage con `StorageAssetFetcher`, sin salir por HTTP. Antes las
+    # pedía a esta misma API con una URL firmada, y eso ya era frágil (la API
+    # llamándose a sí misma mientras atiende el request que disparó el render);
+    # ahora sería directamente imposible, porque los endpoints de imagen exigen
+    # Bearer y WeasyPrint no tiene sesión. Que un render del servidor no dependa
+    # de una credencial de usuario es la propiedad que queremos, no un rodeo.
     version_workspace_id = document_workspace_id
     content = _strip_latex_artifacts(content)
-    content = _rewrite_img_src_to_absolute(
-        content, version_run_id, api_base, workspace_id=version_workspace_id
+    content = _rewrite_img_src_to_assets(content)
+    preview_fetcher = StorageAssetFetcher(
+        workspace_id=version_workspace_id,
+        run_id=version_run_id,
+        document_id=document_id,
     )
 
     # Mismo directorio que el original cuando la versión tiene run_id (assets/, etc.)
@@ -459,9 +560,10 @@ async def get_version_preview_pdf(
     if run_dir is None:
         run_dir = Path(tempfile.mkdtemp())
 
-    # El render corre en un thread pool para no bloquear el event loop: WeasyPrint
-    # pide por HTTP las imágenes del documento a esta misma API, y si el render
-    # ocupara el hilo principal el servidor no podría responderlas → deadlock.
+    # El render corre en un thread pool para no bloquear el event loop. Ya no hay
+    # riesgo de deadlock por auto-llamada —las imágenes salen de storage, no de
+    # esta API—, pero WeasyPrint sigue siendo CPU-bound: en el hilo principal
+    # bloquearía a todos los demás requests mientras arma el PDF.
     import asyncio
 
     _run_dir_for_cleanup = run_dir
@@ -473,9 +575,10 @@ async def get_version_preview_pdf(
             format="html",
             run_dir=_run_dir_for_cleanup,
             pdf_name="preview.pdf",
-            base_url=api_base,
+            base_url=ASSET_BASE_URL,
             branding=pdf_branding,
             document_context=pdf_document_context,
+            url_fetcher=preview_fetcher,
         )
 
         pdf_bytes = pdf_path.read_bytes()
@@ -495,7 +598,9 @@ async def get_version_preview_pdf(
             headers={
                 # no-store solo acá: este PDF se regenera desde contenido mutable,
                 # cachearlo mostraría un borrador viejo tras guardar en el editor.
-                "Content-Disposition": "inline; filename=\"preview.pdf\"",
+                "Content-Disposition": (
+                    f'{"attachment" if download else "inline"}; filename="preview.pdf"'
+                ),
                 "Cache-Control": "no-cache, no-store, must-revalidate",
                 "Pragma": "no-cache",
                 "Expires": "0",

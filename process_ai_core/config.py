@@ -116,11 +116,11 @@ class Settings:
     # setea al dominio del tenant).
     document_verification_base_url: str = ""
 
-    # Firma de URLs de artefactos (HMAC-SHA256)
-    # En producción DEBE setearse con ARTIFACT_SIGNING_SECRET; vacío solo se acepta en local/test.
-    artifact_signing_secret: str = ""
-    # TTL de las URLs firmadas en segundos (default: 15 minutos)
-    artifact_url_ttl_seconds: int = 900
+    # ARTIFACT_SIGNING_SECRET / ARTIFACT_URL_TTL_SECONDS se eliminaron junto con
+    # la firma de URLs. Los artefactos y las imágenes de documento se sirven con
+    # `Authorization: Bearer` y verificación de permiso de carpeta; un token en la
+    # dirección era un portador que el servidor no podía atribuir a nadie. Ver
+    # api/artifact_urls.py. Si la variable sigue seteada en el entorno, no se lee.
 
     # Almacenamiento de blobs (artefactos: PDF, imágenes, JSON/MD)
     # backend: "local" (filesystem, dev/test) | "supabase" (Supabase Storage, prod)
@@ -135,8 +135,36 @@ class Settings:
     # Idiomas Tesseract (formato +, ej. spa+eng)
     ocr_languages: str = "spa+eng"
     # Umbral heurístico para detectar un PDF escaneado: si el promedio de
-    # caracteres por página que devuelve pypdf cae por debajo, se cae al OCR.
+    # caracteres por página que devuelve la extracción cae por debajo, se cae al
+    # OCR. Es una decisión por CONTENIDO (el PDF es una foto), no por motor:
+    # la extracción de texto es siempre PyMuPDF (ver media._extract_text_from_document).
     ocr_pdf_min_chars_per_page: int = 20
+
+    # ── Imágenes embebidas en PDFs (process_ai_core/pdf_images.py) ───────────
+    # Filtro del "mobiliario": logos, membretes, filetes, firmas escaneadas. Si
+    # se promovieran todas, un documento generado terminaría con el logo del
+    # organismo repetido siete veces. Los umbrales son configurables porque el
+    # punto justo depende del corpus; el módulo loguea cuántas descartó y por qué.
+    #
+    # Lado mínimo EN PUNTOS SOBRE LA PÁGINA (1 pt = 1/72"). 56 pt ≈ 2 cm: por
+    # debajo de eso, sea cual sea su resolución, la imagen se imprime del tamaño
+    # de un sello y no es contenido. El píxel miente sobre la intención (una de
+    # 2000 px escalada a 2 cm es decorativa); el punto no.
+    pdf_image_min_side_pt: float = 56.0
+    # Lado mínimo en píxeles: ataja iconos diminutos estirados sobre la página.
+    pdf_image_min_side_px: int = 48
+    # Relación de aspecto máxima: por encima es un filete o un separador.
+    pdf_image_max_aspect_ratio: float = 8.0
+    # Cantidad de páginas distintas en las que puede aparecer la misma imagen
+    # (por hash de bytes) antes de considerarse mobiliario. 2 = si está en dos
+    # páginas, es membrete.
+    pdf_image_repeat_pages: int = 2
+    # Descripción de cada imagen con un modelo de visión, para que el contenido
+    # de la captura exista en la capa semántica (Tyto indexa texto). Es UNA
+    # llamada de visión por imagen, en la INGESTA y no en cada consulta. Se puede
+    # apagar (PDF_IMAGE_DESCRIBE=false) sin perder las imágenes: solo su
+    # descripción. Toda descripción se marca como inferida ("A VALIDAR").
+    pdf_image_describe: bool = True
 
     # ── Capa semántica ──────────────────────────────────────────────────────
     # Modo degradado. Si es False (estricto; default en prod), el preflight de
@@ -190,7 +218,7 @@ PDF_SOURCE_DATE_EPOCH = "0"
 
 
 def is_production_environment() -> bool:
-    """True fuera de local/test. Mismo criterio que api/artifact_signing.py."""
+    """True fuera de local/test."""
     return os.getenv("ENVIRONMENT", "local") not in ("local", "test")
 
 
@@ -301,8 +329,6 @@ def get_settings() -> Settings:
         openai_api_key=os.getenv("OPENAI_API_KEY", ""),
         api_base_url=os.getenv("API_BASE_URL", "http://localhost:8000"),
         document_verification_base_url=os.getenv("DOCUMENT_VERIFICATION_BASE_URL", ""),
-        artifact_signing_secret=os.getenv("ARTIFACT_SIGNING_SECRET", ""),
-        artifact_url_ttl_seconds=int(os.getenv("ARTIFACT_URL_TTL_SECONDS", "900")),
         storage_backend=os.getenv("STORAGE_BACKEND", "local"),
         supabase_url=os.getenv("SUPABASE_URL", ""),
         supabase_service_role_key=os.getenv("SUPABASE_SERVICE_ROLE_KEY", ""),
@@ -335,6 +361,13 @@ def get_settings() -> Settings:
         tesseract_cmd=os.getenv("TESSERACT_CMD", ""),
         ocr_languages=os.getenv("OCR_LANGUAGES", "spa+eng"),
         ocr_pdf_min_chars_per_page=int(os.getenv("OCR_PDF_MIN_CHARS_PER_PAGE", "20")),
+
+        # Imágenes embebidas en PDFs: umbrales del filtro de mobiliario.
+        pdf_image_min_side_pt=float(os.getenv("PDF_IMAGE_MIN_SIDE_PT", "56")),
+        pdf_image_min_side_px=int(os.getenv("PDF_IMAGE_MIN_SIDE_PX", "48")),
+        pdf_image_max_aspect_ratio=float(os.getenv("PDF_IMAGE_MAX_ASPECT_RATIO", "8")),
+        pdf_image_repeat_pages=int(os.getenv("PDF_IMAGE_REPEAT_PAGES", "2")),
+        pdf_image_describe=_env_bool("PDF_IMAGE_DESCRIBE", default=True),
 
         # Capa semántica: estricto en prod (default false), degradado en dev/test.
         semantic_allow_degraded=_env_bool(
