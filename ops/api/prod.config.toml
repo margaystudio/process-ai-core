@@ -32,23 +32,33 @@ LOG_LEVEL = "WARNING"
 
 # Capa semántica en modo estricto: el preflight FALLA al arrancar si falta
 # pgvector/pg_trgm, la columna embedding no es 'vector', o falta OPENAI_API_KEY.
-# La infra ya está lista en prod (mqld): extensiones + columna vector verificadas.
+# La infra ya está lista en prod (sjujhr): extensiones + columna vector verificadas.
 SEMANTIC_ALLOW_DEGRADED = "false"
 
 # Control plane margay-workspace (prod)
 WORKSPACE_URL = "https://margay-workspace-513594124246.europe-west1.run.app"
 PROCESS_AI_APP_KEY = "process_ai"
 
-# Schema Postgres dedicado en el mismo Supabase prod (mqld) que workspace
+# Schema Postgres dedicado en el mismo Supabase prod (sjujhr) que workspace
 DATABASE_SCHEMA = "process_ai"
 
 # URL pública de esta API (links en PDF/HTML y firma de artefactos)
 API_BASE_URL = "https://api.process.margaystudio.io"
 
+# Base de la página de verificación que va en el QR de cada PDF aprobado.
+# Es el dominio de la UI, NO el de la API: /verificar/{version_id} es una ruta de
+# Next.js (ui/app/verificar/[version_id]/page.tsx). Coincide con el
+# NEXT_PUBLIC_SITE_URL de ops/ui/prod.config.toml.
+#
+# Obligatoria fuera de local/test y el arranque FALLA sin ella, a propósito: esta
+# URL queda grabada en un artefacto que por diseño no se puede reescribir. Un
+# arranque roto se arregla en minutos; un PDF congelado con una URL muerta, no.
+DOCUMENT_VERIFICATION_BASE_URL = "https://process.margaystudio.io"
+
 # CORS: UI + hub (prod)
 CORS_ORIGINS = "https://process.margaystudio.io,https://hub.margaystudio.io"
 
-# Supabase PROD (mqld)
+# Supabase PROD (sjujhroqaoggwbwiviqu)
 SUPABASE_URL = "https://sjujhroqaoggwbwiviqu.supabase.co"
 
 # Almacenamiento de artefactos en Supabase Storage (bucket privado).
