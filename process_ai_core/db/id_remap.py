@@ -34,6 +34,24 @@ El censo los lista; la migración se planta y no sigue salvo override explícito
 
 from __future__ import annotations
 
+# ⚠️ ESTE INVENTARIO DESCRIBE EL ESQUEMA DE HOY, NO EL DE UNA MIGRACIÓN.
+#
+# Una migración corre contra el esquema de SU momento en la historia, y este
+# archivo evoluciona. Si una migración importa estas listas, un renombre
+# posterior le cambia el comportamiento **retroactivamente** y deja de poder
+# correr desde una base vacía.
+#
+# Pasó: la `0023` renombró `document_relations.confirmed_by` a `decided_by`, se
+# actualizó esta lista, y la `0022` —que corre ANTES, cuando la columna todavía
+# se llama `confirmed_by`— empezó a abortar con "hay FKs fuera del inventario".
+# En una base que ya estaba migrada no se veía; en el CI, que levanta de cero,
+# falló al toque.
+#
+# Regla: **las migraciones llevan su propia foto congelada** (ver
+# `_SITIOS_AL_MOMENTO_DE_LA_0022` en `alembic/versions/0022_id_canonico.py`) y le
+# pasan esa lista a los helpers de acá. Lo que se comparte son las FUNCIONES, que
+# no envejecen; las LISTAS no.
+#
 #: Columnas que guardan un `process_ai.users.id`. Son 12, no 8: las tres últimas
 #: NO tienen foreign key y por lo tanto **un barrido por `information_schema` no
 #: las ve**. Saltearlas es dejar punteros muertos sin que nada avise.
@@ -105,20 +123,29 @@ def _cols_con_fk_a_users(conn, schema: str) -> set[tuple[str, str]]:
     return {(f[0], f[1]) for f in filas}
 
 
-def sitios_no_inventariados(conn, schema: str) -> set[tuple[str, str]]:
-    """FKs a `users(id)` que existen en la base y NO están en `SITIOS_COLUMNA`.
+def sitios_no_inventariados(
+    conn, schema: str, inventario: list | None = None
+) -> set[tuple[str, str]]:
+    """FKs a `users(id)` que existen en la base y NO están en el inventario.
 
     La guarda contra deriva: si alguien agrega una columna que apunta a usuarios
-    y no la anota acá, el censo y la migración lo gritan en vez de dejarla atrás.
+    y no la anota, el censo lo grita en vez de dejarla atrás.
 
     La inversa —una entrada del inventario sin FK— es normal y esperada: tres de
     los doce sitios no tienen FK a propósito.
+
+    `inventario` existe para que una MIGRACIÓN pueda pasar su propia foto
+    congelada en vez del inventario vivo. Ver la nota de arriba: una migración
+    corre contra el esquema de SU momento, no contra el de hoy.
     """
-    inventariados = {(t, c) for t, c, _ in SITIOS_COLUMNA}
+    entradas = SITIOS_COLUMNA if inventario is None else inventario
+    inventariados = {(t, c) for t, c, _ in entradas}
     return _cols_con_fk_a_users(conn, schema) - inventariados
 
 
-def columnas_existentes(conn, schema: str) -> set[tuple[str, str]]:
+def columnas_existentes(
+    conn, schema: str, inventario: list | None = None
+) -> set[tuple[str, str]]:
     """Sitios del inventario que realmente existen en ESTA base.
 
     Los ambientes no están todos en la misma revisión: prod estuvo mucho tiempo
@@ -127,6 +154,7 @@ def columnas_existentes(conn, schema: str) -> set[tuple[str, str]]:
     """
     from sqlalchemy import text
 
+    entradas = (SITIOS_COLUMNA + SITIOS_JSON) if inventario is None else inventario
     filas = conn.execute(
         text(
             """
@@ -138,8 +166,4 @@ def columnas_existentes(conn, schema: str) -> set[tuple[str, str]]:
         {"schema": schema},
     ).fetchall()
     presentes = {(f[0], f[1]) for f in filas}
-    return {
-        (t, c)
-        for t, c, _ in (SITIOS_COLUMNA + SITIOS_JSON)
-        if (t, c) in presentes
-    }
+    return {(t, c) for t, c, _ in entradas if (t, c) in presentes}

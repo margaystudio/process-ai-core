@@ -27,9 +27,11 @@ nombres. Sin eso no hay mapa y la migración se planta.
 
 LOS 12 SITIOS, Y LOS 3 QUE UN BARRIDO POR CATÁLOGO NO VE
 ---------------------------------------------------------
-El inventario vive en `process_ai_core/db/id_remap.py` y lo comparten esta
-migración y `tools/censo_id_canonico.py`. Nueve tienen FK a `users(id)`. Los
-otros tres no, y son los peligrosos:
+Esta migración lleva su inventario **congelado** (`_SITIOS_AL_MOMENTO_DE_LA_0022`),
+no el de `process_ai_core/db/id_remap.py`: ese describe el esquema de hoy y una
+migración corre contra el de su momento. Comparten las funciones, no las listas —
+ver el comentario de esa constante. Nueve tienen FK a `users(id)`. Los otros tres
+no, y son los peligrosos:
 
   - `tyto_query_log.user_id` y `tyto_session.user_id` — sin FK a propósito
     (auditoría desacoplada, migración 0018). Invisibles para `information_schema`.
@@ -49,8 +51,10 @@ ids: dicen qué decía el acta ESE día. Tocarlos sería reescribir el históric
 
 REVERSIBLE
 ----------
-`users_id_remap` guarda `(id_viejo, id_nuevo, email)` y no se borra: es el rastro
-de auditoría y lo que hace posible el `downgrade`.
+`users_id_remap` guarda `(id_viejo, id_nuevo, email)`: es el rastro de auditoría
+mientras la migración está aplicada, y lo que hace posible el `downgrade`. El
+downgrade la usa y después la borra — revertido el repunte, no queda nada que
+rastrear.
 
 USUARIOS SIN MAPEO
 ------------------
@@ -96,6 +100,42 @@ def _permitir_sin_mapeo() -> bool:
     return os.getenv("PROCESS_AI_REMAP_PERMITIR_SIN_MAPEO", "").strip().lower() in {
         "1", "true", "yes",
     }
+
+
+# ── Los sitios, congelados al momento de ESTA migración ──────────────────────
+#
+# Foto fija, NO importada de `process_ai_core/db/id_remap.py`. Ese módulo
+# describe el esquema de HOY y evoluciona; esta migración corre contra el
+# esquema del 2026-07-30 y tiene que poder correr desde una base vacía **para
+# siempre**.
+#
+# No es una precaución teórica: la `0023` renombró
+# `document_relations.confirmed_by` a `decided_by`, se actualizó el inventario
+# vivo, y esta migración —que corre ANTES, cuando la columna todavía se llama
+# `confirmed_by`— empezó a abortar con "hay FKs fuera del inventario". En una
+# base ya migrada no se notaba; en el CI, que levanta de cero, falló al toque.
+#
+# Lo que sí se comparte con `id_remap.py` son las FUNCIONES (`sitios_no_inventariados`,
+# `columnas_existentes`), que reciben esta lista por parámetro. Las funciones no
+# envejecen; las listas sí.
+
+_SITIOS_AL_MOMENTO_DE_LA_0022: list[tuple[str, str, str]] = [
+    ("audit_logs", "user_id", ""),
+    ("document_relations", "confirmed_by", "renombrada a decided_by en la 0023"),
+    ("document_versions", "approved_by", ""),
+    ("document_versions", "created_by", ""),
+    ("document_versions", "rejected_by", ""),
+    ("evidence", "added_by", ""),
+    ("user_operational_roles", "assigned_by", ""),
+    ("validations", "validator_user_id", ""),
+    ("workspace_memberships", "user_id", ""),
+    ("tyto_query_log", "user_id", "SIN FK"),
+    ("tyto_session", "user_id", "SIN FK"),
+]
+
+_SITIOS_JSON_AL_MOMENTO_DE_LA_0022: list[tuple[str, str, str]] = [
+    ("validations", "assigned_approver_ids", "array JSON en Text"),
+]
 
 
 # ── El mapa local → canónico ─────────────────────────────────────────────────
@@ -172,17 +212,16 @@ def _conteos(conn, sitios) -> dict[str, int]:
 
 
 def upgrade() -> None:
-    from process_ai_core.db.id_remap import (
-        SITIOS_COLUMNA,
-        SITIOS_JSON,
-        columnas_existentes,
-        sitios_no_inventariados,
-    )
+    # Solo las FUNCIONES: las listas son la foto congelada de este archivo.
+    from process_ai_core.db.id_remap import columnas_existentes, sitios_no_inventariados
+
+    SITIOS_COLUMNA = _SITIOS_AL_MOMENTO_DE_LA_0022
+    SITIOS_JSON = _SITIOS_JSON_AL_MOMENTO_DE_LA_0022
 
     conn = op.get_bind()
 
     # ── 0. Guardas ──────────────────────────────────────────────────────────
-    faltantes = sorted(sitios_no_inventariados(conn, SCHEMA))
+    faltantes = sorted(sitios_no_inventariados(conn, SCHEMA, SITIOS_COLUMNA))
     if faltantes:
         raise RuntimeError(
             "Hay columnas con FK a users(id) fuera del inventario: "
@@ -201,7 +240,7 @@ def upgrade() -> None:
             "nombres (el directorio se llena por escritura al leer)."
         )
 
-    presentes = columnas_existentes(conn, SCHEMA)
+    presentes = columnas_existentes(conn, SCHEMA, SITIOS_COLUMNA + SITIOS_JSON)
     sitios_col = [(t, c) for t, c, _ in SITIOS_COLUMNA if (t, c) in presentes]
     sitios_json = [(t, c) for t, c, _ in SITIOS_JSON if (t, c) in presentes]
 
@@ -378,11 +417,10 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Vuelve a los ids locales usando `users_id_remap`, y repone el puente."""
-    from process_ai_core.db.id_remap import (
-        SITIOS_COLUMNA,
-        SITIOS_JSON,
-        columnas_existentes,
-    )
+    from process_ai_core.db.id_remap import columnas_existentes
+
+    SITIOS_COLUMNA = _SITIOS_AL_MOMENTO_DE_LA_0022
+    SITIOS_JSON = _SITIOS_JSON_AL_MOMENTO_DE_LA_0022
 
     conn = op.get_bind()
 
@@ -395,7 +433,7 @@ def downgrade() -> None:
             "otro lado."
         )
 
-    presentes = columnas_existentes(conn, SCHEMA)
+    presentes = columnas_existentes(conn, SCHEMA, SITIOS_COLUMNA + SITIOS_JSON)
     sitios_col = [(t, c) for t, c, _ in SITIOS_COLUMNA if (t, c) in presentes]
     sitios_json = [(t, c) for t, c, _ in SITIOS_JSON if (t, c) in presentes]
 
@@ -482,3 +520,8 @@ def downgrade() -> None:
             """
         )
     )
+
+    # El mapa ya cumplió: se usó para revertir y no queda nada que rastrear —
+    # después de bajar, el repunte no ocurrió. Dejarla sería una tabla huérfana
+    # que ningún modelo declara y que el downgrade del baseline no vería.
+    conn.execute(text(f'DROP TABLE IF EXISTS {_q("users_id_remap")}'))

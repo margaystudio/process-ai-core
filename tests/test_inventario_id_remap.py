@@ -71,6 +71,43 @@ def test_el_acta_congelada_no_esta_entre_los_sitios_a_migrar():
     assert ("users", "external_id") in intocables
 
 
+def test_ninguna_migracion_importa_el_inventario_vivo():
+    """Una migración no le pregunta al código de HOY cómo era el esquema de ayer.
+
+    `SITIOS_COLUMNA` describe el esquema actual y evoluciona. Una migración corre
+    contra el esquema de SU momento y tiene que poder correr desde una base vacía
+    para siempre. Importar esas listas hace que un renombre posterior le cambie el
+    comportamiento **retroactivamente**.
+
+    Pasó y llegó al CI: la `0023` renombró `document_relations.confirmed_by` a
+    `decided_by`, se actualizó el inventario, y la `0022` —que corre antes, cuando
+    la columna todavía se llama `confirmed_by`— empezó a abortar con "hay FKs
+    fuera del inventario". Contra una base ya migrada no se ve nunca.
+
+    Las FUNCIONES sí se comparten: no envejecen, y reciben la lista por parámetro.
+    Cada migración lleva su foto congelada (ver `_SITIOS_AL_MOMENTO_DE_LA_0022`).
+    """
+    import pathlib
+    import re
+
+    versiones = pathlib.Path(__file__).resolve().parents[1] / "alembic" / "versions"
+    culpables = []
+    for archivo in sorted(versiones.glob("*.py")):
+        texto = archivo.read_text(encoding="utf-8")
+        for linea in texto.splitlines():
+            if not re.search(r"import.*\bid_remap\b|from .*id_remap import", linea):
+                continue
+            if re.search(r"\bSITIOS_COLUMNA\b|\bSITIOS_JSON\b|\bNO_SE_TOCAN\b", linea):
+                culpables.append(f"{archivo.name}: {linea.strip()}")
+
+    assert not culpables, (
+        "Estas migraciones importan listas del inventario vivo:\n  "
+        + "\n  ".join(culpables)
+        + "\nCopiá la lista adentro de la migración como foto congelada y pasásela "
+        "por parámetro a los helpers."
+    )
+
+
 def test_columnas_existentes_solo_devuelve_lo_que_hay(conn):
     """Los ambientes no están todos en la misma revisión.
 

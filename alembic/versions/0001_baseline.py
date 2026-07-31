@@ -66,8 +66,37 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # Dropea cada tabla con CASCADE (el modelo tiene FKs circulares sin nombre que
-    # impiden ordenar el DROP). No toca `alembic_version` (no está en metadata).
-    prefix = f'"{DATABASE_SCHEMA}".' if DATABASE_SCHEMA else ""
-    for table in Base.metadata.tables.values():
-        op.execute(f'DROP TABLE IF EXISTS {prefix}"{table.name}" CASCADE')
+    """Deja el schema vacío. Enumera del CATÁLOGO, no de `Base.metadata`.
+
+    Antes iteraba `Base.metadata.tables`, o sea las tablas que los modelos
+    definen HOY, y eso deja atrás dos clases de tabla:
+
+      - las que una migración posterior **recrea al bajar** y el modelo ya no
+        tiene (`workspace_invitations`: la 0020 la recrea en su downgrade, pero
+        el modelo se eliminó, así que acá era invisible);
+      - las que **nunca tuvieron modelo** porque son de infraestructura de una
+        migración (`users_id_remap`, de la 0022).
+
+    Es la misma trampa que la del inventario congelado de la 0022: una migración
+    que le pregunta al código vivo cómo era el mundo se desincroniza sola. El
+    catálogo, en cambio, dice lo que hay de verdad en este momento.
+
+    Se dropea con CASCADE porque el schema tiene FKs circulares sin nombre que
+    impiden ordenar los DROP. `alembic_version` se excluye: la maneja Alembic.
+    """
+    from sqlalchemy import text
+
+    conn = op.get_bind()
+    schema = DATABASE_SCHEMA or "public"
+    tablas = conn.execute(
+        text(
+            """
+            SELECT tablename FROM pg_tables
+             WHERE schemaname = :s AND tablename <> 'alembic_version'
+            """
+        ),
+        {"s": schema},
+    ).fetchall()
+    prefix = f'"{schema}".' if DATABASE_SCHEMA else ""
+    for (nombre,) in tablas:
+        op.execute(f'DROP TABLE IF EXISTS {prefix}"{nombre}" CASCADE')
