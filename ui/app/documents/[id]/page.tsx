@@ -24,7 +24,6 @@ import {
   isFrozenVersionStatus,
   cancelDocumentSubmission,
   submitVersionForReview,
-  getUser,
   AuditLogEntry,
   DocumentVersion,
 } from '@/lib/api'
@@ -93,8 +92,6 @@ export default function DocumentDetailPage() {
     artifacts: { json?: string; md?: string; pdf?: string }
   }>>([])
   const [auditLog, setAuditLog] = useState<AuditLogEntry[]>([])
-  const [userDisplayNames, setUserDisplayNames] = useState<Record<string, string>>({})
-  const [submitterDisplayName, setSubmitterDisplayName] = useState<string | null>(null)
 
   // UI state
   const [loading, setLoading] = useState(true)
@@ -198,54 +195,8 @@ export default function DocumentDetailPage() {
     }
   }
 
-  // ── Resolver nombre del remitente de la versión IN_REVIEW ─────────────────
   const inReviewVersion = versions.find((v) => v.version_status === 'IN_REVIEW')
   const draftVersion = versions.find((v) => v.version_status === 'DRAFT')
-
-  useEffect(() => {
-    const createdBy = inReviewVersion?.created_by
-    if (!createdBy) { setSubmitterDisplayName(null); return }
-    let cancelled = false
-    getUser(createdBy)
-      .then((u) => { if (!cancelled) setSubmitterDisplayName(u.name?.trim() || u.email || u.id) })
-      .catch(() => { if (!cancelled) setSubmitterDisplayName(null) })
-    return () => { cancelled = true }
-  }, [inReviewVersion?.created_by])
-
-  // ── Resolver nombres de usuarios de validaciones ───────────────────────────
-  const validationUserIdsKey = Array.from(
-    new Set(
-      validations.flatMap((validation) => {
-        const v = versions.find((ver) => ver.validation_id === validation.id)
-        const ids: string[] = []
-        if (v?.created_by) ids.push(v.created_by)
-        if (validation.validator_user_id) ids.push(validation.validator_user_id)
-        return ids
-      })
-    )
-  ).sort().join(',')
-
-  useEffect(() => {
-    const userIds = validationUserIdsKey ? validationUserIdsKey.split(',') : []
-    if (userIds.length === 0) return
-    let cancelled = false
-    Promise.all(
-      userIds.map(async (uid) => {
-        try {
-          const u = await getUser(uid)
-          return { id: uid, name: u.name?.trim() || u.email || u.id }
-        } catch {
-          return { id: uid, name: uid }
-        }
-      })
-    ).then((results) => {
-      if (cancelled) return
-      const next: Record<string, string> = {}
-      results.forEach(({ id, name: n }) => { next[id] = n })
-      setUserDisplayNames((prev) => ({ ...prev, ...next }))
-    })
-    return () => { cancelled = true }
-  }, [validationUserIdsKey])
 
   // ── Selector centralizado de acciones (arregla el bug D4) ─────────────────
   const actions = getDocumentActions({
@@ -705,7 +656,7 @@ export default function DocumentDetailPage() {
             {inReviewVersion ? formatDateTime(inReviewVersion.created_at) : '—'} por{' '}
             {inReviewVersion?.created_by ? (
               <span title={inReviewVersion.created_by}>
-                {submitterDisplayName ?? inReviewVersion.created_by}
+                {inReviewVersion.created_by_name || 'Usuario desconocido'}
               </span>
             ) : (
               '—'
@@ -915,7 +866,6 @@ export default function DocumentDetailPage() {
               versions={versions}
               auditLog={auditLog}
               validations={validations}
-              userDisplayNames={userDisplayNames}
               showHistory={showHistory}
               onToggle={handleToggleHistory}
             />

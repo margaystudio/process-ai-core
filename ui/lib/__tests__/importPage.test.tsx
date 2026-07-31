@@ -67,6 +67,13 @@ describe('ImportPage', () => {
         run_id: null,
         approved_at: null,
         approved_by: null,
+        approved_by_name: '',
+        rejected_at: null,
+        rejected_by: null,
+        rejected_by_name: '',
+        is_current: false,
+        created_by: 'user-1',
+        created_by_name: 'Admin',
         created_at: '2026-07-28T10:00:00Z',
       },
     ])

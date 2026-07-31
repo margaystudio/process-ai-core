@@ -148,9 +148,9 @@ export default function CorrectDocumentPage() {
               Observaciones del Rechazo
             </h2>
             <p className="text-danger whitespace-pre-wrap">{lastRejection.observations}</p>
-            {lastRejection.validator_user_id && (
+            {lastRejection.validator_user_name && (
               <p className="text-sm text-danger mt-2">
-                Rechazado por usuario: {lastRejection.validator_user_id}
+                Rechazado por {lastRejection.validator_user_name}
               </p>
             )}
             {lastRejection.completed_at && (

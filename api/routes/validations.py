@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from process_ai_core.db.database import get_db_session
+from process_ai_core.db.directory import resolve_usuarios
 from process_ai_core.db.models import Document, Validation, Run
 from ..dependencies import get_db, get_current_user_id
 from api.workspace_client import (
@@ -24,6 +25,7 @@ from api.workspace_client import (
     resolve_tenant_workspace_id,
     sync_workspace_access,
 )
+from api.request_identity import capture_request_identity
 from process_ai_core.db.helpers import (
     create_validation,
     reject_validation,
@@ -42,7 +44,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(
     prefix="/api/v1",
     tags=["validations"],
-    dependencies=[Depends(sync_workspace_access)],
+    dependencies=[Depends(sync_workspace_access), Depends(capture_request_identity)],
 )
 
 
@@ -66,11 +68,34 @@ class ValidationResponse(BaseModel):
     document_id: str
     run_id: Optional[str] = None
     validator_user_id: Optional[str] = None
+    #: Nombre del validador, RESUELTO al leer contra el directorio del módulo.
+    #: No es una columna y no se guarda en ninguna parte — ese es el
+    #: anti-patrón #2 de `11-directorio-de-usuarios.md`. Sale del `display_name`
+    #: que manda Workspace, así que sigue los cambios de nombre en el Hub.
+    #:
+    #: Vacío cuando no hay validador (validación pendiente) o cuando el
+    #: directorio no se pudo poblar todavía. Nunca es el uuid: si no hay nombre,
+    #: la pantalla decide qué poner, y "" es más honesto que un uuid que no le
+    #: dice nada a nadie.
+    validator_user_name: str = ""
     status: str
     observations: str
     checklist_json: str
     created_at: str
     completed_at: Optional[str] = None
+
+
+def _nombre_validador(session: Session, tenant_id: str, user_id: Optional[str]) -> str:
+    """Nombre del validador, resuelto contra el directorio del módulo.
+
+    Para UN id. El listado de validaciones NO usa esto: resuelve las suyas en un
+    solo lote con `resolve_usuarios`, porque una llamada por fila es el N+1 que
+    esta parte del trabajo vino a sacar.
+    """
+    if not user_id:
+        return ""
+    info = resolve_usuarios(session, tenant_id, [user_id]).get(user_id)
+    return (info["nombre"] or info["email"]) if info else ""
 
 
 # ============================================================
@@ -147,6 +172,9 @@ def create_document_validation(
             document_id=validation.document_id,
             run_id=validation.run_id,
             validator_user_id=validation.validator_user_id,
+            validator_user_name=_nombre_validador(
+                session, ctx.tenant.id, validation.validator_user_id
+            ),
             status=validation.status,
             observations=validation.observations,
             checklist_json=validation.checklist_json,
@@ -533,6 +561,9 @@ def approve_document_validation(
             document_id=validation.document_id,
             run_id=validation.run_id,
             validator_user_id=validation.validator_user_id,
+            validator_user_name=_nombre_validador(
+                session, ctx.tenant.id, validation.validator_user_id
+            ),
             status=validation.status,
             observations=validation.observations,
             checklist_json=validation.checklist_json,
@@ -704,6 +735,9 @@ def reject_document_validation(
             document_id=validation.document_id,
             run_id=validation.run_id,
             validator_user_id=validation.validator_user_id,
+            validator_user_name=_nombre_validador(
+                session, ctx.tenant.id, validation.validator_user_id
+            ),
             status=validation.status,
             observations=validation.observations,
             checklist_json=validation.checklist_json,
@@ -742,13 +776,26 @@ def get_document_validations(
             .order_by(Validation.created_at.desc())
             .all()
         )
-        
+
+        # Todos los validadores del historial en un solo lote. Es lo que la UI
+        # hacía con un `getUser()` por id contra un endpoint self-only: recibía
+        # 403 para cualquiera que no fuera el usuario actual y el `catch`
+        # terminaba pintando el uuid.
+        nombres = resolve_usuarios(
+            session, ctx.tenant.id, [v.validator_user_id for v in validations]
+        )
+
+        def _nombre(uid: str | None) -> str:
+            info = nombres.get(uid or "")
+            return (info["nombre"] or info["email"]) if info else ""
+
         return [
             ValidationResponse(
                 id=v.id,
                 document_id=v.document_id,
                 run_id=v.run_id,
                 validator_user_id=v.validator_user_id,
+                validator_user_name=_nombre(v.validator_user_id),
                 status=v.status,
                 observations=v.observations,
                 checklist_json=v.checklist_json,

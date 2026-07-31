@@ -27,6 +27,7 @@ class SubmitVersionRequest(BaseModel):
     comment: str = ""
 
 from process_ai_core.db.database import get_db_session
+from process_ai_core.db.directory import attach_nombres
 from process_ai_core.db.models import Document, DocumentVersion
 from process_ai_core.db.helpers import (
     cancel_submission,
@@ -92,7 +93,7 @@ def get_document_versions(
             .all()
         )
 
-        return [
+        filas = [
             {
                 "id": v.id,
                 "version_number": v.version_number,
@@ -110,6 +111,28 @@ def get_document_versions(
             }
             for v in versions
         ]
+
+        # Los `*_name` se RESUELVEN acá, al leer, y no se guardan en ninguna
+        # columna. La distinción es el anti-patrón #2 del estándar
+        # (`11-directorio-de-usuarios.md`): `oms.orders.created_by_name` y sus
+        # ocho hermanas son columnas, y por eso un pedido de 2024 sigue
+        # mostrando el nombre viejo de quien después se lo cambió. Acá el uuid
+        # es lo único persistido; el nombre sale del directorio en cada lectura.
+        #
+        # `attach_nombres` resuelve TODAS las versiones y TODAS las personas en
+        # un solo lote. Antes esto lo hacía la UI con un `getUser()` por id
+        # contra un endpoint self-only, que devolvía 403 para cualquiera que no
+        # fueras vos y terminaba pintando el uuid crudo en pantalla.
+        return attach_nombres(
+            session,
+            ctx.tenant.id,
+            filas,
+            [
+                ("approved_by", "approved_by_name"),
+                ("rejected_by", "rejected_by_name"),
+                ("created_by", "created_by_name"),
+            ],
+        )
 
 
 def frozen_pdf_path(document_id: str, version_id: str) -> str:
@@ -528,7 +551,7 @@ def get_current_document_version(
                 detail=f"No hay versión aprobada para el documento {document_id}"
             )
 
-        return {
+        fila = {
             "id": current_version.id,
             "version_number": current_version.version_number,
             "content_type": current_version.content_type,
@@ -539,6 +562,9 @@ def get_current_document_version(
             "approved_by": current_version.approved_by,
             "created_at": current_version.created_at.isoformat(),
         }
+        return attach_nombres(
+            session, ctx.tenant.id, [fila], [("approved_by", "approved_by_name")]
+        )[0]
 
 
 @router.get("/{document_id}/audit-log")
@@ -573,7 +599,7 @@ def get_document_audit_log(
             .all()
         )
 
-        return [
+        filas = [
             {
                 "id": log.id,
                 "action": log.action,
@@ -587,6 +613,18 @@ def get_document_audit_log(
             }
             for log in audit_logs
         ]
+        # El audit log es un registro de HECHOS y hoy no muestra al actor en
+        # pantalla, solo la acción y la fecha. El nombre viaja resuelto para que
+        # pueda mostrarlo; el uuid sigue siendo lo único guardado.
+        #
+        # Ojo con el §5 si algún día se quiere que el nombre de una fila vieja
+        # sea el de ESE momento: eso no se arregla resolviendo distinto, se
+        # arregla guardando un `actor_snapshot jsonb` al escribir el log. Lo que
+        # está acá muestra el nombre ACTUAL de quien hizo la acción, que es lo
+        # correcto mientras no exista ese snapshot.
+        return attach_nombres(
+            session, ctx.tenant.id, filas, [("user_id", "user_name")]
+        )
 
 
 @router.post("/{document_id}/versions/{version_id}/submit")

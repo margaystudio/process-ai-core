@@ -44,13 +44,14 @@ from ..workspace_client import (
     resolve_tenant_workspace_id,
     sync_workspace_access,
 )
+from ..request_identity import capture_request_identity
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/api/v1/tyto",
     tags=["tyto"],
-    dependencies=[Depends(sync_workspace_access)],
+    dependencies=[Depends(sync_workspace_access), Depends(capture_request_identity)],
 )
 
 MAX_QUESTION_LENGTH = 2000

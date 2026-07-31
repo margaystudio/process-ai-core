@@ -15,7 +15,25 @@ def resolve_signatories(
     session: Session, workspace_id: str | None, user_ids: list[str | None]
 ) -> dict[str, tuple[str, str | None]]:
     """
-    Resuelve varios user_id a (nombre, rol operativo) en UNA query.
+    Resuelve varios user_id a (nombre, rol operativo).
+
+    Son dos preguntas con dos fuentes distintas, y el §1 del estándar del
+    directorio no las mezcla:
+
+      - **El nombre** sale del directorio del módulo
+        (`process_ai.users_directory`, poblado por escritura al leer desde
+        `/directory`). Es `display_name`, calculado por Workspace. El módulo NO
+        concatena nombre y apellido: si cada uno lo arma, cada módulo muestra un
+        formato distinto — así nacieron las nueve columnas `*_by_name` de OMS.
+      - **El rol operativo** sale de la base local, porque es dato del módulo:
+        Workspace no sabe quién es "Encargado de turno" en esta estación de
+        servicio. Va por `users` → `workspace_memberships` →
+        `user_operational_roles`.
+
+    Antes las dos salían del mismo join contra `users`, que solo conoce a quien
+    se logueó alguna vez y guarda el nombre congelado en su primer login. Con el
+    directorio el nombre se refresca por TTL y alcanza a cualquier miembro del
+    módulo.
 
     El rol es el **operativo** ("Encargado de turno", "Gerente de Estación"), no
     el de sistema (owner/admin/approver). Un acta que dijera "aprobado por Juan
@@ -26,6 +44,7 @@ def resolve_signatories(
     Si alguien tiene más de un rol se toma el primero por nombre, para que el
     resultado sea determinista y el PDF reproducible.
     """
+    from process_ai_core.db.directory import resolve_usuarios, tenant_id_de_workspace
     from process_ai_core.db.models import (
         OperationalRole,
         User,
@@ -37,8 +56,15 @@ def resolve_signatories(
     if not ids:
         return {}
 
+    # Nombre + email: directorio, con fallback a la proyección local si nunca se
+    # pudo poblar. Dispara el refresh (escritura al leer) si venció el TTL.
+    identidades = resolve_usuarios(
+        session, tenant_id_de_workspace(session, workspace_id), ids
+    )
+
+    # Rol operativo: dato del módulo, nada que ver con Workspace.
     filas = (
-        session.query(User.id, User.name, User.email, OperationalRole.name)
+        session.query(User.id, OperationalRole.name)
         .outerjoin(
             WorkspaceMembership,
             (WorkspaceMembership.user_id == User.id)
@@ -58,13 +84,23 @@ def resolve_signatories(
         .all()
     )
 
-    resultado: dict[str, tuple[str, str | None]] = {}
-    for uid, nombre, email, rol in filas:
-        if uid in resultado and resultado[uid][1]:
+    roles: dict[str, str | None] = {}
+    for uid, rol in filas:
+        if roles.get(uid):
             continue  # ya tiene rol: el order_by garantiza cuál
+        roles[uid] = rol or None
+
+    # El mapa se arma sobre los ids que EXISTEN en la base local, no sobre los
+    # pedidos: un id sin fila no lleva key, y así el llamador puede distinguir
+    # "no está" de "está y no tiene nombre". `snapshot_acta_fields` depende de
+    # eso para guardar NULL en vez de "" en las columnas del acta.
+    resultado: dict[str, tuple[str, str | None]] = {}
+    for uid in roles:
+        info = identidades.get(uid, {"nombre": "", "email": ""})
         # Fallback al email: un usuario recién sincronizado puede no tener
         # nombre, y una firma vacía en el PDF es peor que una firma con el mail.
-        resultado[uid] = ((nombre or email or ""), rol or None)
+        nombre = info["nombre"] or info["email"] or ""
+        resultado[uid] = (nombre, roles.get(uid))
     return resultado
 
 

@@ -2179,6 +2179,7 @@ def get_or_create_local_user_from_workspace(
     email: str,
     first_name: str | None = None,
     last_name: str | None = None,
+    display_name: str | None = None,
 ) -> str:
     """
     Busca o crea el User local que corresponde al usuario autenticado.
@@ -2187,6 +2188,22 @@ def get_or_create_local_user_from_workspace(
       1. Buscar por external_id (supabase_sub) — lookup O(1).
       2. Buscar por email y vincular el external_id (link automático).
       3. Crear un nuevo User local con los datos del contexto.
+
+    `display_name` viene calculado por Workspace (`app/services/display_name.py`)
+    y viaja en el DTO de `session/context`. **El módulo no lo arma**: es el
+    anti-patrón #6 del estándar del directorio, y el que concatena el nombre es
+    siempre el que después lo persiste — así nacieron las nueve columnas
+    `*_by_name` de OMS. `first_name`/`last_name` quedan solo para las iniciales
+    de un avatar y para los formularios que EDITAN el perfil (que en Process AI
+    no existen: la edición del perfil es exclusiva del Hub).
+
+    Ojo con lo que esta función NO hace, porque es la razón de ser del
+    directorio: cuando encuentra al usuario por `external_id` retorna sin tocar
+    nada, así que `users.name` queda congelado en el primer login. Si la persona
+    se cambia el nombre en el Hub, `users.name` no se entera nunca. Refrescarlo
+    acá sería escribir en el camino caliente de cada request; el nombre que se
+    muestra sale de `users_directory`, que se refresca por TTL
+    (`process_ai_core/db/directory.py`).
 
     Returns:
         ID local del User (el que usan las FKs de WorkspaceMembership/etc.)
@@ -2204,11 +2221,15 @@ def get_or_create_local_user_from_workspace(
         session.flush()
         return user.id
 
-    # 3. Crear nuevo usuario local
-    display_name = " ".join(filter(None, [first_name, last_name])) or email.split("@")[0]
+    # 3. Crear nuevo usuario local.
+    # El fallback al usuario del email es para el caso en que el contexto no
+    # traiga `display_name` (Workspace viejo): Workspace garantiza que nunca
+    # viene vacío, así que en la práctica no se usa. No se reconstruye el nombre
+    # desde first/last — ver el docstring.
+    nombre = (display_name or "").strip() or email.split("@")[0]
     user = User(
         email=email,
-        name=display_name,
+        name=nombre,
         external_id=supabase_sub,
         auth_provider="supabase",
     )

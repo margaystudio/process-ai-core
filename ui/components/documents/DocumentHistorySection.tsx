@@ -38,7 +38,6 @@ interface DocumentHistorySectionProps {
   versions: DocumentVersion[]
   auditLog: AuditLogEntry[]
   validations: Validation[]
-  userDisplayNames: Record<string, string>
   showHistory: boolean
   onToggle: () => void
 }
@@ -47,7 +46,6 @@ export function DocumentHistorySection({
   versions,
   auditLog,
   validations,
-  userDisplayNames,
   showHistory,
   onToggle,
 }: DocumentHistorySectionProps) {
@@ -108,7 +106,7 @@ export function DocumentHistorySection({
                     {v.approved_at && (
                       <p className="text-xs text-ink-500">
                         Aprobada el {formatDateTime(v.approved_at)}
-                        {v.approved_by ? ` por ${v.approved_by}` : ''}
+                        {v.approved_by_name ? ` por ${v.approved_by_name}` : ''}
                       </p>
                     )}
                     {v.run_id && (
@@ -135,11 +133,16 @@ export function DocumentHistorySection({
                   .map((val, idx) => {
                     const ver = versions.find((v) => v.validation_id === val.id)
                     const submittedBy = ver?.created_by ?? null
+                    const submittedByName = ver?.created_by_name ?? ''
                     const validatorId = val.validator_user_id ?? null
+                    const validatorName = val.validator_user_name ?? ''
                     const isPending = val.status !== 'approved' && val.status !== 'rejected'
                     const actorId = isPending
                       ? (submittedBy ?? validatorId)
                       : validatorId ?? submittedBy
+                    const actorName = isPending
+                      ? (submittedByName || validatorName)
+                      : (validatorName || submittedByName)
 
                     const badgeVariant =
                       val.status === 'approved'
@@ -168,13 +171,11 @@ export function DocumentHistorySection({
                           <Badge variant={badgeVariant}>{statusLabel}</Badge>
                           <span className="text-xs text-ink-500">
                             {eventLabel} el {formatDateTime(val.created_at)}
-                            {actorId && (
+                            {actorName && (
                               <>
                                 {' '}
                                 por{' '}
-                                <span title={actorId}>
-                                  {userDisplayNames[actorId] ?? actorId}
-                                </span>
+                                <span title={actorId ?? undefined}>{actorName}</span>
                               </>
                             )}
                           </span>
@@ -207,7 +208,10 @@ export function DocumentHistorySection({
                       </span>
                       <span className="text-xs text-ink-400">{entry.entity_type}</span>
                     </div>
-                    <p className="text-xs text-ink-500 mb-1">{formatDateTime(entry.created_at)}</p>
+                    <p className="text-xs text-ink-500 mb-1">
+                      {formatDateTime(entry.created_at)}
+                      {entry.user_name ? ` · ${entry.user_name}` : ''}
+                    </p>
                     {entry.changes_json && (
                       <details className="mt-2">
                         <summary className="cursor-pointer text-xs text-ink-500 hover:text-ink-800">

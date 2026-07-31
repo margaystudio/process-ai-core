@@ -50,6 +50,7 @@ from api.workspace_client import (
     resolve_tenant_workspace_id,
     sync_workspace_access,
 )
+from api.request_identity import capture_request_identity
 from ..models.requests import (
     FolderCreateRequest, FolderResponse, FolderUpdateRequest,
     FolderPermissionsUpdateRequest,
@@ -58,7 +59,7 @@ from ..models.requests import (
 router = APIRouter(
     prefix="/api/v1/folders",
     tags=["folders"],
-    dependencies=[Depends(sync_workspace_access)],
+    dependencies=[Depends(sync_workspace_access), Depends(capture_request_identity)],
 )
 
 

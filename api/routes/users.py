@@ -56,25 +56,21 @@ def _get_workspace_branding_color(workspace: Workspace, key: str) -> str | None:
     return color
 
 
-@router.get("")
-def list_users():
-    """
-    Lista todos los usuarios.
-    
-    Returns:
-        Lista de usuarios
-    """
-    with get_db_session() as session:
-        users = session.query(User).all()
-        return [
-            {
-                "id": u.id,
-                "email": u.email,
-                "name": u.name,
-                "created_at": u.created_at.isoformat(),
-            }
-            for u in users
-        ]
+# NO existe `GET /api/v1/users`, a propósito.
+#
+# Había uno que devolvía id, email, nombre y fecha de **todos los usuarios de
+# todos los tenants**, sin ninguna dependencia de auth y sin filtro de tenant:
+# el router no declara `dependencies` y la función no tenía un solo `Depends`.
+# Cualquiera que conociera la URL obtenía el padrón completo. Ninguna pantalla
+# lo usaba.
+#
+# El listado de usuarios de un módulo sale de la API de Workspace, gateada por
+# el JWT del usuario y scopeada a su tenant y su app:
+#   - resolver `user_id → nombre` (pantallas normales) →
+#     GET /api/tenants/{tid}/applications/{key}/directory  (assert_app_member)
+#   - gestionar accesos (pantalla de admin) →
+#     GET /api/admin/tenants/{tid}/applications/{key}/users (exige admin)
+# Ver `margay-dev-agent/knowledge/11-directorio-de-usuarios.md` §1.
 
 
 def _membership_role_name(session: Session, membership: WorkspaceMembership) -> str | None:

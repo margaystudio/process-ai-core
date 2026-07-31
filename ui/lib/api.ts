@@ -1262,6 +1262,7 @@ export interface Validation {
   document_id: string;
   run_id: string | null;
   validator_user_id: string | null;
+  validator_user_name: string;
   status: string;
   observations: string;
   checklist_json: string;
@@ -1535,12 +1536,15 @@ export interface DocumentVersion {
   validation_id?: string | null; // Validación asociada (cuando está IN_REVIEW)
   approved_at: string | null;
   approved_by: string | null;
+  approved_by_name: string;
   rejected_at: string | null;
   rejected_by: string | null;
+  rejected_by_name: string;
   is_current: boolean;
   /** Hasta cuándo se comprometió la vigencia de esta aprobación (fijada al aprobar). */
   validity_until?: string | null;
   created_by: string | null; // Usuario que creó la versión
+  created_by_name: string;
   created_at: string;
 }
 
@@ -1623,6 +1627,7 @@ export async function getCurrentDocumentVersion(documentId: string): Promise<{
   content_markdown: string;
   approved_at: string;
   approved_by: string | null;
+  approved_by_name: string;
   created_at: string;
 }> {
   const { getAuthHeaders } = await import('@/lib/api-auth');
@@ -1649,6 +1654,7 @@ export interface AuditLogEntry {
   entity_id: string;
   run_id: string | null;
   user_id: string | null;
+  user_name: string;
   changes_json: string | null;
   metadata_json: string | null;
   created_at: string;

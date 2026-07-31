@@ -193,14 +193,23 @@ def test_build_document_context_resuelve_firmas_tipo_y_reemplazo(session):
         _limpiar(session, doc, ws, user_ids, validation_ids=[val_id])
 
 
-def test_build_document_context_resuelve_los_nombres_en_una_sola_query(session):
+def test_build_document_context_resuelve_los_nombres_en_lote(session):
     """
-    Tres personas distintas ⇒ una query a users, no una por persona.
+    Tres personas distintas ⇒ dos queries en lote, no una por persona.
 
-    Desde el Paso 4 la misma query trae el rol operativo, y los aprobadores del
-    historial de versiones se resuelven en ese mismo lote: sin eso, un documento
-    con diez versiones haría diez consultas extra dentro de la transacción de
-    aprobación.
+    Los aprobadores del historial de versiones se resuelven en ese mismo lote:
+    sin eso, un documento con diez versiones haría diez consultas extra dentro
+    de la transacción de aprobación.
+
+    Son DOS y no una desde que el nombre sale del directorio (§1 del estándar):
+    el nombre y el rol operativo son dos preguntas con dos fuentes distintas
+    —`users_directory`, que replica lo que dice Workspace, y las tablas del
+    módulo, que son las únicas que saben quién es "Encargado de turno"— y
+    juntarlas en un solo join obligaría a `resolve_signatories` a duplicar la
+    resolución del directorio en vez de reusarla.
+
+    Lo que el test protege no es el número sino que sea CONSTANTE: las dos
+    queries traen a las tres personas de una, con un `IN`.
     """
     doc, v2, ws, user_ids, _, val_id = _crear_documento_con_version(session)
     queries = []
@@ -210,13 +219,20 @@ def test_build_document_context_resuelve_los_nombres_en_una_sola_query(session):
 
     def registrar(conn, cursor, statement, params, ctx, many):
         if "FROM process_ai.users" in statement or "FROM users" in statement:
-            queries.append(statement)
+            queries.append((statement, params))
 
     event.listen(engine, "before_cursor_execute", registrar)
     try:
         session.expire_all()
         build_document_context(session, doc, v2)
-        assert len(queries) == 1, f"se hicieron {len(queries)} queries a users:\n" + "\n".join(queries)
+        sentencias = "\n".join(q for q, _ in queries)
+        assert len(queries) == 2, f"se hicieron {len(queries)} queries a users:\n{sentencias}"
+        for statement, params in queries:
+            assert " IN " in statement, f"query sin lote:\n{statement}"
+            ids_pedidos = {v for v in (params or {}).values() if v in set(user_ids)}
+            assert len(ids_pedidos) == 3, (
+                f"la query pidió {len(ids_pedidos)} de las 3 personas — hay N+1:\n{statement}"
+            )
     finally:
         event.remove(engine, "before_cursor_execute", registrar)
         _limpiar(session, doc, ws, user_ids, validation_ids=[val_id])
