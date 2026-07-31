@@ -6,6 +6,46 @@ Monorepo: se versiona **por componente** con tags prefijados — `api-vX.Y.Z` y 
 
 ## Unreleased
 
+### Changed
+- **`document_relations.confirmed_by` → `decided_by`, y `confirmed_at` → `decided_at`**
+  (migración `0023`). El nombre mentía: las dos columnas se escriben en `confirm()` **y** en
+  `reject()`, así que en una relación rechazada `confirmed_by` guardaba a quien la rechazó.
+
+  No es cosmética. Son campos de gobierno: `decided_by IS NULL` es el rastro de "confirmada por
+  el sistema, sin intervención humana" (autoconfirmación por umbral, ADR-006). Un `confirmed_by`
+  al lado de un `status='rejected'` se lee como una contradicción, y quien filtre por él creyendo
+  que trae solo confirmaciones se lleva también los rechazos.
+
+  Se renombró **antes** de exponerlo en pantalla a propósito: el campo ya viajaba en la API y
+  ninguna vista lo pintaba, así que era el momento más barato. Después de que una pantalla lo
+  muestre, el nombre queda. `ALTER TABLE … RENAME COLUMN` conserva datos, tipo, FK e índices.
+
+### Fixed
+- **El puente del id canónico quedaba en NULL: el mapa vacío con el directorio lleno.** Al adoptar
+  el id canónico, `UserDirectory` perdió el campo `auth_user_id` —correcto *después* de la `0022`,
+  que borra la columna— y con él se fue de `_guardar_directorio`. Pero la migración todavía no
+  había corrido: la columna existía, el primer barrido la dejó en NULL, y el mapeo local→canónico
+  no encontró nada.
+
+  Modo de falla silencioso y engañoso: la tabla se ve perfecta, los nombres resuelven bien en
+  pantalla, y lo único roto es el mapeo — que no se nota hasta que se intenta migrar, y ahí el
+  error apunta al lugar equivocado (los usuarios revocados).
+
+  El mapa ahora tiene **dos puentes en orden**: `auth_user_id` primero —el correcto, el auth id no
+  cambia nunca— y **email** como respaldo, que ambas tablas tienen sin depender del orden de
+  despliegue. Es peor llave (el email se puede cambiar en el Hub y la copia local no se refresca),
+  por eso va segundo y nunca primero. Si los dos están vacíos, no mapea y lo informa.
+
+  De paso, `tools/censo_id_canonico.py` tenía su propio SQL de mapeo, duplicando el de la
+  migración: ahora **importa el de la migración**. Era exactamente la deriva contra la que existe
+  la guarda del inventario.
+
+  La regla general quedó anotada en el estándar: **la escritura del puente sobrevive hasta la
+  migración que lo borra, no hasta el release que la contiene.**
+
+- **`DOCUMENT_VERIFICATION_BASE_URL` faltaba en los configs de deploy**, y el arranque falla sin
+  ella fuera de local/test. Detalle en la entrada de `ops` más abajo.
+
 ### Added
 - **`process_ai.users_directory` — el directorio de usuarios del módulo** (migración
   `0021`), poblado por **escritura al leer** desde

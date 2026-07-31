@@ -42,7 +42,7 @@ from __future__ import annotations
 SITIOS_COLUMNA: list[tuple[str, str, str]] = [
     # ── Con FK declarada a users(id) ────────────────────────────────────────
     ("audit_logs", "user_id", "quién hizo la acción registrada"),
-    ("document_relations", "confirmed_by", "quién decidió sobre la relación (confirm Y reject); NULL = el sistema"),
+    ("document_relations", "decided_by", "quién decidió sobre la relación (confirm Y reject); NULL = el sistema"),
     ("document_versions", "approved_by", "quién aprobó la versión"),
     ("document_versions", "created_by", "quién creó la versión"),
     ("document_versions", "rejected_by", "quién rechazó la versión"),

@@ -413,14 +413,14 @@ class RelationService:
                 created_by_ai=True,
             )
             # Autoconfirmación opcional (ADR-006 sigue siendo el default: off).
-            # confirmed_by queda NULL => rastro de "confirmada por el sistema".
+            # decided_by queda NULL => rastro de "confirmada por el sistema".
             if (
                 autoconfirm is not None
                 and rel.confidence is not None
                 and rel.confidence >= autoconfirm
             ):
                 relation.status = "confirmed"
-                relation.confirmed_at = datetime.now(UTC).replace(tzinfo=None)
+                relation.decided_at = datetime.now(UTC).replace(tzinfo=None)
                 autoconfirmed += 1
             session.add(relation)
             created.append(relation)
@@ -449,8 +449,8 @@ class RelationService:
             raise ValueError(f"Solo se puede confirmar una relación 'candidate' (actual: {relation.status})")
         self._check_segregation(session, relation, user_id, enforce_segregation)
         relation.status = "confirmed"
-        relation.confirmed_by = user_id
-        relation.confirmed_at = datetime.now(UTC).replace(tzinfo=None)
+        relation.decided_by = user_id
+        relation.decided_at = datetime.now(UTC).replace(tzinfo=None)
         session.flush()
         return relation
 
@@ -467,8 +467,8 @@ class RelationService:
             raise ValueError(f"Solo se puede rechazar una relación 'candidate' (actual: {relation.status})")
         self._check_segregation(session, relation, user_id, enforce_segregation)
         relation.status = "rejected"
-        relation.confirmed_by = user_id
-        relation.confirmed_at = datetime.now(UTC).replace(tzinfo=None)
+        relation.decided_by = user_id
+        relation.decided_at = datetime.now(UTC).replace(tzinfo=None)
         session.flush()
         return relation
 

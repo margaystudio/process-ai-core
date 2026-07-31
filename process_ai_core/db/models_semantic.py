@@ -157,8 +157,16 @@ class DocumentRelation(Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="candidate", index=True)
 
     created_by_ai: Mapped[bool] = mapped_column(Boolean, default=True)
-    confirmed_by: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id"), nullable=True)
-    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    #: Quién DECIDIÓ sobre la relación. Se escribe al confirmar **y** al
+    #: rechazar: no es "quién la confirmó". Se llamaba `confirmed_by` y mentía en
+    #: las relaciones rechazadas (migración 0023).
+    #:
+    #: NULL con `status='confirmed'` es un dato, no un faltante: significa que la
+    #: confirmó el sistema por autoconfianza, sin intervención humana (ver
+    #: `relation_autoconfirm_threshold` en config.py).
+    decided_by: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id"), nullable=True)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
@@ -203,6 +211,20 @@ class EvidenceItem(Base):
 
     Las evidencias persisten y se siguen sumando a lo largo de la vida del
     documento (ADR-013/017); no se borran al versionar.
+
+    ⚠️ **SIN IMPLEMENTAR: esta tabla no tiene un solo escritor** (relevado
+    2026-07-31). No hay un `EvidenceItem(...)` en todo el repo, y está en 0 filas
+    en test y en prod. `POST /api/v1/evidence/process` procesa un archivo y
+    devuelve el texto extraído **sin persistir nada**.
+
+    Se deja porque el modelo es correcto y el flujo está especificado
+    (ADR-013/017): es una feature pendiente, no código muerto — la diferencia con
+    `workspace_invitations`, que sí se borró en la 0020, es que aquella tenía
+    helpers completos y ninguna especificación detrás.
+
+    Consecuencia para quien la implemente: `added_by` es una **referencia**
+    (§5 del estándar de directorio), así que se guarda el uuid y el nombre se
+    resuelve al leer contra `users_directory`. No agregar una columna `*_by_name`.
     """
     __tablename__ = "evidence"
 

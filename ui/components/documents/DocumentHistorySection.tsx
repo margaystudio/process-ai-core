@@ -2,7 +2,7 @@
 
 /**
  * Historial y trazabilidad — colapsable.
- * Versiones aprobadas + audit log (misma data, mejor presentación visual).
+ * Versiones (aprobadas y rechazadas) + audit log (misma data, mejor presentación visual).
  */
 
 import { ChevronDown, ChevronUp } from 'lucide-react'
@@ -49,7 +49,13 @@ export function DocumentHistorySection({
   showHistory,
   onToggle,
 }: DocumentHistorySectionProps) {
-  const approvedVersions = versions.filter((v) => v.version_status === 'APPROVED')
+  const versionEvents = versions
+    .filter((v) => v.version_status === 'APPROVED' || v.version_status === 'REJECTED')
+    .sort((a, b) => {
+      const aDate = a.version_status === 'REJECTED' ? a.rejected_at : a.approved_at
+      const bDate = b.version_status === 'REJECTED' ? b.rejected_at : b.approved_at
+      return new Date(bDate ?? 0).getTime() - new Date(aDate ?? 0).getTime()
+    })
 
   return (
     <section aria-label="Historial y trazabilidad">
@@ -72,50 +78,65 @@ export function DocumentHistorySection({
 
       {showHistory && (
         <div className="space-y-6">
-          {/* Versiones aprobadas */}
+          {/* Versiones */}
           <div>
-            <h3 className="text-h3 text-ink-900 mb-3">Versiones aprobadas</h3>
-            {approvedVersions.length === 0 ? (
-              <p className="text-sm text-ink-500">No hay versiones aprobadas.</p>
+            <h3 className="text-h3 text-ink-900 mb-3">Versiones</h3>
+            {versionEvents.length === 0 ? (
+              <p className="text-sm text-ink-500">No hay versiones registradas.</p>
             ) : (
               <div className="space-y-2">
-                {approvedVersions.map((v) => (
-                  <div
-                    key={v.id}
-                    className={`rounded-lg border p-4 ${
-                      v.is_current
-                        ? 'border-success-bd bg-success-bg'
-                        : 'border-ink-200 bg-white'
-                    }`}
-                  >
-                    <div className="flex flex-wrap items-center gap-2 mb-1">
-                      <span className="text-sm font-semibold text-ink-900">
-                        Versión {v.version_number}
-                      </span>
-                      {v.is_current && (
-                        <Badge variant="success" dot={false}>
-                          Actual
-                        </Badge>
-                      )}
-                      {v.content_type && (
-                        <span className="text-xs text-ink-500">
-                          {CONTENT_TYPE_LABELS[v.content_type] ?? v.content_type}
+                {versionEvents.map((v) => {
+                  const isRejected = v.version_status === 'REJECTED'
+                  return (
+                    <div
+                      key={v.id}
+                      className={`rounded-lg border p-4 ${
+                        v.is_current
+                          ? 'border-success-bd bg-success-bg'
+                          : 'border-ink-200 bg-white'
+                      }`}
+                    >
+                      <div className="flex flex-wrap items-center gap-2 mb-1">
+                        <span className="text-sm font-semibold text-ink-900">
+                          Versión {v.version_number}
                         </span>
+                        {v.is_current && (
+                          <Badge variant="success" dot={false}>
+                            Actual
+                          </Badge>
+                        )}
+                        {isRejected && (
+                          <Badge variant="danger" dot={false}>
+                            Rechazada
+                          </Badge>
+                        )}
+                        {v.content_type && (
+                          <span className="text-xs text-ink-500">
+                            {CONTENT_TYPE_LABELS[v.content_type] ?? v.content_type}
+                          </span>
+                        )}
+                      </div>
+                      {isRejected
+                        ? v.rejected_at && (
+                            <p className="text-xs text-ink-500">
+                              Rechazada el {formatDateTime(v.rejected_at)}
+                              {v.rejected_by_name ? ` por ${v.rejected_by_name}` : ''}
+                            </p>
+                          )
+                        : v.approved_at && (
+                            <p className="text-xs text-ink-500">
+                              Aprobada el {formatDateTime(v.approved_at)}
+                              {v.approved_by_name ? ` por ${v.approved_by_name}` : ''}
+                            </p>
+                          )}
+                      {v.run_id && (
+                        <p className="text-xs text-ink-400 font-mono mt-0.5">
+                          Run {v.run_id.substring(0, 8)}…
+                        </p>
                       )}
                     </div>
-                    {v.approved_at && (
-                      <p className="text-xs text-ink-500">
-                        Aprobada el {formatDateTime(v.approved_at)}
-                        {v.approved_by_name ? ` por ${v.approved_by_name}` : ''}
-                      </p>
-                    )}
-                    {v.run_id && (
-                      <p className="text-xs text-ink-400 font-mono mt-0.5">
-                        Run {v.run_id.substring(0, 8)}…
-                      </p>
-                    )}
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             )}
           </div>
@@ -238,7 +259,7 @@ export function DocumentHistorySection({
             </div>
           )}
 
-          {approvedVersions.length === 0 &&
+          {versionEvents.length === 0 &&
             validations.length === 0 &&
             auditLog.length === 0 && (
               <p className="py-8 text-center text-sm text-ink-500">

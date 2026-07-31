@@ -74,8 +74,10 @@ class RelationItemResponse(BaseModel):
     status: str
     evidence_text: Optional[str] = None
     created_by_ai: bool
-    confirmed_by: Optional[str] = None
-    confirmed_at: Optional[str] = None
+    #: Quién DECIDIÓ: se llena al confirmar Y al rechazar. NULL con
+    #: status='confirmed' = la confirmó el sistema (ver migración 0023).
+    decided_by: Optional[str] = None
+    decided_at: Optional[str] = None
     possible_duplicate_of: Optional[RelationTargetResponse] = None
 
 
@@ -118,7 +120,7 @@ class SuggestResponse(BaseModel):
 
 class RelationDecisionRequest(BaseModel):
     # El backend usa SIEMPRE el usuario del JWT; el campo existe por contrato.
-    confirmed_by: Optional[str] = None
+    decided_by: Optional[str] = None
 
 
 class RelationPatchRequest(BaseModel):
@@ -330,9 +332,9 @@ def get_workspace_relations(
                 status=relation.status,
                 evidence_text=relation.evidence_text,
                 created_by_ai=relation.created_by_ai,
-                confirmed_by=relation.confirmed_by,
-                confirmed_at=(
-                    relation.confirmed_at.isoformat() if relation.confirmed_at else None
+                decided_by=relation.decided_by,
+                decided_at=(
+                    relation.decided_at.isoformat() if relation.decided_at else None
                 ),
                 possible_duplicate_of=possible_duplicate,
             )
@@ -401,8 +403,8 @@ def get_document_relations(
                 status=rel.status,
                 evidence_text=rel.evidence_text,
                 created_by_ai=rel.created_by_ai,
-                confirmed_by=rel.confirmed_by,
-                confirmed_at=rel.confirmed_at.isoformat() if rel.confirmed_at else None,
+                decided_by=rel.decided_by,
+                decided_at=rel.decided_at.isoformat() if rel.decided_at else None,
                 possible_duplicate_of=possible_duplicate,
             )
         )
@@ -497,8 +499,8 @@ def confirm_relation(
         status=relation.status,
         evidence_text=relation.evidence_text,
         created_by_ai=relation.created_by_ai,
-        confirmed_by=relation.confirmed_by,
-        confirmed_at=relation.confirmed_at.isoformat() if relation.confirmed_at else None,
+        decided_by=relation.decided_by,
+        decided_at=relation.decided_at.isoformat() if relation.decided_at else None,
     )
 
 
@@ -534,8 +536,8 @@ def reject_relation(
         status=relation.status,
         evidence_text=relation.evidence_text,
         created_by_ai=relation.created_by_ai,
-        confirmed_by=relation.confirmed_by,
-        confirmed_at=relation.confirmed_at.isoformat() if relation.confirmed_at else None,
+        decided_by=relation.decided_by,
+        decided_at=relation.decided_at.isoformat() if relation.decided_at else None,
     )
 
 
@@ -574,8 +576,8 @@ def edit_relation(
         status=relation.status,
         evidence_text=relation.evidence_text,
         created_by_ai=relation.created_by_ai,
-        confirmed_by=relation.confirmed_by,
-        confirmed_at=relation.confirmed_at.isoformat() if relation.confirmed_at else None,
+        decided_by=relation.decided_by,
+        decided_at=relation.decided_at.isoformat() if relation.decided_at else None,
     )
 
 
