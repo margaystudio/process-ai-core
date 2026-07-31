@@ -37,6 +37,13 @@ PROCESS_AI_APP_KEY = "process_ai"
 DATABASE_SCHEMA = "process_ai"
 # API de test por run.app (URL determinística; no lleva dominio propio en test).
 API_BASE_URL = "https://margay-process-ai-api-test-1062202104268.europe-west1.run.app"
+
+# Base del QR de verificación. En test la guarda de config NO es obligatoria
+# (is_production_environment() exime a local/test) y cae a API_BASE_URL — que acá
+# es una URL de run.app. O sea: justo lo que la guarda existe para impedir,
+# pasando en el ambiente que la guarda no cubre. Se setea explícito al dominio
+# de la UI, que además es donde vive /verificar/{version_id}.
+DOCUMENT_VERIFICATION_BASE_URL = "https://process.test.margaystudio.io"
 CORS_ORIGINS = "https://process.test.margaystudio.io,https://hub.test.margaystudio.io"
 # Supabase de TEST (dedicado).
 SUPABASE_URL = "https://zgujorkqulkdsnmjdxtj.supabase.co"
