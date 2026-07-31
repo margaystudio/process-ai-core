@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 import uuid
 from pathlib import Path
 
@@ -67,13 +68,22 @@ EXPECTED_TABLES = {
 
 
 def _alembic(args, schema):
+    """Corre alembic con el intérprete que está corriendo el test.
+
+    `sys.executable -m alembic` y no `.venv/bin/alembic`: el binario del venv no
+    existe en el CI, que instala con `pip install -e` sobre el Python del runner.
+    Este test estuvo skippeado desde que se escribió, así que esa ruta hardcodeada
+    nunca se ejecutó y el error apareció recién al encenderlo.
+
+    La forma por módulo funciona en los dos lados sin preguntar dónde está nada.
+    """
     env = dict(os.environ)
     env["DATABASE_URL"] = SMOKE_URL
     env["DATABASE_SCHEMA"] = schema
     env.setdefault("ENVIRONMENT", "test")
     env.setdefault("PROCESS_AI_BOOTSTRAP", "1")  # evita cargar .env y pisar DATABASE_URL
     return subprocess.run(
-        [str(REPO / ".venv" / "bin" / "alembic"), *args],
+        [sys.executable, "-m", "alembic", *args],
         cwd=str(REPO),
         env=env,
         capture_output=True,
