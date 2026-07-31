@@ -20,11 +20,13 @@ from process_ai_core.domains.processes.profiles import get_profile
 from process_ai_core.engine import run_process_pipeline
 from process_ai_core.prompt_context import build_context_block
 from process_ai_core.export import export_pdf
+from process_ai_core.export.markdown_html import render_frozen_html
 from process_ai_core.ingest import discover_raw_assets
 from process_ai_core.upload_validation import ALLOWED_UPLOAD_EXTENSIONS
 
 from api.models.requests import ProcessRunResponse
 from api.routes._branding import get_workspace_pdf_branding
+from api.routes._document_context import build_document_context
 from api.routes._run_paths import run_dir as _run_dir
 from api.artifact_signing import sign_artifact_url
 from api.dependencies import get_current_user_id
@@ -347,11 +349,16 @@ async def create_document_run(
             # Generar PDF
             pdf_generated = False
             try:
+                # Sin versión: este process.pdf es el artefacto de un run, no de
+                # una versión aprobada. El contexto va explícito (is_approved
+                # False) en vez de dejarlo en None: así la marca de invalidación
+                # es una decisión declarada y no el efecto de un dato ausente.
                 export_pdf(
                     run_dir=output_dir,
                     md_path=md_path,
                     pdf_name="process.pdf",
                     branding=get_workspace_pdf_branding(session, doc.workspace_id),
+                    document_context=build_document_context(session, doc),
                 )
                 pdf_generated = True
             except Exception as pdf_error:
@@ -420,6 +427,11 @@ async def create_document_run(
                             content_type="generated",
                             content_json=json_content,
                             content_markdown=markdown_content,
+                            # HTML congelado desde el momento de la creación: es la
+                            # entrada real del render, y derivarla al aprobar la
+                            # ataría a la versión de la librería `markdown` de ese
+                            # día. Ver export/markdown_html.render_frozen_html.
+                            content_html=render_frozen_html(markdown_content),
                             is_current=False,
                             created_by=user_id,  # Setear created_by para segregación de funciones
                         )
@@ -436,6 +448,11 @@ async def create_document_run(
                             content_type="generated",
                             content_json=json_content,
                             content_markdown=markdown_content,
+                            # HTML congelado desde el momento de la creación: es la
+                            # entrada real del render, y derivarla al aprobar la
+                            # ataría a la versión de la librería `markdown` de ese
+                            # día. Ver export/markdown_html.render_frozen_html.
+                            content_html=render_frozen_html(markdown_content),
                             is_current=False,
                             created_by=user_id,  # Setear created_by para segregación de funciones
                         )

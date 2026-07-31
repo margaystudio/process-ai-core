@@ -239,7 +239,7 @@ def generate_pdf_from_run(run_id: str):
 
     Este endpoint es más rápido y económico que crear un nuevo run, ya que:
     - No requiere llamadas a OpenAI
-    - Solo ejecuta Pandoc para convertir Markdown a PDF
+    - Solo ejecuta el render de PDF (WeasyPrint) sobre el Markdown ya generado
     - Reutiliza el markdown y las imágenes ya generadas
 
     Args:
@@ -286,10 +286,10 @@ def generate_pdf_from_run(run_id: str):
         }
 
     except FileNotFoundError as e:
-        # Pandoc no está instalado
+        # Falta el markdown del run (o el directorio).
         raise HTTPException(
             status_code=500,
-            detail=f"Pandoc no está instalado o no está en PATH: {str(e)}",
+            detail=f"No se encontró el contenido del run para generar el PDF: {str(e)}",
         ) from e
     except RuntimeError as e:
         # Error al generar PDF (LaTeX, imágenes faltantes, etc.)

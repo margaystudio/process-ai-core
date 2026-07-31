@@ -10,16 +10,18 @@ Este endpoint maneja:
 """
 
 import json
+import logging
 import re
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi import File, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from process_ai_core.storage import get_storage, workspace_branding_key
 from process_ai_core.db.database import get_db_session
 from ..dependencies import get_db
 from process_ai_core.db.helpers import (
@@ -37,7 +39,33 @@ from ..models.requests import (
 
 router = APIRouter(prefix="/api/v1/workspaces", tags=["workspaces"])
 
+logger = logging.getLogger(__name__)
+
 ALLOWED_BRANDING_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".svg"}
+_BRANDING_MEDIA_TYPES = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+    ".svg": "image/svg+xml",
+}
+
+
+def _branding_icon_media_type(filename: str) -> str:
+    return _BRANDING_MEDIA_TYPES.get(
+        PurePosixPath(filename).suffix.lower(), "application/octet-stream"
+    )
+
+
+def _delete_branding_icon_blob(workspace_id: str, filename: str) -> None:
+    """Borra el icono de storage. Best-effort: no romper el flujo si falla."""
+    try:
+        get_storage().delete(workspace_branding_key(workspace_id, filename))
+    except Exception as exc:
+        logger.warning(
+            "No se pudo borrar el icono %s del workspace %s: %s", filename, workspace_id, exc
+        )
+
 MAX_BRANDING_ICON_SIZE_BYTES = 2 * 1024 * 1024
 HEX_COLOR_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
 ALLOWED_COUNTRY_CODES = frozenset({"UY", "AR", "BR", "CL", "CO", "MX", "ES"})
@@ -353,21 +381,22 @@ async def upload_workspace_branding_icon(
     if len(contents) > MAX_BRANDING_ICON_SIZE_BYTES:
         raise HTTPException(status_code=400, detail="El icono no puede superar 2 MB")
 
-    settings = get_settings()
-    branding_dir = Path(settings.output_dir) / "workspace-branding" / workspace_id
-    branding_dir.mkdir(parents=True, exist_ok=True)
-
+    # A object storage, no a disco local: el freeze del PDF corre en cualquier
+    # instancia de Cloud Run y el filesystem es efímero. Guardarlo local hacía
+    # que el PDF oficial se congelara sin logo. Ver api/routes/_branding.py.
     previous_filename = _get_workspace_branding_icon_filename(workspace)
     if previous_filename:
-        previous_path = branding_dir / previous_filename
-        if previous_path.exists():
-            previous_path.unlink(missing_ok=True)
+        _delete_branding_icon_blob(workspace_id, previous_filename)
 
     filename = f"{uuid4().hex}{ext}"
-    target_path = branding_dir / filename
     try:
-        target_path.write_bytes(contents)
+        get_storage().put(
+            workspace_branding_key(workspace_id, filename),
+            contents,
+            content_type=file.content_type or _branding_icon_media_type(filename),
+        )
     except Exception as e:
+        logger.exception("No se pudo subir el icono de marca del workspace %s", workspace_id)
         raise HTTPException(status_code=500, detail="No se pudo guardar el icono") from e
 
     branding = _get_workspace_branding(workspace)
@@ -398,11 +427,7 @@ def delete_workspace_branding_icon(
 
     filename = _get_workspace_branding_icon_filename(workspace)
     if filename:
-        settings = get_settings()
-        branding_dir = Path(settings.output_dir) / "workspace-branding" / workspace_id
-        icon_path = branding_dir / filename
-        if icon_path.exists():
-            icon_path.unlink(missing_ok=True)
+        _delete_branding_icon_blob(workspace_id, filename)
 
     branding = _get_workspace_branding(workspace)
     branding.pop("client_icon_filename", None)
@@ -449,21 +474,24 @@ def update_workspace_branding(
 @router.get("/{workspace_id}/branding/icon/{filename}")
 def get_workspace_branding_icon(workspace_id: str, filename: str):
     """
-    Sirve el icono personalizado del workspace.
+    Sirve el icono personalizado del workspace desde object storage.
     """
     if ".." in filename or "/" in filename or "\\" in filename:
         raise HTTPException(status_code=400, detail="Nombre de archivo no válido")
 
-    settings = get_settings()
-    base_dir = Path(settings.output_dir) / "workspace-branding" / workspace_id
-    file_path = base_dir / filename
-    if not file_path.exists():
+    key = workspace_branding_key(workspace_id, filename)
+    try:
+        contents = get_storage().get(key)
+    except FileNotFoundError:
+        # Compatibilidad: iconos subidos antes de mover el branding a storage.
+        legacy = Path(get_settings().output_dir) / "workspace-branding" / workspace_id / filename
+        if legacy.exists():
+            return FileResponse(path=str(legacy), filename=filename)
         raise HTTPException(status_code=404, detail="Icono no encontrado")
 
-    try:
-        file_path.resolve().relative_to(base_dir.resolve())
-    except ValueError:
-        raise HTTPException(status_code=403, detail="Acceso denegado")
-
-    return FileResponse(path=str(file_path), filename=filename)
+    return Response(
+        content=contents,
+        media_type=_branding_icon_media_type(filename),
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
 

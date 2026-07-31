@@ -21,13 +21,20 @@ import json
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from process_ai_core.ai.openai_provider import AIProviderError
 from process_ai_core.semantic import TytoAnswerService
+from process_ai_core.db.models_semantic import TytoQueryLog
+from process_ai_core.semantic.tyto_sessions import (
+    get_session_thread,
+    list_sessions,
+    resolve_session,
+)
 from process_ai_core.semantic.tyto_answer import TytoAnswerError
 
 from ..dependencies import get_current_user_id, get_db
@@ -37,13 +44,14 @@ from ..workspace_client import (
     resolve_tenant_workspace_id,
     sync_workspace_access,
 )
+from ..request_identity import capture_request_identity
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/api/v1/tyto",
     tags=["tyto"],
-    dependencies=[Depends(sync_workspace_access)],
+    dependencies=[Depends(sync_workspace_access), Depends(capture_request_identity)],
 )
 
 MAX_QUESTION_LENGTH = 2000
@@ -51,6 +59,10 @@ MAX_QUESTION_LENGTH = 2000
 
 class TytoQueryRequest(BaseModel):
     question: str
+    #: Conversación en curso. Si viene vacío —o si no es del usuario— el servidor
+    #: abre una nueva y devuelve su id. Ver process_ai_core/semantic/tyto_sessions.py
+    #: para por qué la emite el servidor y no el cliente.
+    session_id: Optional[str] = None
 
 
 class TytoSegmentResponse(BaseModel):
@@ -74,6 +86,13 @@ class TytoQueryResponse(BaseModel):
     segments: list[TytoSegmentResponse] = []
     sources: list[TytoSourceResponse] = []
     refusal_reason: Optional[str] = None
+    #: La búsqueda semántica no estaba disponible y se rankeó por coincidencia de
+    #: palabras. La UI lo muestra: un rechazo en ese estado no significa que no
+    #: haya documentación, significa que se buscó peor.
+    search_degraded: bool = False
+    #: Conversación a la que quedó asociada esta pregunta. El cliente la manda de
+    #: vuelta en la siguiente para que el hilo no se parta.
+    session_id: Optional[str] = None
 
 
 def _build_service() -> TytoAnswerService:
@@ -93,7 +112,7 @@ def _validate_question(raw: str) -> str:
     return question
 
 
-def _to_response(result) -> TytoQueryResponse:
+def _to_response(result, session_id: str | None = None) -> TytoQueryResponse:
     """Contrato §3 del spec — único para la Fase A y el evento final del stream."""
     return TytoQueryResponse(
         answered=result.answered,
@@ -114,6 +133,8 @@ def _to_response(result) -> TytoQueryResponse:
             for s in result.sources
         ],
         refusal_reason=result.refusal_reason,
+        search_degraded=getattr(result, "search_degraded", False),
+        session_id=session_id,
     )
 
 
@@ -128,10 +149,22 @@ def tyto_query(
     workspace_id = resolve_tenant_workspace_id(ctx)
     question = _validate_question(request.question)
 
+    convo = resolve_session(
+        session,
+        workspace_id=workspace_id,
+        user_id=user_id,
+        session_id=request.session_id,
+        question=question,
+    )
+
     service = _build_service()
     try:
         result = service.answer(
-            session, workspace_id=workspace_id, question=question, user_id=user_id
+            session,
+            workspace_id=workspace_id,
+            question=question,
+            user_id=user_id,
+            session_id=convo.id,
         )
     except (AIProviderError, TytoAnswerError) as exc:
         # Sin respuesta utilizable NO se improvisa nada: error explícito.
@@ -139,9 +172,9 @@ def tyto_query(
         raise HTTPException(
             status_code=502, detail="Tyto no pudo generar una respuesta confiable"
         )
-    session.commit()  # persiste el TytoQueryLog
+    session.commit()  # persiste el TytoQueryLog y la sesión
 
-    return _to_response(result)
+    return _to_response(result, convo.id)
 
 
 def _sse(event: str, data: dict) -> str:
@@ -173,16 +206,35 @@ def tyto_query_stream(
     question = _validate_question(request.question)
     service = _build_service()
 
+    convo = resolve_session(
+        session,
+        workspace_id=workspace_id,
+        user_id=user_id,
+        session_id=request.session_id,
+        question=question,
+    )
+    session.commit()  # la sesión existe aunque después falle la respuesta
+    session_id = convo.id
+
     def event_stream():
+        # El id va PRIMERO, antes de cualquier token. Si fuera solo en el
+        # `result` final, un stream que muere a mitad —justo cuando falla el
+        # proveedor— dejaría al cliente sin id: la próxima pregunta abriría otra
+        # conversación y el historial se llenaría de sesiones de un mensaje.
+        yield _sse("session", {"session_id": session_id})
         try:
             for ev in service.answer_stream(
-                session, workspace_id=workspace_id, question=question, user_id=user_id
+                session,
+                workspace_id=workspace_id,
+                question=question,
+                user_id=user_id,
+                session_id=session_id,
             ):
                 if ev["type"] == "token":
                     yield _sse("token", {"text": ev["text"]})
                 else:
                     session.commit()  # persiste el TytoQueryLog
-                    yield _sse("result", _to_response(ev["answer"]).model_dump())
+                    yield _sse("result", _to_response(ev["answer"], session_id).model_dump())
         except (AIProviderError, TytoAnswerError) as exc:
             logger.error("Tyto: fallo en el stream: %s", exc)
             yield _sse("error", {"detail": "Tyto no pudo generar una respuesta confiable"})
@@ -191,4 +243,125 @@ def tyto_query_stream(
         event_stream(),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+# ── Historial (tarea 4) ──────────────────────────────────────────────────────
+#
+# REGLA DE ACCESO, EXPLÍCITA Y SIN EXCEPCIONES: el historial es SOLO PARA UNO
+# MISMO. Los dos endpoints de acá filtran por `user_id` además de por workspace,
+# y NO existe una variante para administradores.
+#
+# El motivo es de producto, no de privacidad genérica. Un registro de qué
+# preguntó cada persona revela lo que esa persona no sabe. Si un supervisor
+# puede ver "Juan preguntó doce veces cómo cerrar caja", se construyó una
+# herramienta de vigilancia que nadie pidió, y la gente deja de preguntar — que
+# es exactamente lo contrario de lo que Tyto necesita que hagan.
+#
+# Para detectar brechas documentales está `tyto_query_log` agregado y anónimo,
+# que para eso es una tabla desacoplada.
+#
+# Si en algún momento aparece "los admins deberían poder ver todo": que sea una
+# decisión consciente, discutida y con su propio endpoint. Hay un test que falla
+# si alguien afloja este filtro sin darse cuenta.
+
+
+class TytoSessionResponse(BaseModel):
+    id: str
+    title: str
+    pinned: bool
+    created_at: str
+    updated_at: str
+    message_count: int = 0
+
+
+class TytoThreadEntryResponse(BaseModel):
+    id: str
+    question: str
+    answered: bool
+    answer: str = ""
+    refusal_reason: Optional[str] = None
+    created_at: str
+
+
+class TytoThreadResponse(BaseModel):
+    session: TytoSessionResponse
+    entries: list[TytoThreadEntryResponse]
+
+
+@router.get("/sessions", response_model=list[TytoSessionResponse])
+def tyto_list_sessions(
+    limit: int = Query(50, ge=1, le=200),
+    user_id: str = Depends(get_current_user_id),
+    session: Session = Depends(get_db),
+    ctx: WorkspaceSessionContext = Depends(get_workspace_context),
+):
+    """Mis conversaciones en este workspace. Solo mías: ver la nota de arriba."""
+    workspace_id = resolve_tenant_workspace_id(ctx)
+    convos = list_sessions(
+        session, workspace_id=workspace_id, user_id=user_id, limit=limit
+    )
+    if not convos:
+        return []
+
+    # Conteo en UNA query para las N sesiones, no una por sesión.
+    conteos = dict(
+        session.query(TytoQueryLog.session_id, func.count(TytoQueryLog.id))
+        .filter(TytoQueryLog.session_id.in_([c.id for c in convos]))
+        .group_by(TytoQueryLog.session_id)
+        .all()
+    )
+    return [
+        TytoSessionResponse(
+            id=c.id,
+            title=c.title,
+            pinned=c.pinned,
+            created_at=c.created_at.isoformat(),
+            updated_at=c.updated_at.isoformat(),
+            message_count=conteos.get(c.id, 0),
+        )
+        for c in convos
+    ]
+
+
+@router.get("/sessions/{session_id}", response_model=TytoThreadResponse)
+def tyto_get_session(
+    session_id: str,
+    user_id: str = Depends(get_current_user_id),
+    session: Session = Depends(get_db),
+    ctx: WorkspaceSessionContext = Depends(get_workspace_context),
+):
+    """
+    El hilo de una conversación mía.
+
+    404 —y no 403— cuando la sesión es de otro: un 403 confirmaría que ese id
+    existe, que es justo lo que no se quiere filtrar de un historial ajeno.
+    """
+    workspace_id = resolve_tenant_workspace_id(ctx)
+    convo, entradas = get_session_thread(
+        session, workspace_id=workspace_id, user_id=user_id, session_id=session_id
+    )
+    if convo is None:
+        raise HTTPException(status_code=404, detail="Conversación no encontrada")
+
+    return TytoThreadResponse(
+        session=TytoSessionResponse(
+            id=convo.id,
+            title=convo.title,
+            pinned=convo.pinned,
+            created_at=convo.created_at.isoformat(),
+            updated_at=convo.updated_at.isoformat(),
+            message_count=len(entradas),
+        ),
+        entries=[
+            TytoThreadEntryResponse(
+                id=e.id,
+                question=e.question,
+                answered=e.answered,
+                answer=e.answer or "",
+                refusal_reason=e.refusal_reason,
+                created_at=e.created_at.isoformat(),
+            )
+            for e in entradas
+        ],
     )

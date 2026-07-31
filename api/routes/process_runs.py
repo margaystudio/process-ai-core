@@ -19,6 +19,7 @@ from api.dependencies import get_current_user_id
 from process_ai_core.domains.processes.profiles import get_profile
 from process_ai_core.domain_models import RawAsset
 from process_ai_core.engine import run_process_pipeline
+from process_ai_core.export.markdown_html import render_frozen_html
 from process_ai_core.upload_validation import ALLOWED_UPLOAD_EXTENSIONS
 
 from ..models.requests import ProcessMode, ProcessRunResponse
@@ -30,11 +31,12 @@ from api.workspace_client import (
     resolve_tenant_workspace_id,
     sync_workspace_access,
 )
+from api.request_identity import capture_request_identity
 
 router = APIRouter(
     prefix="/api/v1/process-runs",
     tags=["process-runs"],
-    dependencies=[Depends(sync_workspace_access)],
+    dependencies=[Depends(sync_workspace_access), Depends(capture_request_identity)],
 )
 
 @router.post("", response_model=ProcessRunResponse)
@@ -382,6 +384,11 @@ async def create_process_run(
                             content_type="generated",
                             content_json=json_content,
                             content_markdown=markdown_content,
+                            # HTML congelado desde el momento de la creación: es la
+                            # entrada real del render, y derivarla al aprobar la
+                            # ataría a la versión de la librería `markdown` de ese
+                            # día. Ver export/markdown_html.render_frozen_html.
+                            content_html=render_frozen_html(markdown_content),
                             is_current=False,
                             created_by=user_id,  # Setear created_by para segregación de funciones
                         )
@@ -398,6 +405,11 @@ async def create_process_run(
                             content_type="generated",
                             content_json=json_content,
                             content_markdown=markdown_content,
+                            # HTML congelado desde el momento de la creación: es la
+                            # entrada real del render, y derivarla al aprobar la
+                            # ataría a la versión de la librería `markdown` de ese
+                            # día. Ver export/markdown_html.render_frozen_html.
+                            content_html=render_frozen_html(markdown_content),
                             is_current=False,
                             created_by=user_id,  # Setear created_by para segregación de funciones
                         )
@@ -531,7 +543,7 @@ def generate_pdf_from_run(run_id: str):
 
     Este endpoint es más rápido y económico que crear un nuevo run, ya que:
     - No requiere llamadas a OpenAI
-    - Solo ejecuta Pandoc para convertir Markdown a PDF
+    - Solo ejecuta el render de PDF (WeasyPrint) sobre el Markdown ya generado
     - Reutiliza el markdown y las imágenes ya generadas
 
     Args:
@@ -602,10 +614,10 @@ def generate_pdf_from_run(run_id: str):
         }
 
     except FileNotFoundError as e:
-        # Pandoc no está instalado
+        # Falta el markdown del run (o el directorio).
         raise HTTPException(
             status_code=500,
-            detail=f"Pandoc no está instalado o no está en PATH: {str(e)}",
+            detail=f"No se encontró el contenido del run para generar el PDF: {str(e)}",
         ) from e
     except RuntimeError as e:
         # Error al generar PDF (LaTeX, imágenes faltantes, etc.)

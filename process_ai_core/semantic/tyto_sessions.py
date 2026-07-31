@@ -1,0 +1,164 @@
+"""
+Conversaciones de Tyto: resolución, título y lectura del historial.
+
+QUIÉN CREA LA SESIÓN: EL SERVIDOR
+---------------------------------
+La alternativa era que el cliente generara un UUID y lo mandara. Se descartó por
+dos motivos, en ese orden:
+
+1. **Un id que elige el cliente es un id que elige cualquiera.** El historial es
+   estrictamente personal, así que un id enviado por el usuario tiene que
+   validarse contra su dueño de todas formas. Si igual hay que verificar la
+   propiedad en el servidor, que el servidor lo emita no cuesta nada y elimina
+   la clase entera de error "mandé el id de otro".
+
+2. **El cliente no puede inventar el título.** El título sale de la primera
+   pregunta y se guarda con la sesión; con creación en el cliente habría que
+   mandarlo aparte o dejar la fila a medias.
+
+Cómo vuelve el id al cliente, que era la parte a mirar antes de elegir: el POST
+síncrono lo devuelve en el cuerpo, y el streaming emite un evento SSE `session`
+ANTES del primer token. Ponerlo solo en el `result` final habría sido más simple
+y estaba mal: si el stream muere a mitad —que es justo cuando falla el proveedor—
+el cliente nunca se entera del id, la próxima pregunta abre otra conversación, y
+el historial se llena de sesiones de un mensaje. Que es exactamente la basura que
+esta tarea existe para evitar.
+
+REGLA DE ACCESO
+---------------
+Todo lo que lee acá filtra por `user_id` ADEMÁS de `workspace_id`, sin excepción
+de rol. No hay una variante "para admins": un registro de qué preguntó cada
+persona revela lo que esa persona no sabe, y un supervisor que puede leerlo
+convierte a Tyto en vigilancia. La gente deja de preguntar y el producto pierde
+lo único que necesitaba que hicieran. Para brechas documentales está
+`tyto_query_log` agregado y anónimo.
+"""
+
+from __future__ import annotations
+
+import logging
+import re
+from datetime import datetime, UTC
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from ..db.models_semantic import TytoQueryLog, TytoSession
+
+logger = logging.getLogger(__name__)
+
+#: Largo del título derivado. Entra en una barra lateral angosta sin cortar una
+#: palabra al medio; el usuario lo renombra si no le gusta.
+TITULO_MAX = 80
+
+
+def derive_title(question: str) -> str:
+    """
+    Título a partir de la primera pregunta. Sin LLM, a propósito.
+
+    Pedirle a un modelo que resuma esto cuesta plata y agrega latencia a cada
+    conversación nueva, para producir algo que el usuario corrige en un clic. La
+    primera pregunta ya es, casi siempre, de qué se trata el hilo.
+    """
+    limpio = re.sub(r"\s+", " ", (question or "").strip())
+    if not limpio:
+        return "Consulta sin título"
+    if len(limpio) <= TITULO_MAX:
+        return limpio
+    # Corte en el último espacio, para no partir una palabra al medio.
+    recortado = limpio[:TITULO_MAX].rsplit(" ", 1)[0] or limpio[:TITULO_MAX]
+    return f"{recortado}…"
+
+
+def resolve_session(
+    session: Session,
+    *,
+    workspace_id: str,
+    user_id: str,
+    session_id: str | None,
+    question: str,
+) -> TytoSession:
+    """
+    Devuelve la conversación a la que pertenece esta pregunta, creándola si hace falta.
+
+    Si llega un `session_id` que no existe o que es de otro usuario u otro
+    workspace, NO se falla con un error: se abre una conversación nueva. Un id
+    inválido no puede costarle al usuario la pregunta que acaba de escribir, y
+    devolver 403 ante un id ajeno confirmaría que ese id existe.
+    """
+    if session_id:
+        existente = session.execute(
+            select(TytoSession).where(
+                TytoSession.id == session_id,
+                TytoSession.workspace_id == workspace_id,
+                TytoSession.user_id == user_id,
+            )
+        ).scalar_one_or_none()
+        if existente is not None:
+            # `updated_at` es el orden de "recientes": se toca con cada pregunta.
+            existente.updated_at = datetime.now(UTC).replace(tzinfo=None)
+            session.flush()
+            return existente
+        logger.info(
+            "Tyto: session_id %s no pertenece a este usuario/workspace; se abre una nueva",
+            session_id,
+        )
+
+    nueva = TytoSession(
+        workspace_id=workspace_id,
+        user_id=user_id,
+        title=derive_title(question),
+    )
+    session.add(nueva)
+    session.flush()
+    return nueva
+
+
+def list_sessions(
+    session: Session, *, workspace_id: str, user_id: str, limit: int = 50
+) -> list[TytoSession]:
+    """Las conversaciones del usuario, ancladas primero y después por recientes."""
+    return list(
+        session.execute(
+            select(TytoSession)
+            .where(
+                TytoSession.workspace_id == workspace_id,
+                # Este filtro no es negociable: ver el docstring del módulo.
+                TytoSession.user_id == user_id,
+            )
+            .order_by(TytoSession.pinned.desc(), TytoSession.updated_at.desc())
+            .limit(limit)
+        ).scalars()
+    )
+
+
+def get_session_thread(
+    session: Session, *, workspace_id: str, user_id: str, session_id: str
+) -> tuple[TytoSession | None, list[TytoQueryLog]]:
+    """
+    Una conversación y sus preguntas en orden.
+
+    Devuelve `(None, [])` si la sesión no es del usuario. La verificación va
+    sobre `tyto_session` —que sí tiene dueño— y recién después se traen las
+    filas del log por `session_id`: el log no tiene user_id confiable para esto
+    (puede ser null) y filtrar por ahí sería apoyar el control de acceso en una
+    columna que la tabla no garantiza.
+    """
+    convo = session.execute(
+        select(TytoSession).where(
+            TytoSession.id == session_id,
+            TytoSession.workspace_id == workspace_id,
+            TytoSession.user_id == user_id,
+        )
+    ).scalar_one_or_none()
+    if convo is None:
+        return None, []
+
+    entradas = list(
+        session.execute(
+            select(TytoQueryLog)
+            .where(TytoQueryLog.session_id == session_id)
+            .order_by(TytoQueryLog.created_at.asc(), TytoQueryLog.id.asc())
+        ).scalars()
+    )
+    return convo, entradas

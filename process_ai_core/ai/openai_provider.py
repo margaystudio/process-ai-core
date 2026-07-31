@@ -18,9 +18,10 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-from openai import OpenAI, OpenAIError
+from openai import AuthenticationError, OpenAI, OpenAIError
 
 from ..config import get_settings
+from .credentials import record_auth_failure, record_success
 
 logger = logging.getLogger(__name__)
 
@@ -37,14 +38,31 @@ class AIProviderError(RuntimeError):
 
 @contextmanager
 def _openai_call(operation: str):
-    """Envuelve una llamada al SDK: traduce OpenAIError a AIProviderError (logueado)."""
+    """
+    Envuelve una llamada al SDK: traduce OpenAIError a AIProviderError (logueado).
+
+    De paso registra el estado de la credencial. Es el único punto por donde pasan
+    todas las llamadas al proveedor, así que es el lugar natural: `/health` puede
+    decir si la key sirve sin gastar una sola llamada extra, porque lo aprende de
+    las que ya se hacen.
+    """
     try:
         yield
-    except OpenAIError as exc:
+    except AuthenticationError as exc:
+        record_auth_failure(operation, type(exc).__name__)
         logger.error("OpenAI %s falló: %s: %s", operation, type(exc).__name__, exc)
         raise AIProviderError(
             f"OpenAI {operation} falló: {type(exc).__name__}: {exc}"
         ) from exc
+    except OpenAIError as exc:
+        # Un 500 o un rate-limit no dicen nada sobre la credencial: no se toca el
+        # estado, o un pico de carga se leería como una key rota.
+        logger.error("OpenAI %s falló: %s: %s", operation, type(exc).__name__, exc)
+        raise AIProviderError(
+            f"OpenAI {operation} falló: {type(exc).__name__}: {exc}"
+        ) from exc
+    else:
+        record_success(operation)
 
 
 class OpenAIProvider:
@@ -91,7 +109,23 @@ class OpenAIProvider:
     # ------------------------------------------------------------------
     # LLMProvider
     # ------------------------------------------------------------------
-    def complete_json(self, *, system: str, user: str, temperature: float = 0.2) -> str:
+    def complete_json(
+        self,
+        *,
+        system: str,
+        user: str,
+        temperature: float = 0.2,
+        response_format: dict | None = None,
+    ) -> str:
+        """
+        Completa a JSON. Con `response_format` de tipo json_schema + strict, el
+        proveedor GARANTIZA la forma: desaparece la clase de error "el modelo
+        devolvió JSON con otra estructura", que antes se cubría describiendo el
+        esquema en prosa dentro del prompt y reintentando.
+
+        Sin `response_format` cae a `json_object`, que es lo que necesitan los
+        llamadores que no tienen un modelo Pydantic detrás.
+        """
         with _openai_call("chat.completions (complete_json)"):
             completion = self.client.chat.completions.create(
                 model=self._model_text,
@@ -99,7 +133,7 @@ class OpenAIProvider:
                     {"role": "system", "content": system},
                     {"role": "user", "content": user},
                 ],
-                response_format={"type": "json_object"},
+                response_format=response_format or {"type": "json_object"},
                 temperature=temperature,
             )
         return completion.choices[0].message.content or "{}"

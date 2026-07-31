@@ -95,6 +95,9 @@ export function DocumentDetailHeader({
             )}
           </div>
           <h1 className="text-h1 text-ink-900 leading-tight">{document.name}</h1>
+          {document.code && (
+            <p className="mt-1 font-mono text-sm font-semibold text-ink-400">{document.code}</p>
+          )}
         </div>
 
         {/* Acciones primarias */}

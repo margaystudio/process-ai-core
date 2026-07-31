@@ -41,9 +41,14 @@ function sseResponse(chunks: string[]): Response {
 async function askQuestion(question: string) {
   const user = userEvent.setup()
   render(<TytoPage />)
+  await sendQuestion(user, question)
+  return user
+}
+
+/** Escribe y envía sobre una página YA montada, para conversaciones de varios turnos. */
+async function sendQuestion(user: ReturnType<typeof userEvent.setup>, question: string) {
   await user.type(screen.getByPlaceholderText(PLACEHOLDER), question)
   await user.click(screen.getByRole('button', { name: 'Enviar pregunta' }))
-  return user
 }
 
 describe('TytoPage — chat streaming', () => {
@@ -185,6 +190,95 @@ describe('TytoPage — chat streaming', () => {
     // No debe verse como un error real: sin rol de alerta ni botón de reintento.
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Reintentar' })).not.toBeInTheDocument()
+  })
+
+  it('avisa cuando la búsqueda corrió degradada, y no lo hace cuando no', async () => {
+    // El incidente que esto fija: con los embeddings caídos, Tyto rechazaba con
+    // "No tengo documentación aprobada suficiente" y se leía como el sistema
+    // funcionando bien. Sin búsqueda semántica, "no encontré" deja de significar
+    // "no está", y quien lee tiene que poder distinguirlo.
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        sseEvent('result', {
+          answered: false,
+          answer: '',
+          segments: [],
+          sources: [],
+          refusal_reason: 'No pude buscar con normalidad: la búsqueda semántica no está disponible.',
+          search_degraded: true,
+        }),
+      ])
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await askQuestion('¿Cómo registro una incidencia?')
+
+    const aviso = await screen.findByRole('status')
+    expect(aviso).toHaveTextContent(/búsqueda semántica no está disponible/i)
+    expect(aviso).toHaveTextContent(/puede estar incompleto/i)
+    // Sigue siendo un rechazo, no un error: no hay alerta ni reintento.
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('un rechazo con la búsqueda sana no muestra el aviso de degradación', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        sseEvent('result', {
+          answered: false,
+          answer: '',
+          segments: [],
+          sources: [],
+          refusal_reason: 'No tengo documentación aprobada suficiente para responder esta pregunta.',
+        }),
+      ])
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await askQuestion('¿Cuándo juega Peñarol?')
+
+    expect(
+      await screen.findByText(/No tengo documentación aprobada suficiente/i)
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+  })
+
+  it('mantiene el id de conversación entre preguntas y lo resetea al empezar una nueva', async () => {
+    // Sin esto la persistencia recolecta basura: cada pregunta quedaría como una
+    // sesión de un solo mensaje y el historial no serviría para nada.
+    const respuesta = (sessionId: string) =>
+      sseResponse([
+        sseEvent('session', { session_id: sessionId }),
+        sseEvent('token', { text: 'Contá el efectivo [S1].' }),
+        sseEvent('result', {
+          answered: true,
+          answer: 'Contá el efectivo [S1].',
+          segments: [{ text: 'Contá el efectivo', source_ids: ['S1'], tier: 'aprobado' }],
+          sources: [],
+          session_id: sessionId,
+        }),
+      ])
+
+    const fetchMock = vi.fn().mockImplementation(() => respuesta('sess-1'))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const user = userEvent.setup()
+    render(<TytoPage />)
+
+    await sendQuestion(user, '¿Cómo cierro la caja?')
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    // La primera va sin id: la conversación la abre el servidor.
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).session_id).toBeNull()
+
+    await sendQuestion(user, '¿Y si hay faltante?')
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+    // La segunda ya viaja con el id que mandó el servidor.
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body).session_id).toBe('sess-1')
+
+    // "Nueva conversación" lo suelta: la siguiente vuelve a ir sin id.
+    await user.click(screen.getByRole('button', { name: /nueva conversación/i }))
+    await sendQuestion(user, 'Otra cosa distinta')
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
+    expect(JSON.parse(fetchMock.mock.calls[2][1].body).session_id).toBeNull()
   })
 
   it('un evento `error` se muestra como error real, distinto del rechazo', async () => {

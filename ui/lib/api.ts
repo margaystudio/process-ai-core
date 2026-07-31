@@ -147,6 +147,26 @@ export interface FolderStats {
   confianza_prom: number | null;
 }
 
+export interface FolderActivityItem {
+  id: string;
+  action: string;
+  entity_type: string | null;
+  entity_id: string | null;
+  document: { id: string; name: string } | null;
+  // Sin email a propósito: es el usuario de login (ver `_nombre_visible`
+  // en api/routes/folders.py). El backend ya resuelve el nombre a mostrar.
+  actor: { id: string; name: string } | null;
+  created_at: string;
+}
+
+export interface FolderActivityResponse {
+  items: FolderActivityItem[];
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+}
+
 export type FolderGovernanceOrigin = 'base' | 'heredado' | 'personalizado';
 
 export interface FolderGovernanceValue<T> {
@@ -198,6 +218,8 @@ export interface DocumentMetadata {
 }
 
 export interface Document {
+  /** Codificación documental estable (ej. PR-0042). No cambia nunca — ADR-019. */
+  code?: string | null;
   id: string;
   workspace_id: string;
   folder_id?: string;
@@ -833,6 +855,34 @@ export async function getFolderStats(folderId: string): Promise<FolderStats> {
 }
 
 /**
+ * Obtiene la actividad auditada reciente de una carpeta.
+ */
+export async function getFolderActivity(
+  folderId: string,
+  page = 1,
+  pageSize = 20
+): Promise<FolderActivityResponse> {
+  const { getAuthHeaders } = await import('@/lib/api-auth')
+  const headers = await getAuthHeaders({})
+  const params = new URLSearchParams({
+    page: String(page),
+    page_size: String(pageSize),
+  })
+
+  const response = await authFetch(
+    `${API_URL}/api/v1/folders/${folderId}/activity?${params.toString()}`,
+    { headers }
+  )
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }))
+    throw new Error(error.detail || `HTTP ${response.status}`)
+  }
+
+  return response.json()
+}
+
+/**
  * Obtiene la configuracion efectiva de gobierno de una carpeta.
  */
 export async function getFolderGovernance(folderId: string): Promise<FolderGovernance> {
@@ -1212,6 +1262,7 @@ export interface Validation {
   document_id: string;
   run_id: string | null;
   validator_user_id: string | null;
+  validator_user_name: string;
   status: string;
   observations: string;
   checklist_json: string;
@@ -1340,7 +1391,23 @@ export interface ValidationDecisionResponse {
  */
 export async function approveDocumentValidation(
   documentId: string,
-  observations?: string
+  observations?: string,
+  /**
+   * Vigencia comprometida en ESTE acto de aprobación. Queda congelada en el acta
+   * del PDF. `undefined` ⇒ el backend usa el default del workspace;
+   * `sinVencimiento` ⇒ se aprueba sin comprometer fecha.
+   */
+  validityUntil?: string | null,
+  sinVencimiento?: boolean,
+  /**
+   * No congelar el PDF dentro de este request. Para aprobación por lote: el
+   * freeze cuesta un render + una subida, y en un lote secuencial eso son
+   * minutos. El artefacto lo produce después el barrido
+   * (tools/freeze_pending_pdfs.py) o la primera apertura del PDF, lo que pase
+   * antes. Es seguro porque el acta está congelada en la versión: congelar más
+   * tarde da el mismo documento.
+   */
+  deferFreeze?: boolean
 ): Promise<ValidationDecisionResponse> {
   // Obtener token de autenticación
   const { getAuthHeaders } = await import('@/lib/api-auth')
@@ -1351,7 +1418,12 @@ export async function approveDocumentValidation(
   const response = await authFetch(`${API_URL}/api/v1/documents/${documentId}/validate/approve`, {
     method: 'POST',
     headers,
-    body: JSON.stringify({ observations: observations || '' }),
+    body: JSON.stringify({
+      observations: observations || '',
+      validity_until: validityUntil || null,
+      sin_vencimiento: Boolean(sinVencimiento),
+      defer_freeze: Boolean(deferFreeze),
+    }),
   });
 
   if (!response.ok) {
@@ -1464,19 +1536,66 @@ export interface DocumentVersion {
   validation_id?: string | null; // Validación asociada (cuando está IN_REVIEW)
   approved_at: string | null;
   approved_by: string | null;
+  approved_by_name: string;
   rejected_at: string | null;
   rejected_by: string | null;
+  rejected_by_name: string;
   is_current: boolean;
+  /** Hasta cuándo se comprometió la vigencia de esta aprobación (fijada al aprobar). */
+  validity_until?: string | null;
   created_by: string | null; // Usuario que creó la versión
+  created_by_name: string;
   created_at: string;
 }
 
 /**
- * URL del PDF de una versión (fuente de verdad: content_html si existe, si no content_markdown).
- * Usar para "Ver PDF" del documento/versión actual; no modifica artefactos del run.
+ * URL del PDF REGENERADO de una versión editable (DRAFT / IN_REVIEW / REJECTED):
+ * se renderiza en cada request desde content_html (si existe) o content_markdown.
+ * No modifica artefactos del run.
+ *
+ * Para versiones APPROVED usar getVersionFrozenPdfUrl: este endpoint redirige
+ * (307) a ese, porque regenerar rompería el hash registrado del artefacto.
  */
 export function getVersionPreviewPdfUrl(documentId: string, versionId: string): string {
   return `${API_URL}/api/v1/documents/${documentId}/versions/${versionId}/preview-pdf`;
+}
+
+/**
+ * URL del PDF CONGELADO de una versión aprobada: los bytes exactos que se
+ * subieron a storage al aprobarla, con su SHA-256 registrado como ETag.
+ *
+ * El backend responde `private, no-cache`: el navegador lo cachea pero revalida
+ * en cada apertura (304 sin cuerpo). Es a propósito — el artefacto no cambia,
+ * pero el permiso para verlo sí, y así se re-verifica en cada apertura. Por eso
+ * esta URL NO debe llevar cache-buster.
+ */
+export function getVersionFrozenPdfUrl(documentId: string, versionId: string): string {
+  return `${API_URL}/api/v1/documents/${documentId}/versions/${versionId}/pdf`;
+}
+
+/**
+ * True si el PDF de una versión con este estado es un artefacto inmutable.
+ *
+ * Solo APPROVED: OBSOLETE puede tener PDF congelado (si en su momento se
+ * aprobó) o no, y el backend resuelve ese caso redirigiendo desde preview-pdf.
+ * Pedirle el congelado directo daría 404 en las que nunca se congelaron.
+ */
+export function isFrozenVersionStatus(versionStatus?: string | null): boolean {
+  return versionStatus === 'APPROVED';
+}
+
+/**
+ * URL del PDF correcto para una versión según su estado: el artefacto congelado
+ * si está aprobada, el preview regenerado si sigue siendo editable.
+ */
+export function getVersionPdfUrl(
+  documentId: string,
+  versionId: string,
+  versionStatus?: string | null,
+): string {
+  return isFrozenVersionStatus(versionStatus)
+    ? getVersionFrozenPdfUrl(documentId, versionId)
+    : getVersionPreviewPdfUrl(documentId, versionId);
 }
 
 /**
@@ -1508,6 +1627,7 @@ export async function getCurrentDocumentVersion(documentId: string): Promise<{
   content_markdown: string;
   approved_at: string;
   approved_by: string | null;
+  approved_by_name: string;
   created_at: string;
 }> {
   const { getAuthHeaders } = await import('@/lib/api-auth');
@@ -1534,6 +1654,7 @@ export interface AuditLogEntry {
   entity_id: string;
   run_id: string | null;
   user_id: string | null;
+  user_name: string;
   changes_json: string | null;
   metadata_json: string | null;
   created_at: string;
@@ -1938,32 +2059,6 @@ export async function createDocumentType(
 
 // SUPERADMIN (createB2BWorkspace y listAllWorkspaces eliminados — endpoints removidos)
 
-/**
- * Actualiza el perfil de un usuario (nombre).
- */
-export async function updateUserProfile(
-  userId: string,
-  firstName: string,
-  lastName: string,
-  authToken: string
-): Promise<void> {
-  const fullName = `${firstName} ${lastName}`.trim()
-  
-  const response = await authFetch(`${API_URL}/api/v1/users/${userId}`, {
-    method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${authToken}`,
-    },
-    body: JSON.stringify({ name: fullName }),
-  })
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }))
-    throw new Error(error.detail || `HTTP ${response.status}`)
-  }
-}
-
 // ============================================================================
 // SUSCRIPCIONES
 // ============================================================================
@@ -2116,9 +2211,22 @@ export interface TytoQueryResult {
   segments: TytoSegment[];
   sources: TytoSource[];
   refusal_reason?: string | null;
+  /**
+   * La búsqueda corrió sin embeddings (solo coincidencia de palabras). Acompaña
+   * tanto a las respuestas como a los rechazos: cambia lo que el resultado puede
+   * afirmar, no solo cómo se obtuvo.
+   */
+  search_degraded?: boolean;
 }
 
 export type TytoStreamEvent =
+  /**
+   * Llega PRIMERO, antes de cualquier token: el id de la conversación a la que
+   * el servidor asoció esta pregunta. Va al principio y no en el `result` final
+   * a propósito — si el stream muere a mitad, el cliente igual se queda con el
+   * id y la próxima pregunta sigue el mismo hilo en vez de abrir otro.
+   */
+  | { type: 'session'; sessionId: string }
   | { type: 'token'; text: string }
   | { type: 'result'; data: TytoQueryResult }
   | { type: 'error'; detail: string };
@@ -2138,6 +2246,7 @@ function parseTytoSseBlock(block: string): TytoStreamEvent | null {
   if (!dataLines.length) return null;
 
   const data = JSON.parse(dataLines.join('\n'));
+  if (eventName === 'session') return { type: 'session', sessionId: data.session_id };
   if (eventName === 'token') return { type: 'token', text: data.text };
   if (eventName === 'result') return { type: 'result', data };
   if (eventName === 'error') return { type: 'error', detail: data.detail };
@@ -2153,7 +2262,9 @@ function parseTytoSseBlock(block: string): TytoStreamEvent | null {
 export async function streamTytoQuery(
   question: string,
   onEvent: (event: TytoStreamEvent) => void,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  /** Conversación en curso. `null` en la primera pregunta: el servidor la crea. */
+  sessionId?: string | null
 ): Promise<void> {
   const { getAuthHeaders } = await import('@/lib/api-auth');
   const headers = await getAuthHeaders({ 'Content-Type': 'application/json' });
@@ -2161,7 +2272,7 @@ export async function streamTytoQuery(
   const response = await authFetch(`${API_URL}/api/v1/tyto/query/stream`, {
     method: 'POST',
     headers,
-    body: JSON.stringify({ question }),
+    body: JSON.stringify({ question, session_id: sessionId ?? null }),
     signal,
   });
 

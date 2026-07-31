@@ -39,6 +39,10 @@ export default function TytoPage() {
   const [messages, setMessages] = useState<TytoMessage[]>([])
   const [sending, setSending] = useState(false)
   const idRef = useRef(0)
+  // Conversación en curso. En ref y no en estado: se lee y se escribe dentro del
+  // handler del stream, y un valor de estado quedaría capturado por el closure
+  // en el valor que tenía al empezar la consulta. Además no afecta al render.
+  const sessionIdRef = useRef<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const threadEndRef = useRef<HTMLDivElement | null>(null)
   // Buffer de tokens del stream: sin esto, cada token disparaba un setState
@@ -117,6 +121,13 @@ export default function TytoPage() {
     }
 
     function handleEvent(event: TytoStreamEvent) {
+      if (event.type === 'session') {
+        // Llega antes que el primer token: a partir de acá, todas las preguntas
+        // de esta conversación viajan con el mismo id. Sin esto cada pregunta
+        // sería una sesión de un mensaje y el historial no serviría para nada.
+        sessionIdRef.current = event.sessionId
+        return
+      }
       if (event.type === 'token') {
         // Acumular y flushear cada ~50ms: un solo re-render por lote de tokens.
         pendingTokensRef.current += event.text
@@ -128,12 +139,21 @@ export default function TytoPage() {
       if (event.type === 'result') {
         // El result trae el texto completo: descartar lo pendiente del buffer.
         clearPendingTokens()
+        const searchDegraded = Boolean(event.data.search_degraded)
         if (event.data.answered) {
-          patchAssistant({ status: 'answered', text: event.data.answer, result: event.data })
+          patchAssistant({
+            status: 'answered',
+            text: event.data.answer,
+            result: event.data,
+            searchDegraded,
+          })
         } else {
           patchAssistant({
             status: 'refused',
+            // El backend ya redacta el rechazo degradado sin afirmar que no haya
+            // documentación; el fallback de acá solo cubre un result sin motivo.
             text: event.data.refusal_reason || 'No encontré documentación aprobada suficiente para responder con confianza.',
+            searchDegraded,
           })
         }
         return
@@ -144,7 +164,7 @@ export default function TytoPage() {
     }
 
     try {
-      await streamTytoQuery(question, handleEvent, controller.signal)
+      await streamTytoQuery(question, handleEvent, controller.signal, sessionIdRef.current)
       // Si el stream terminó sin evento result (corte), mostrar lo acumulado.
       flushTokens()
     } catch (err) {
@@ -159,16 +179,38 @@ export default function TytoPage() {
     }
   }
 
+  function startNewConversation() {
+    // Solo se suelta el id y se limpia la vista. Lo ya escrito en
+    // `tyto_query_log` no se toca: es auditoría, no historial de chat.
+    abortRef.current?.abort()
+    sessionIdRef.current = null
+    setMessages([])
+    setSending(false)
+  }
+
   return (
     <div className="flex h-full min-h-0 flex-col" data-module="process">
       <header className="flex flex-shrink-0 items-center gap-3.5 border-b border-line px-6 py-5">
         <TytoHeaderAvatar />
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <h1 className="text-h2 text-ink-900">Tyto</h1>
           <p className="mt-0.5 truncate text-[12.5px] text-ink-400">
             Solo consulta la red documental aprobada · cita fuente, versión y estado
           </p>
         </div>
+        {/*
+          Corta el hilo: la próxima pregunta abre una conversación nueva en vez
+          de colgarse de la anterior. Sin esto, todo lo que alguien pregunte en
+          el día queda en una sola sesión y el historial no distingue temas.
+        */}
+        <button
+          type="button"
+          onClick={startNewConversation}
+          disabled={sending || messages.length === 0}
+          className="flex-shrink-0 rounded-lg border border-line px-3 py-2 text-[12.5px] font-bold text-ink-700 transition-colors hover:bg-ink-50 disabled:opacity-40"
+        >
+          Nueva conversación
+        </button>
       </header>
 
       <div className="flex min-h-0 flex-1">

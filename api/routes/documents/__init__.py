@@ -17,6 +17,7 @@ FastAPI propaga a todos los sub-routers incluidos.
 from fastapi import APIRouter, Depends
 
 from api.workspace_client import require_process_ai_access, sync_workspace_access
+from api.request_identity import capture_request_identity
 
 from . import content, crud, runs, versions
 
@@ -30,7 +31,11 @@ router = APIRouter(
     tags=["documents"],
     # sync_workspace_access corre primero: garantiza que User local y WorkspaceMembership
     # existan antes de que get_current_user_id y has_permission los necesiten.
-    dependencies=[Depends(sync_workspace_access), Depends(require_process_ai_access)],
+    dependencies=[
+        Depends(sync_workspace_access),
+        Depends(capture_request_identity),
+        Depends(require_process_ai_access),
+    ],
 )
 
 # Orden de inclusión: crud primero para que sus rutas estáticas de un segmento

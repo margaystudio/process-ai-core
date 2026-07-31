@@ -1,0 +1,104 @@
+{
+  "schema_version": 2,
+  "process_name": "Cierre de caja diario (con evidencias)",
+  "objetivo": "Asegurar que el efectivo declarado al cierre coincida con lo registrado en el sistema, y que las diferencias queden documentadas antes de que termine el turno.",
+  "contexto": "Estación de servicio con tres turnos y dos puestos de cobro. El arqueo se hace en el mismo mostrador, sin espacio reservado.",
+  "inicio": "El encargado anuncia el cierre de turno.",
+  "fin": "El sobre con el efectivo queda en la caja fuerte y el acta firmada.",
+  "incluidos": "Efectivo, vouchers de tarjeta y cupones de descuento.",
+  "excluidos": "Ventas a crédito y consignaciones, que se concilian mensualmente.",
+  "frecuencia": "Tres veces por día, al cierre de cada turno.",
+  "disparadores": "Fin de turno o corte anticipado por relevo.",
+  "sistemas": "POS del surtidor, planilla de arqueo en papel y planilla de control mensual.",
+  "inputs": "Ticket Z del POS, efectivo en caja, vouchers.",
+  "outputs": "Acta de arqueo firmada y sobre precintado.",
+  "variantes": "Si el turno cierra con un solo cajero, el encargado hace de testigo.",
+  "excepciones": "Diferencias mayores a mil pesos escalan al jefe de estación antes de cerrar.",
+  "almacenamiento_datos": "Las actas se archivan por mes en biblioratos en la oficina.",
+  "usos_datos": "Se usan para la conciliación mensual y como respaldo ante auditoría externa.",
+  "oportunidades": "Digitalizar el acta evitaría la transcripción manual a la planilla mensual.",
+  "preguntas_abiertas": "¿Quién audita los sobres precintados y con qué periodicidad?",
+  "actores": [
+    {
+      "rol": "Cajero",
+      "responsabilidad": "Cuenta el efectivo y completa el acta.",
+      "confianza": "relevado"
+    },
+    {
+      "rol": "Encargado de turno",
+      "responsabilidad": "Verifica el conteo y firma como testigo.",
+      "confianza": "relevado"
+    },
+    {
+      "rol": "Jefe de estación",
+      "responsabilidad": "Resuelve las diferencias que superan el umbral.",
+      "confianza": "relevado"
+    }
+  ],
+  "riesgos": [
+    {
+      "riesgo": "Faltante de efectivo no detectado en el turno",
+      "control_actual": "Doble conteo cajero + encargado",
+      "evidencia": "Acta firmada por ambos",
+      "criticidad": "alta",
+      "confianza": "relevado"
+    },
+    {
+      "riesgo": "El sobre queda fuera de la caja fuerte al terminar",
+      "control_actual": "",
+      "evidencia": "",
+      "criticidad": "media",
+      "confianza": "relevado"
+    }
+  ],
+  "metricas": [
+    {
+      "indicador": "Tiempo de cierre por turno",
+      "definicion": "Minutos entre el ticket Z y el precintado del sobre",
+      "frecuencia": "Por turno",
+      "meta": "Menos de 20 minutos",
+      "confianza": "relevado"
+    },
+    {
+      "indicador": "Diferencias de arqueo por mes",
+      "definicion": "Suma del valor absoluto de las diferencias",
+      "frecuencia": "Mensual",
+      "meta": "",
+      "confianza": "relevado"
+    }
+  ],
+  "pasos": [
+    {
+      "order": 1,
+      "actor": "Cajero",
+      "action": "Emite el ticket Z del POS y lo adjunta al acta.",
+      "input": "POS abierto",
+      "output": "Ticket Z",
+      "confianza": "relevado"
+    },
+    {
+      "order": 2,
+      "actor": "Cajero",
+      "action": "Cuenta el efectivo por denominación y lo anota en el acta.",
+      "input": "Efectivo en caja",
+      "output": "Acta parcial",
+      "confianza": "relevado"
+    },
+    {
+      "order": 3,
+      "actor": "Encargado de turno",
+      "action": "Recuenta el efectivo y firma el acta como testigo.",
+      "input": "Acta parcial",
+      "output": "Acta firmada",
+      "confianza": "relevado"
+    },
+    {
+      "order": 4,
+      "actor": "Cajero",
+      "action": "Precinta el sobre y lo deposita en la caja fuerte.",
+      "input": "Acta firmada",
+      "output": "Sobre en caja fuerte",
+      "confianza": "relevado"
+    }
+  ]
+}

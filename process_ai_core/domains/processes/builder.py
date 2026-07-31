@@ -9,8 +9,16 @@ from __future__ import annotations
 import json
 from typing import List
 
-from ...domain_models import EnrichedAsset, VideoRef
-from .models import ProcessDocument, ProcessDocumentSchema, Step
+from ...domain_models import EnrichedAsset
+from .models import (
+    Actor,
+    Metrica,
+    ProcessDocument,
+    ProcessDocumentSchema,
+    Riesgo,
+    Step,
+    upgrade_v1_payload,
+)
 from .prompts import get_process_doc_system_prompt
 
 
@@ -117,9 +125,9 @@ class ProcessBuilder:
             parts.append("=== VIDEOS DISPONIBLES (REFERENCIA) ===")
             parts.append(
                 "Reglas:\n"
-                "- Si se proveen videos, agregalos en el campo JSON 'videos'.\n"
-                "- Si hay URL en metadata, usala como 'url'.\n"
-                "- En los pasos, referenciá '(ver video)' cuando aplique.\n"
+                "- Los videos son activos de entrada: el sistema ya los conoce.\n"
+                "- NO los repitas en el JSON. En los pasos, referenciá '(ver video)'\n"
+                "  cuando el video ilustre ese paso.\n"
             )
             parts.append("")
             for asset in videos:
@@ -144,6 +152,10 @@ class ProcessBuilder:
         normalizado (strings recortados, defaults aplicados).
         """
         data = json.loads(json_str)
+        # Un documento v1 (versiones ya guardadas antes del cambio de contrato)
+        # se convierte en memoria. No se reescribe en la base: es contenido de
+        # versiones aprobadas y firmadas.
+        data = upgrade_v1_payload(data)
         return ProcessDocumentSchema.model_validate(data)
 
     def is_document_usable(self, doc: ProcessDocument) -> bool:
@@ -167,48 +179,67 @@ class ProcessBuilder:
                 action=p.action,
                 input=p.input,
                 output=p.output,
-                risks=p.risks,
+                confianza=p.confianza,
             )
             for p in schema.pasos
-        ]
-
-        videos: List[VideoRef] = [
-            VideoRef(
-                title=v.title,
-                url=v.url,
-                duration=v.duration,
-                description=v.description,
-            )
-            for v in schema.videos
         ]
 
         return ProcessDocument(
             process_name=schema.process_name,
             objetivo=schema.objetivo,
+            pasos=pasos,
             contexto=schema.contexto,
-            alcance=schema.alcance,
             inicio=schema.inicio,
             fin=schema.fin,
             incluidos=schema.incluidos,
             excluidos=schema.excluidos,
             frecuencia=schema.frecuencia,
             disparadores=schema.disparadores,
-            actores_resumen=schema.actores_resumen,
             sistemas=schema.sistemas,
             inputs=schema.inputs,
             outputs=schema.outputs,
-            pasos=pasos,
             variantes=schema.variantes,
             excepciones=schema.excepciones,
-            metricas=schema.metricas,
             almacenamiento_datos=schema.almacenamiento_datos,
             usos_datos=schema.usos_datos,
-            problemas=schema.problemas,
             oportunidades=schema.oportunidades,
             preguntas_abiertas=schema.preguntas_abiertas,
-            material_referencia=schema.material_referencia,
-            videos=videos,
+            actores=[
+                Actor(rol=a.rol, responsabilidad=a.responsabilidad, confianza=a.confianza)
+                for a in schema.actores
+            ],
+            riesgos=[
+                Riesgo(
+                    riesgo=r.riesgo,
+                    control_actual=r.control_actual,
+                    evidencia=r.evidencia,
+                    criticidad=r.criticidad,
+                    confianza=r.confianza,
+                )
+                for r in schema.riesgos
+            ],
+            metricas=[
+                Metrica(
+                    indicador=m.indicador,
+                    definicion=m.definicion,
+                    frecuencia=m.frecuencia,
+                    meta=m.meta,
+                    confianza=m.confianza,
+                )
+                for m in schema.metricas
+            ],
+            campos_inferidos=list(schema.campos_inferidos),
         )
+
+    def get_response_format(self) -> dict:
+        """
+        `response_format` con Structured Outputs estricto, derivado del modelo
+        Pydantic. Es lo que hace que el esquema NO tenga que estar además escrito
+        en prosa dentro del prompt: una sola fuente de verdad.
+        """
+        from ...ai.json_schema import build_strict_schema
+
+        return build_strict_schema(ProcessDocumentSchema, name="process_document")
 
     def get_system_prompt(self) -> str:
         """

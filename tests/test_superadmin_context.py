@@ -75,7 +75,6 @@ def _make_user(session) -> User:
         name="Test User",
         external_id=_uid(),
         auth_provider="supabase",
-        password_hash="",
     )
     session.add(u)
     session.flush()

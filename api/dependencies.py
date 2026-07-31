@@ -23,21 +23,29 @@ from jwt import PyJWKClient, PyJWKClientError
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_SUPABASE_JWKS_URL = (
-    "https://zgujorkqulkdsnmjdxtj.supabase.co/auth/v1/.well-known/jwks.json"
-)
-
 _jwks_client: PyJWKClient | None = None
 
 
 def _get_supabase_jwks_url() -> str:
+    """URL del JWKS contra el que se validan los JWT. Sin default: falla.
+
+    Antes había un default hardcodeado al proyecto `zgujorkqulkdsnmjdxtj`, que es
+    **Margay Platform Test**. Si faltaba la config en un entorno productivo, el
+    módulo no fallaba: validaba tokens contra el proyecto equivocado y seguía
+    andando. Una config faltante tiene que romper fuerte y temprano, no elegir
+    silenciosamente el emisor de otro entorno.
+    """
     explicit = os.getenv("SUPABASE_JWKS_URL", "").strip()
     if explicit:
         return explicit
     base_url = os.getenv("SUPABASE_URL", "").strip().rstrip("/")
     if base_url:
         return f"{base_url}/auth/v1/.well-known/jwks.json"
-    return DEFAULT_SUPABASE_JWKS_URL
+    raise RuntimeError(
+        "Falta configurar SUPABASE_JWKS_URL o SUPABASE_URL: sin eso no se puede "
+        "validar la firma de los JWT. No hay default a propósito — un default "
+        "apuntaría al proyecto de otro entorno."
+    )
 
 
 def _get_jwks_client() -> PyJWKClient:

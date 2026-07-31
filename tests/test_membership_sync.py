@@ -82,7 +82,6 @@ def _make_user(session, external_id: str | None = None, email: str | None = None
         name="Test User",
         external_id=external_id or _uid(),
         auth_provider="supabase",
-        password_hash="",
     )
     session.add(u)
     session.flush()
@@ -131,16 +130,32 @@ class TestResolveSystemRoleName:
 
 class TestGetOrCreateLocalUser:
     def test_creates_new_user(self, session):
+        """El nombre es el `display_name` que manda Workspace, tal cual."""
         sub = _uid()
         user_id = get_or_create_local_user_from_workspace(
             session, supabase_sub=sub, email="new@test.com",
-            first_name="New", last_name="User"
+            first_name="New", last_name="User", display_name="New User",
         )
         user = session.query(User).filter_by(id=user_id).first()
         assert user is not None
         assert user.email == "new@test.com"
         assert user.external_id == sub
         assert user.name == "New User"
+
+    def test_no_concatena_first_y_last_name(self, session):
+        """Anti-patrón #6: el módulo NO arma el nombre.
+
+        Si Workspace manda un `display_name` con otro formato, es ese el que se
+        guarda — no `first_name + last_name`. Es lo que evita que dos módulos
+        muestren "Juan Pérez" y "Pérez, J." para la misma persona.
+        """
+        sub = _uid()
+        user_id = get_or_create_local_user_from_workspace(
+            session, supabase_sub=sub, email="fmt@test.com",
+            first_name="Juan", last_name="Pérez", display_name="Pérez, Juan",
+        )
+        user = session.query(User).filter_by(id=user_id).first()
+        assert user.name == "Pérez, Juan"
 
     def test_idempotent_by_external_id(self, session):
         sub = _uid()
@@ -151,7 +166,7 @@ class TestGetOrCreateLocalUser:
 
     def test_links_existing_user_by_email(self, session):
         """Si el usuario existe por email pero sin external_id, lo vincula."""
-        existing = User(email="link@test.com", name="Old", external_id=None, password_hash="")
+        existing = User(email="link@test.com", name="Old", external_id=None)
         session.add(existing)
         session.flush()
 
@@ -162,7 +177,9 @@ class TestGetOrCreateLocalUser:
         assert user_id == existing.id
         assert existing.external_id == sub
 
-    def test_uses_email_prefix_as_name_when_no_first_last(self, session):
+    def test_uses_email_prefix_as_name_when_no_display_name(self, session):
+        """Workspace garantiza `display_name`; el fallback es para un control
+        plane anterior a la v1.1.0 del contrato."""
         sub = _uid()
         user_id = get_or_create_local_user_from_workspace(
             session, supabase_sub=sub, email="john.doe@example.com"

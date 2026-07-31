@@ -37,6 +37,25 @@ if not SCHEMA:
     SCHEMA = 'process_ai'
 
 
+def _try_ddl(conn, ddl: str) -> bool:
+    """
+    Ejecuta un DDL opcional y devuelve si funcionó, sin llevarse puesta la migración.
+
+    El savepoint no es decorativo. En Postgres, una sentencia que falla aborta la
+    transacción entera: atrapar la excepción en Python no la reanima, y todo lo
+    que viene después muere con "current transaction is aborted" — un mensaje que
+    apunta a la sentencia siguiente y no a la que realmente falló. Con
+    `begin_nested()` el rollback llega hasta el savepoint y la transacción sigue
+    viva, que es lo que este `try` siempre quiso decir.
+    """
+    try:
+        with conn.begin_nested():
+            conn.execute(text(ddl))
+        return True
+    except Exception:
+        return False
+
+
 def _ensure_extension(conn, name: str) -> bool:
     """Intenta habilitar una extensión; devuelve True si queda disponible."""
     installed = conn.execute(
@@ -50,11 +69,8 @@ def _ensure_extension(conn, name: str) -> bool:
         f'CREATE EXTENSION IF NOT EXISTS "{name}" WITH SCHEMA extensions',
         f'CREATE EXTENSION IF NOT EXISTS "{name}"',
     ):
-        try:
-            conn.execute(text(ddl))
+        if _try_ddl(conn, ddl):
             return True
-        except Exception:
-            pass
     return False
 
 
@@ -102,15 +118,11 @@ def upgrade() -> None:
         # Índice trigram para el paso "fuzzy" de la cascada de matching.
         trgm_schema = _extension_schema(conn, "pg_trgm")
         opclass = f'"{trgm_schema}".gin_trgm_ops' if trgm_schema else 'gin_trgm_ops'
-        try:
-            conn.execute(
-                text(
-                    f'CREATE INDEX IF NOT EXISTS ix_knowledge_objects_name_trgm '
-                    f'ON "{SCHEMA}".knowledge_objects USING gin (normalized_name {opclass})'
-                )
-            )
-        except Exception:
-            pass
+        _try_ddl(
+            conn,
+            f'CREATE INDEX IF NOT EXISTS ix_knowledge_objects_name_trgm '
+            f'ON "{SCHEMA}".knowledge_objects USING gin (normalized_name {opclass})',
+        )
 
     # ── document_relations ───────────────────────────────────────────────────
     op.create_table(
@@ -164,16 +176,12 @@ def upgrade() -> None:
 
     if has_vector:
         # Índice ANN (HNSW, coseno) para retrieval de Tyto.
-        try:
-            conn.execute(
-                text(
-                    f'CREATE INDEX IF NOT EXISTS ix_document_chunks_embedding_hnsw '
-                    f'ON "{SCHEMA}".document_chunks USING hnsw (embedding vector_cosine_ops)'
-                )
-            )
-        except Exception:
-            # pgvector < 0.5 no soporta hnsw; el retrieval funciona igual (seq scan).
-            pass
+        # pgvector < 0.5 no soporta hnsw; el retrieval funciona igual (seq scan).
+        _try_ddl(
+            conn,
+            f'CREATE INDEX IF NOT EXISTS ix_document_chunks_embedding_hnsw '
+            f'ON "{SCHEMA}".document_chunks USING hnsw (embedding vector_cosine_ops)',
+        )
 
     # ── evidence ─────────────────────────────────────────────────────────────
     op.create_table(

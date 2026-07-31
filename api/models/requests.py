@@ -329,6 +329,7 @@ class DocumentResponse(BaseModel):
     folder_id: Optional[str] = Field(default=None, description="ID de la carpeta")
     domain: str = Field(..., description="Tipo: process|recipe")
     document_type: str = Field(default="procedimiento", description="Tipo documental del catálogo")
+    code: Optional[str] = Field(default=None, description="Codificación documental estable (ej. PR-0042). No cambia nunca.")
     version_number: Optional[int] = Field(default=None, description="Número de la versión aprobada vigente")
     name: str = Field(..., description="Nombre del documento")
     description: str = Field(..., description="Descripción")

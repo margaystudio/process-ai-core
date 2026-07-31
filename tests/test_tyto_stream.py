@@ -329,6 +329,14 @@ def test_endpoint_stream_contrato(client, session, workspace, folder):
 
     events = _parse_sse(resp.text)
     types = [name for name, _ in events]
+    # El `session` va primero, antes de cualquier token: si el stream muere a
+    # mitad, el cliente igual se queda con el id de la conversación.
+    assert types[0] == "session"
+    assert set(events[0][1].keys()) == {"session_id"}
+    assert events[0][1]["session_id"]
+
+    types = types[1:]
+    events = events[1:]
     assert types[:-1] == ["token"] * (len(types) - 1) and types[-1] == "result"
     # tokens: solo texto
     for name, data in events[:-1]:
@@ -347,7 +355,10 @@ def test_endpoint_stream_rechazo_un_solo_evento(client):
     resp = client.post("/api/v1/tyto/query/stream", json={"question": "astronomía marciana"})
     assert resp.status_code == 200
     events = _parse_sse(resp.text)
-    assert [name for name, _ in events] == ["result"]
+    # Rechazo: el `session` y un único `result`, sin tokens (el LLM no se llama).
+    assert [name for name, _ in events] == ["session", "result"]
+    assert events[0][1]["session_id"]
+    events = events[1:]
     result = events[0][1]
     assert result["answered"] is False and result["refusal_reason"]
     assert result["segments"] == [] and result["sources"] == []

@@ -75,6 +75,22 @@ _INDEXES = [
 ]
 
 
+def _try_ddl(conn, ddl: str) -> bool:
+    """
+    DDL opcional dentro de un savepoint (ver el mismo helper en 0005).
+
+    Sin `begin_nested()`, la sentencia que falla aborta la transacción entera y
+    atrapar la excepción no la reanima: revienta la siguiente, con un error que
+    señala al lugar equivocado.
+    """
+    try:
+        with conn.begin_nested():
+            conn.execute(text(ddl))
+        return True
+    except Exception:
+        return False
+
+
 def _has_duplicates(conn, table: str, group_by: str, where: str = "") -> bool:
     where_clause = f"WHERE {where} " if where else ""
     row = conn.execute(
@@ -162,12 +178,8 @@ def downgrade() -> None:
     ).first()
     if row:
         opclass = f'"{row[0]}".gin_trgm_ops' if row[0] else "gin_trgm_ops"
-        try:
-            conn.execute(
-                text(
-                    "CREATE INDEX IF NOT EXISTS ix_knowledge_objects_name_trgm "
-                    f'ON "{SCHEMA}".knowledge_objects USING gin (normalized_name {opclass})'
-                )
-            )
-        except Exception:
-            pass
+        _try_ddl(
+            conn,
+            "CREATE INDEX IF NOT EXISTS ix_knowledge_objects_name_trgm "
+            f'ON "{SCHEMA}".knowledge_objects USING gin (normalized_name {opclass})',
+        )

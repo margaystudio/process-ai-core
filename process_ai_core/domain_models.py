@@ -174,41 +174,11 @@ class VideoRef:
 # Documento de proceso: pasos y estructura
 # ============================================================
 
-@dataclass
-class Step:
-    """
-    Representa un paso del proceso dentro del documento final.
-
-    Este modelo está pensado para ser:
-    - simple de renderizar (tabla o lista)
-    - simple de validar
-    - estable para evolucionar
-
-    Attributes:
-        order:
-            Número de paso (1..N). Se usa para orden y para asociar capturas.
-
-        actor:
-            Responsable del paso (p.ej. "Operario", "Encargado", "Sistema").
-
-        action:
-            Acción principal del paso, formulada de forma operativa.
-
-        input:
-            Insumos necesarios para ejecutar el paso (datos, documentos, accesos).
-
-        output:
-            Resultado esperado del paso (estado, artefacto, registro).
-
-        risks:
-            Riesgos/errores frecuentes o consideraciones de seguridad/compliance.
-    """
-    order: int
-    actor: str
-    action: str
-    input: str
-    output: str
-    risks: str
+# NOTA: `Step` y `ProcessDocument` vivían acá y en
+# process_ai_core/domains/processes/models.py, duplicados. La copia de este
+# módulo no la usaba producción —solo un test— y quedó desactualizada respecto
+# del contrato real (schema v2). La definición vive en el dominio, que es donde
+# están el schema, el builder y el renderer que la consumen.
 
 
 @dataclass
@@ -285,97 +255,3 @@ class StepPlan:
     selected_title: Optional[str] = None
 
 
-@dataclass
-class ProcessDocument:
-    """
-    Documento completo de proceso (modelo final parseado del JSON del LLM).
-
-    Este es el "output" semántico principal del sistema, que luego se renderiza
-    a Markdown y opcionalmente a PDF.
-
-    Nota:
-    - Muchos campos son strings libres (para evitar schemas rígidos temprano).
-    - `pasos` es la parte más estructurada.
-    - `videos` permite adjuntar referencias audiovisuales en paralelo.
-
-    Attributes:
-        process_name:
-            Nombre del proceso.
-
-        objetivo:
-            Objetivo del proceso.
-
-        contexto:
-            Contexto o descripción general.
-
-        alcance:
-            Descripción del alcance (a veces redundante con inicio/fin).
-
-        inicio / fin:
-            Definición de qué dispara el inicio y cuándo se considera finalizado.
-
-        incluidos / excluidos:
-            Qué entra y qué no entra en el proceso.
-
-        frecuencia / disparadores:
-            Cuándo ocurre (frecuencia) y qué eventos lo disparan.
-
-        actores_resumen:
-            Resumen de roles y responsabilidades.
-
-        sistemas:
-            Sistemas involucrados (Cloud Run, BigQuery, etc.).
-
-        inputs / outputs:
-            Entradas y salidas principales del proceso (a nivel macro).
-
-        pasos:
-            Lista de pasos operativos en orden.
-
-        variantes / excepciones:
-            Variantes y casos especiales.
-
-        metricas:
-            Indicadores sugeridos para medir el proceso.
-
-        almacenamiento_datos / usos_datos:
-            Aspectos de datos (dónde se guarda, para qué se usa), útil para compliance.
-
-        problemas / oportunidades:
-            Riesgos/problemas actuales y oportunidades de mejora.
-
-        preguntas_abiertas:
-            Incertidumbres o decisiones pendientes.
-
-        material_referencia:
-            Campo legacy/compat (texto libre). En algunos prompts previos se usaba.
-            Hoy se recomienda usar `videos` y evidencia visual.
-
-        videos:
-            Lista de referencias a videos asociados al proceso.
-    """
-    process_name: str
-    objetivo: str
-    contexto: str
-    alcance: str
-    inicio: str
-    fin: str
-    incluidos: str
-    excluidos: str
-    frecuencia: str
-    disparadores: str
-    actores_resumen: str
-    sistemas: str
-    inputs: str
-    outputs: str
-    pasos: List[Step]
-    variantes: str
-    excepciones: str
-    metricas: str
-    almacenamiento_datos: str
-    usos_datos: str
-    problemas: str
-    oportunidades: str
-    preguntas_abiertas: str
-    material_referencia: str
-    videos: List[VideoRef] = field(default_factory=list)

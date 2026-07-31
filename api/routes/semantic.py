@@ -46,13 +46,14 @@ from api.workspace_client import (
     resolve_tenant_workspace_id,
     sync_workspace_access,
 )
+from api.request_identity import capture_request_identity
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/api/v1",
     tags=["semantic"],
-    dependencies=[Depends(sync_workspace_access)],
+    dependencies=[Depends(sync_workspace_access), Depends(capture_request_identity)],
 )
 
 

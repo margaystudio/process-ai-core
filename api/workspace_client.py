@@ -27,6 +27,11 @@ class WorkspaceUser(BaseModel):
     email: str
     first_name: Optional[str] = None
     last_name: Optional[str] = None
+    # Nombre ya formateado por Workspace (`app/services/display_name.py`), mismo
+    # helper y mismo fallback que el `display_name` de `/directory`. Se pinta tal
+    # cual: el módulo NO concatena first_name + last_name (anti-patrón #6).
+    # Opcional para tolerar un Workspace anterior a la v1.1.0 del contrato.
+    display_name: Optional[str] = None
 
 
 class WorkspaceTenant(BaseModel):
@@ -368,6 +373,10 @@ def sync_workspace_access(
                         email=ctx.user.email,
                         first_name=ctx.user.first_name,
                         last_name=ctx.user.last_name,
+                        # Lo calcula Workspace y se guarda tal cual. Es el único
+                        # cambio dentro de esta función: sin él, crear el User
+                        # local seguiría concatenando el nombre a mano.
+                        display_name=ctx.user.display_name,
                     )
                     sync_membership_from_context(
                         session,

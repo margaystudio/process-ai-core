@@ -4,6 +4,8 @@ Fuente de verdad, versionada en git, de los tipos con los que se **siembra cada 
 nuevo** (copy-on-provision) y con los que se backfillean los tenants existentes.
 
 - `key`: slug estable; es lo que guarda `Document.document_type`. NO cambiar sin migración.
+- `code_prefix`: prefijo de la codificación documental (ADR-019), ej. PR-0042. Cambiarlo
+  NO reescribe códigos ya asignados — un código no cambia nunca.
 - `prompt_text`: se inyecta al prompt de generación del tipo.
 - `behaviors`: toggles (allowlist `BEHAVIOR_KEYS`).
 - `icon` / `color`: identidad visual por defecto (el tenant los puede cambiar).
@@ -52,6 +54,7 @@ def normalize_behaviors(raw: Any) -> dict[str, bool]:
 DEFAULT_DOCUMENT_TYPES: list[dict[str, Any]] = [
     {
         "key": "procedimiento",
+        "code_prefix": "PR",
         "label": "Procedimiento",
         "prompt_text": "Tipo documental: procedimiento. Secuencia formal de trabajo, con pasos ordenados, responsables y evidencias.",
         "behaviors": _behaviors("versionado", "aprobacion", "tyto", "relaciones", "metadatos"),
@@ -61,6 +64,7 @@ DEFAULT_DOCUMENT_TYPES: list[dict[str, Any]] = [
     },
     {
         "key": "instructivo",
+        "code_prefix": "IT",
         "label": "Instructivo",
         "prompt_text": "Tipo documental: instructivo. Guía puntual para una tarea concreta, breve y accionable.",
         "behaviors": _behaviors("versionado", "tyto", "metadatos"),
@@ -70,6 +74,7 @@ DEFAULT_DOCUMENT_TYPES: list[dict[str, Any]] = [
     },
     {
         "key": "manual_interno",
+        "code_prefix": "MI",
         "label": "Manual interno",
         "prompt_text": "Tipo documental: manual interno. Documentación amplia propia de la organización.",
         "behaviors": _behaviors("versionado", "aprobacion", "tyto", "metadatos"),
@@ -79,6 +84,7 @@ DEFAULT_DOCUMENT_TYPES: list[dict[str, Any]] = [
     },
     {
         "key": "manual_externo",
+        "code_prefix": "ME",
         "label": "Manual externo",
         "prompt_text": "Tipo documental: manual externo. Documento de proveedor o fabricante; es referencia, no procedimiento interno.",
         "behaviors": _behaviors("tyto", "metadatos", "es_referencia"),
@@ -88,6 +94,7 @@ DEFAULT_DOCUMENT_TYPES: list[dict[str, Any]] = [
     },
     {
         "key": "manual",
+        "code_prefix": "MA",
         "label": "Manual",
         "prompt_text": "Tipo documental: manual. Documentacion amplia, estructurada y reutilizable.",
         "behaviors": _behaviors("versionado", "aprobacion", "tyto", "metadatos"),
@@ -97,6 +104,7 @@ DEFAULT_DOCUMENT_TYPES: list[dict[str, Any]] = [
     },
     {
         "key": "politica",
+        "code_prefix": "PO",
         "label": "Política",
         "prompt_text": "Tipo documental: política. Regla o criterio organizacional; foco en el qué y el por qué, no en pasos.",
         "behaviors": _behaviors("versionado", "aprobacion", "tyto"),
@@ -106,6 +114,7 @@ DEFAULT_DOCUMENT_TYPES: list[dict[str, Any]] = [
     },
     {
         "key": "normativa",
+        "code_prefix": "NO",
         "label": "Normativa",
         "prompt_text": "Tipo documental: normativa. Ordenanza, regulación, ley o estándar; lenguaje preciso y citable.",
         "behaviors": _behaviors("aprobacion", "tyto"),
@@ -115,6 +124,7 @@ DEFAULT_DOCUMENT_TYPES: list[dict[str, Any]] = [
     },
     {
         "key": "formulario",
+        "code_prefix": "FO",
         "label": "Formulario",
         "prompt_text": "Tipo documental: formulario. Documento a completar o generar; describir campos y su propósito.",
         "behaviors": _behaviors("versionado", "metadatos"),
@@ -124,6 +134,7 @@ DEFAULT_DOCUMENT_TYPES: list[dict[str, Any]] = [
     },
     {
         "key": "contrato",
+        "code_prefix": "CO",
         "label": "Contrato",
         "prompt_text": "Tipo documental: contrato. Acuerdo formal entre partes; priorizar obligaciones, aprobaciones y metadatos clave.",
         "behaviors": _behaviors("aprobacion", "metadatos"),
@@ -133,6 +144,7 @@ DEFAULT_DOCUMENT_TYPES: list[dict[str, Any]] = [
     },
     {
         "key": "nda",
+        "code_prefix": "ND",
         "label": "NDA",
         "prompt_text": "Tipo documental: NDA. Acuerdo de confidencialidad; priorizar aprobacion y trazabilidad.",
         "behaviors": _behaviors("aprobacion"),
@@ -142,6 +154,7 @@ DEFAULT_DOCUMENT_TYPES: list[dict[str, Any]] = [
     },
     {
         "key": "checklist",
+        "code_prefix": "CL",
         "label": "Checklist",
         "prompt_text": "Tipo documental: checklist. Lista de verificación con ítems controlables (sí/no/observación).",
         "behaviors": _behaviors("versionado", "metadatos"),
@@ -151,6 +164,7 @@ DEFAULT_DOCUMENT_TYPES: list[dict[str, Any]] = [
     },
     {
         "key": "tramite",
+        "code_prefix": "TR",
         "label": "Trámite",
         "prompt_text": "Tipo documental: trámite. Procedimiento ciudadano o administrativo; requisitos, costo, oficina, plazos.",
         "behaviors": _behaviors("tyto", "metadatos"),
@@ -160,6 +174,7 @@ DEFAULT_DOCUMENT_TYPES: list[dict[str, Any]] = [
     },
     {
         "key": "faq_validada",
+        "code_prefix": "FQ",
         "label": "FAQ validada",
         "prompt_text": "Tipo documental: FAQ validada. Pregunta frecuente con respuesta aprobada, clara y autocontenida.",
         "behaviors": _behaviors("aprobacion", "tyto"),
@@ -169,6 +184,7 @@ DEFAULT_DOCUMENT_TYPES: list[dict[str, Any]] = [
     },
     {
         "key": "presupuesto",
+        "code_prefix": "PU",
         "label": "Presupuesto",
         "prompt_text": "Tipo documental: presupuesto. Cotización con cliente, ítems, cantidades, importes y vigencia.",
         "behaviors": _behaviors("aprobacion", "metadatos"),
@@ -194,6 +210,7 @@ def build_default_rows(workspace_id: str, *, now: datetime | None = None) -> lis
                 "id": str(uuid.uuid4()),
                 "workspace_id": workspace_id,
                 "key": dt["key"],
+                "code_prefix": dt.get("code_prefix"),
                 "label": dt["label"],
                 "prompt_text": dt["prompt_text"],
                 "behaviors_json": json.dumps(dt["behaviors"]),

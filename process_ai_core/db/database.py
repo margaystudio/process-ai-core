@@ -153,8 +153,15 @@ def get_db_engine(echo: bool = False):
             # bloquee el arranque: el warmup de startup está envuelto en try/except, así
             # que un timeout rápido deja que uvicorn bindee el puerto igual.
             connect_timeout = int(os.getenv("DB_CONNECT_TIMEOUT", "10"))
+            # prepare_threshold=None deshabilita los prepared statements: obligatorio
+            # contra el pooler de Supabase en modo transaction, que no garantiza la
+            # misma sesión entre queries. Ese sigue siendo el default. Contra un
+            # Postgres directo (tests con el contenedor local) habilitarlos vale ~2×
+            # por query: ahí se setea DB_PREPARE_THRESHOLD.
+            prepare_threshold_raw = os.getenv("DB_PREPARE_THRESHOLD", "").strip()
+            prepare_threshold = int(prepare_threshold_raw) if prepare_threshold_raw else None
             engine_kwargs["connect_args"] = {
-                "prepare_threshold": None,
+                "prepare_threshold": prepare_threshold,
                 "connect_timeout": connect_timeout,
             }
         _engine = create_engine(DATABASE_URL, **engine_kwargs)

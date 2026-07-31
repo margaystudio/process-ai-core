@@ -340,7 +340,8 @@ export function Step2Revision({
                 <button
                   type="button"
                   onClick={() =>
-                    openVersionPreviewPdf(documentId, versionId)
+                    // El wizard siempre trabaja sobre el borrador → preview regenerado.
+                    openVersionPreviewPdf(documentId, versionId, 'DRAFT')
                   }
                   className="inline-flex h-[34px] items-center gap-1.5 rounded-[9px] border border-line-input bg-surface px-3 text-[12.5px] font-semibold text-ink-600 transition-colors hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-action"
                 >

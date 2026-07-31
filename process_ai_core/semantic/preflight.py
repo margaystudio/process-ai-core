@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import logging
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -47,6 +47,14 @@ class SemanticInfraStatus:
     embedding_is_vector: bool
     openai_api_key: bool
     allow_degraded: bool
+    #: Lo que se sabe de la credencial por haberla USADO (ver ai/credentials.py).
+    #: None = todavía no se usó en este proceso, que es un estado normal en Cloud
+    #: Run y no un problema; se reporta como tal y nunca como fallo.
+    openai_credential: dict = field(default_factory=dict)
+
+    @property
+    def openai_credential_valid(self) -> bool | None:
+        return self.openai_credential.get("valid")
 
     @property
     def issues(self) -> list[str]:
@@ -62,6 +70,14 @@ class SemanticInfraStatus:
             )
         if not self.openai_api_key:
             out.append("OPENAI_API_KEY no configurada (sin extracción ni embeddings)")
+        elif self.openai_credential_valid is False:
+            # Esto es lo que faltaba: con la key REVOCADA, `openai_api_key` seguía
+            # en True —la variable estaba— y el health decía "ok" mientras Tyto no
+            # respondía una sola pregunta. Una credencial rechazada es un issue.
+            out.append(
+                "el proveedor de IA rechazó la credencial "
+                "(sin embeddings ni respuestas de Tyto)"
+            )
         return out
 
     @property
@@ -81,15 +97,22 @@ class SemanticInfraStatus:
             "pgvector": self.pgvector,
             "pg_trgm": self.pg_trgm,
             "embedding_is_vector": self.embedding_is_vector,
+            # `openai_api_key` sigue significando lo que siempre significó —hay
+            # algo configurado— y se mantiene por compatibilidad. Lo que responde
+            # "¿sirve?" es `openai_credential`.
             "openai_api_key": self.openai_api_key,
+            "openai_credential": self.openai_credential,
             "issues": self.issues,
         }
 
 
 def check_semantic_infra(session: Session) -> SemanticInfraStatus:
     """Consulta el estado real de la infra (no aplica política; solo reporta)."""
+    from ..ai.credentials import get_credential_state
+
     settings = get_settings()
     has_key = bool(settings.openai_api_key)
+    credencial = get_credential_state().as_dict()
 
     dialect = session.get_bind().dialect.name
     if dialect != "postgresql":
@@ -101,6 +124,7 @@ def check_semantic_infra(session: Session) -> SemanticInfraStatus:
             embedding_is_vector=False,
             openai_api_key=has_key,
             allow_degraded=settings.semantic_allow_degraded,
+            openai_credential=credencial,
         )
 
     def _has_ext(name: str) -> bool:
@@ -131,6 +155,7 @@ def check_semantic_infra(session: Session) -> SemanticInfraStatus:
         embedding_is_vector=embedding_is_vector,
         openai_api_key=has_key,
         allow_degraded=settings.semantic_allow_degraded,
+        openai_credential=credencial,
     )
 
 

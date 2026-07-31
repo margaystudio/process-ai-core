@@ -8,9 +8,9 @@ usando Workspace/Document genéricos en lugar de Client/Process específicos.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, UTC
+from datetime import date, datetime, UTC
 
-from sqlalchemy import String, DateTime, ForeignKey, Text, Integer, Float, Boolean
+from sqlalchemy import String, Date, DateTime, ForeignKey, Text, Integer, Float, Boolean
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -71,7 +71,8 @@ class Workspace(Base):
     context_folders: Mapped[list["ContextFolder"]] = relationship("ContextFolder", back_populates="workspace", cascade="all, delete-orphan")
     context_files: Mapped[list["ContextFile"]] = relationship("ContextFile", back_populates="workspace", cascade="all, delete-orphan")
     subscription: Mapped["WorkspaceSubscription | None"] = relationship("WorkspaceSubscription", back_populates="workspace", uselist=False)
-    invitations: Mapped[list["WorkspaceInvitation"]] = relationship("WorkspaceInvitation", foreign_keys="WorkspaceInvitation.workspace_id")
+    # Sin `invitations`: las invitaciones son del Hub (`workspace.tenant_invitations`).
+    # El modelo local existió sin que ninguna ruta lo expusiera nunca.
 
 
 class Document(Base):
@@ -96,6 +97,20 @@ class Document(Base):
     document_type: Mapped[str] = mapped_column(
         String(50), nullable=False, server_default="procedimiento", default="procedimiento"
     )
+
+    # Codificación documental. Ver ADR-019 y process_ai_core/db/document_codes.py.
+    #
+    # NO SIGNIFICATIVO respecto de la ubicación: no se deriva de la carpeta. Los
+    # "significant numbers" (cada dígito codifica departamento/área) están
+    # desaconsejados en control documental porque son frágiles ante
+    # reorganizaciones — cuando cambia el organigrama, o se renumera todo y se
+    # pierde la trazabilidad, o el código pasa a mentir.
+    #
+    # NUNCA CAMBIA: ni al mover de carpeta, ni al reclasificar el tipo. Un
+    # procedimiento que pasa a instructivo sigue siendo PR-0042; el tipo actual
+    # vive en `document_type`. Un código que nunca cambia es un código que nunca
+    # miente. Nullable solo para filas previas a la migración 0015.
+    code: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
 
     # Nombre del documento
     name: Mapped[str] = mapped_column(String(200))
@@ -126,6 +141,27 @@ class Document(Base):
         "polymorphic_identity": "document",
         "polymorphic_on": "domain",
     }
+
+
+class DocumentCodeCounter(Base):
+    """
+    Secuencial de la codificación documental, por workspace y prefijo.
+
+    Vive en su propia tabla y no se calcula con `MAX(code)` a propósito: un
+    contador monótono nunca reutiliza un número aunque se borre el documento que
+    lo tenía. Reciclar códigos haría que dos documentos distintos hayan sido
+    "PR-0042" en momentos distintos, y un archivo documental no puede permitirse
+    eso. Ver process_ai_core/db/document_codes.py.
+    """
+
+    __tablename__ = "document_code_counters"
+
+    workspace_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("workspaces.id", ondelete="CASCADE"), primary_key=True
+    )
+    prefix: Mapped[str] = mapped_column(String(8), primary_key=True)
+    #: Último valor entregado (el próximo código usa next_value + 1).
+    next_value: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
 
 class Process(Document):
@@ -283,24 +319,34 @@ class Folder(Base):
     folder_permissions: Mapped[list["FolderPermission"]] = relationship(
         "FolderPermission", back_populates="folder", cascade="all, delete-orphan"
     )
+    audit_logs: Mapped[list["AuditLog"]] = relationship(
+        "AuditLog", foreign_keys="[AuditLog.folder_id]", back_populates="folder"
+    )
 
 
 class User(Base):
     """
-    Usuario del sistema (autenticación/autorización).
-    
-    Soporta autenticación local y externa (OAuth/SSO).
+    Proyección local del usuario de Workspace.
+
+    **No es una fuente de identidad.** Process AI no autentica: el login vive en el
+    Hub y los JWT los emite Supabase. Esta tabla la llena `sync_workspace_access`
+    (`api/workspace_client.py`) por request, a partir del `session/context` de
+    Workspace — escritura al leer, ver
+    `margay-dev-agent/knowledge/11-directorio-de-usuarios.md`.
+
+    Por eso NO hay `password_hash`: existió como columna pero nunca autenticó nada
+    (no había ruta de login ni verificación; se escribía siempre en ""). Se eliminó
+    para que nadie la lea como que existe auth local.
     """
     __tablename__ = "users"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     email: Mapped[str] = mapped_column(String(200), unique=True, index=True)
     name: Mapped[str] = mapped_column(String(200))
-    password_hash: Mapped[str] = mapped_column(String(255), default="")  # Para autenticación local
-    
-    # Autenticación externa (OAuth/SSO)
-    external_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)  # ID en el proveedor externo
-    auth_provider: Mapped[str | None] = mapped_column(String(50), nullable=True, default="local")  # "local" | "google" | "microsoft" | "okta" | "auth0"
+
+    # Vínculo con la identidad de la plataforma
+    external_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)  # Supabase Auth UUID (sub del JWT)
+    auth_provider: Mapped[str | None] = mapped_column(String(50), nullable=True, default="local")  # write-only: siempre "supabase" por el sync. Nada ramifica sobre él.
     auth_metadata_json: Mapped[str] = mapped_column(Text, default="{}")  # Tokens, refresh tokens, etc.
 
     # Metadata del usuario (preferencias, etc.)
@@ -316,6 +362,57 @@ class User(Base):
 
     # Relaciones
     workspace_memberships: Mapped[list["WorkspaceMembership"]] = relationship(back_populates="user")
+
+
+class UserDirectory(Base):
+    """
+    Directorio de usuarios del módulo — §2 y §3 de
+    `margay-dev-agent/knowledge/11-directorio-de-usuarios.md`.
+
+    **No confundir con `User`, y por eso son dos tablas.** La PK las hace
+    infusionables: acá es `(tenant_id, user_id)` —la misma persona es una fila
+    por tenant, con su propio `status`— y en `User` es un id global con email
+    único. Meterle `status` a `User` haría que revocar a alguien en un tenant lo
+    revoque en todos; meterle `tenant_id` rompería las 8 FKs que lo apuntan.
+
+    Además cada tabla tiene **un escritor único**, que es lo que evita el
+    last-writer-wins:
+
+      - `users`            ← `sync_workspace_access`, desde `session/context`.
+                             Alta fidelidad, solo el usuario actual.
+      - `users_directory`  ← el barrido de `/directory` en
+                             `process_ai_core/db/directory.py`. Todos los
+                             miembros del módulo, refrescado por TTL.
+
+    `User` es además el ancla del RBAC del módulo (memberships → roles
+    operativos → permisos de carpeta) y tiene columnas propias (`phone_e164`,
+    `metadata_json`). El directorio es proyección de identidad pura: sin FKs,
+    y **nunca borra** — quien sale del módulo queda `status='revoked'` para que
+    el histórico siga resolviendo su nombre.
+    """
+    __tablename__ = "users_directory"
+
+    #: `workspace.tenants.id` — el mismo valor que `Workspace.tenant_id`.
+    tenant_id: Mapped[str] = mapped_column(String(100), primary_key=True)
+
+    #: Id CANÓNICO de plataforma (`workspace.users.id`), §4. Es el que sobrevive
+    #: a un cambio de proveedor de auth. Desde la migración `0022_id_canonico`
+    #: es **el mismo valor** que `User.id`, así que el join es directo. La
+    #: columna transitoria `auth_user_id`, que hacía de puente antes de esa
+    #: migración, se borró ahí: ese era su criterio de salida.
+    user_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+
+    email: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    first_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    last_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+
+    #: Lo calcula WORKSPACE y viaja en el DTO. Acá NO se arma (anti-patrón #6).
+    display_name: Mapped[str | None] = mapped_column(String(400), nullable=True)
+
+    #: active | revoked. Nunca se borra una fila.
+    status: Mapped[str] = mapped_column(String(20), default="active")
+
+    synced_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
 class Role(Base):
@@ -563,14 +660,19 @@ class Validation(Base):
 
 class AuditLog(Base):
     """
-    Registro de auditoría de todas las acciones realizadas sobre documentos.
+    Registro de auditoría de acciones realizadas sobre documentos y carpetas.
     
     Proporciona trazabilidad completa: quién hizo qué, cuándo, y qué cambió.
     """
     __tablename__ = "audit_logs"
     
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
-    document_id: Mapped[str] = mapped_column(String(36), ForeignKey("documents.id"), nullable=False, index=True)
+    document_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("documents.id"), nullable=True, index=True
+    )
+    folder_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("folders.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     run_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("runs.id"), nullable=True, index=True)
     
     # Usuario que realizó la acción (opcional, para cuando haya autenticación)
@@ -592,7 +694,12 @@ class AuditLog(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     
     # Relaciones
-    document: Mapped["Document"] = relationship("Document", foreign_keys=[document_id], overlaps="audit_logs")
+    document: Mapped["Document | None"] = relationship(
+        "Document", foreign_keys=[document_id], overlaps="audit_logs"
+    )
+    folder: Mapped["Folder | None"] = relationship(
+        "Folder", foreign_keys=[folder_id], back_populates="audit_logs"
+    )
     run: Mapped["Run | None"] = relationship("Run", foreign_keys=[run_id])
     user: Mapped["User | None"] = relationship("User", foreign_keys=[user_id])
 
@@ -649,6 +756,29 @@ class DocumentVersion(Base):
     
     # Indicador de versión actual
     is_current: Mapped[bool] = mapped_column(default=False, index=True)
+
+    # ── Acta de aprobación, congelada al aprobar ────────────────────────────
+    # Se guardan como TEXTO y no como FK: una FK sigue los renombres, y el acta
+    # tiene que decir qué cargo tenía la persona ESE día. Ver
+    # process_ai_core/db/signatories.py y la migración 0017.
+    acta_elaborated_by_name: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    acta_elaborated_by_role: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    acta_reviewed_by_name: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    acta_reviewed_by_role: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    acta_approved_by_name: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    acta_approved_by_role: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    acta_client_name: Mapped[str | None] = mapped_column(String(300), nullable=True)
+
+    # Vigencia de ESTA aprobación, fijada en el momento de aprobar.
+    #
+    # No es una política del workspace: una política es mutable y por eso no se
+    # puede imprimir. Fijada al aprobar es un hecho consumado, y como tal entra
+    # legítimamente al acta de la portada. Resuelve el problema del papel
+    # offline: una copia impresa sin red no tiene forma de saber si el documento
+    # sigue vigente, pero sí puede llevar impresa la fecha hasta la que la
+    # aprobación se comprometió. Es lo que ISO 9001 espera para revisión
+    # periódica. Solo se setea en versiones APPROVED.
+    validity_until: Mapped[date | None] = mapped_column(Date, nullable=True)
 
     # Artefacto de auditoría: PDF congelado al aprobar (Fase B).
     # Solo se setea en versiones APPROVED. El PDF vive en object storage bajo la
@@ -756,43 +886,6 @@ class WorkspaceSubscription(Base):
     plan: Mapped["SubscriptionPlan"] = relationship("SubscriptionPlan", back_populates="subscriptions")
 
 
-class WorkspaceInvitation(Base):
-    """
-    Invitación para unirse a un workspace (B2B).
-    
-    Permite que admins/superadmins inviten usuarios a unirse a un workspace.
-    """
-    __tablename__ = "workspace_invitations"
-
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
-    workspace_id: Mapped[str] = mapped_column(String(36), ForeignKey("workspaces.id"), index=True)
-    invited_by_user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), index=True)
-    
-    # Datos de la invitación
-    email: Mapped[str] = mapped_column(String(200), index=True)
-    role_id: Mapped[str] = mapped_column(String(36), ForeignKey("roles.id"), index=True)
-    token: Mapped[str] = mapped_column(String(64), unique=True, index=True)  # Token único para aceptar
-    
-    # Estado
-    status: Mapped[str] = mapped_column(String(20))  # "pending" | "accepted" | "expired" | "cancelled"
-    
-    # Expiración
-    expires_at: Mapped[datetime] = mapped_column(DateTime)
-    
-    # Aceptación
-    accepted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    accepted_by_user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id"), nullable=True)
-    
-    # Mensaje opcional
-    message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    
-    # Relaciones
-    workspace: Mapped["Workspace"] = relationship("Workspace", foreign_keys=[workspace_id], overlaps="invitations")
-    invited_by: Mapped["User"] = relationship("User", foreign_keys=[invited_by_user_id])
-    role: Mapped["Role"] = relationship("Role", foreign_keys=[role_id])
-    accepted_by: Mapped["User | None"] = relationship("User", foreign_keys=[accepted_by_user_id])
 
 
 # Capa semántica (knowledge_objects, document_relations, document_chunks, evidence).

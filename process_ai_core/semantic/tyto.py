@@ -61,6 +61,12 @@ class TytoContext:
     citations: list[TytoCitation] = field(default_factory=list)
     related_entities: list[dict] = field(default_factory=list)
     related_documents: list[dict] = field(default_factory=list)
+    #: True si la búsqueda semántica no estuvo disponible y se rankeó por
+    #: coincidencia de palabras. NO es un detalle interno: cambia lo que el
+    #: sistema puede afirmar. Sin embeddings, no encontrar algo deja de
+    #: significar que no está — significa que se buscó peor. Viaja hasta la
+    #: respuesta para que un rechazo degradado no se lea como uno confiable.
+    search_degraded: bool = False
 
 
 class TytoQueryService:
@@ -138,9 +144,12 @@ class TytoQueryService:
         dialecto, o si no hay vector de query, cae al camino Python portable.
         """
         if not self.has_approved_current_versions(session, workspace_id):
+            # Genuinamente no hay documentación aprobada. Esto NO es degradación:
+            # la respuesta "no tengo documentación" es exacta.
             return TytoContext()
 
         query_vector = self._embed_query(query)
+        degradado = query_vector is None
 
         scored: list[_ScoredChunk] | None = None
         # Camino rápido: ranking vectorial en SQL (pgvector). Solo si hay vector de
@@ -201,6 +210,7 @@ class TytoQueryService:
         )
 
         return TytoContext(
+            search_degraded=degradado,
             citations=citations,
             related_entities=[
                 {"id": e.id, "type": e.type, "name": e.canonical_name} for e in entities

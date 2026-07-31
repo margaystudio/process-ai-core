@@ -18,10 +18,12 @@ import {
   useCanRejectDocuments,
 } from '@/hooks/useHasPermission'
 import { getDocumentActions } from '@/lib/documentActions'
+import { defaultValidityDate } from '@/lib/validity'
 import {
   getDocument,
   getDocumentVersions,
-  getVersionPreviewPdfUrl,
+  getVersionPdfUrl,
+  isFrozenVersionStatus,
   approveDocumentValidation,
   rejectDocumentValidation,
   Document,
@@ -192,23 +194,31 @@ export default function DocumentReviewPage() {
       setDoc(docData)
       setVersions(versionsData)
 
-      // PDF desde versión IN_REVIEW (fuente de verdad para aprobación)
+      // PDF desde versión IN_REVIEW (fuente de verdad para aprobación).
+      // getVersionPdfUrl mantiene el contrato si esta pantalla algún día muestra
+      // una versión ya aprobada: ahí sirve el congelado en vez de regenerar.
       const inReviewVersion = versionsData.find(
         (v) => v.version_status === 'IN_REVIEW'
       )
+      const isFrozen = isFrozenVersionStatus(inReviewVersion?.version_status)
       const pdfSourceUrl = inReviewVersion
-        ? getVersionPreviewPdfUrl(documentId, inReviewVersion.id)
+        ? getVersionPdfUrl(documentId, inReviewVersion.id, inReviewVersion.version_status)
         : null
 
       if (pdfSourceUrl) {
-        const urlWithCache = `${pdfSourceUrl}${pdfSourceUrl.includes('?') ? '&' : '?'}t=${Date.now()}`
+        const urlWithCache = isFrozen
+          ? pdfSourceUrl
+          : `${pdfSourceUrl}${pdfSourceUrl.includes('?') ? '&' : '?'}t=${Date.now()}`
         try {
-          // El endpoint de preview-pdf exige auth; mandamos el Bearer y servimos blob.
+          // El endpoint de PDF exige auth; mandamos el Bearer y servimos blob.
           const { getAccessToken, authFetch } = await import('@/lib/api-auth')
           const token = await getAccessToken()
           const authHeaders: HeadersInit = {}
           if (token) authHeaders['Authorization'] = `Bearer ${token}`
-          const res = await authFetch(urlWithCache, { cache: 'no-store', headers: authHeaders })
+          const res = await authFetch(urlWithCache, {
+            cache: isFrozen ? 'default' : 'no-store',
+            headers: authHeaders,
+          })
           if (res.ok) {
             const blob = await res.blob()
             blobUrl = URL.createObjectURL(blob)
@@ -265,13 +275,25 @@ export default function DocumentReviewPage() {
     Boolean(inReviewCreatedBy) &&
     userId === inReviewCreatedBy
 
+  // ── Vigencia de la aprobación ─────────────────────────────────────────────
+  // Se decide ACÁ, en el acto de aprobar, y queda congelada en el acta del PDF.
+  // No es una política del workspace (eso sería mutable y no se podría imprimir):
+  // el workspace solo aporta el valor por defecto que se propone.
+  const [validityUntil, setValidityUntil] = useState<string>(defaultValidityDate())
+  const [sinVencimiento, setSinVencimiento] = useState(false)
+
   // ── Acciones ──────────────────────────────────────────────────────────────
   const handleApprove = async () => {
     if (!doc) return
     await withLoading(async () => {
       setProcessing(true)
       try {
-        await approveDocumentValidation(documentId)
+        await approveDocumentValidation(
+          documentId,
+          undefined,
+          sinVencimiento ? null : validityUntil,
+          sinVencimiento
+        )
         setSuccessMsg('Documento aprobado exitosamente.')
         setTimeout(() => router.push('/dashboard/approval-queue'), 1500)
       } catch (err) {
@@ -433,11 +455,30 @@ export default function DocumentReviewPage() {
             </p>
           )}
 
-          {/* Microcopy solo si puede aprobar */}
+          {/* Vigencia: se imprime en el acta del PDF, así que se elige antes de aprobar. */}
           {actions.canApprove && (
-            <span className="text-[12.5px] text-ink-400">
-              Tu aprobación lo convierte en documento oficial.
-            </span>
+            <div className="flex items-center gap-2 text-[12.5px] text-ink-500">
+              <label htmlFor="validity-until" className="whitespace-nowrap">
+                Vigente hasta
+              </label>
+              <input
+                id="validity-until"
+                type="date"
+                value={validityUntil}
+                disabled={sinVencimiento || processing}
+                onChange={(e) => setValidityUntil(e.target.value)}
+                className="h-[32px] rounded-[8px] border border-line-input bg-surface px-2 text-[12.5px] text-ink-700 disabled:opacity-50"
+              />
+              <label className="flex items-center gap-1.5 whitespace-nowrap">
+                <input
+                  type="checkbox"
+                  checked={sinVencimiento}
+                  disabled={processing}
+                  onChange={(e) => setSinVencimiento(e.target.checked)}
+                />
+                Sin vencimiento
+              </label>
+            </div>
           )}
 
           {actions.canApprove && (

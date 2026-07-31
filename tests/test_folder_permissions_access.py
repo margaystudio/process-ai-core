@@ -10,7 +10,14 @@ from sqlalchemy.pool import StaticPool
 from api.models.requests import FolderPermissionsUpdateRequest
 from api.routes import folders as folders_route
 from process_ai_core.db.database import Base
-from process_ai_core.db.models import Folder, FolderPermission, OperationalRole, Workspace
+from process_ai_core.db.models import (
+    AuditLog,
+    Folder,
+    FolderPermission,
+    OperationalRole,
+    User,
+    Workspace,
+)
 
 
 @pytest.fixture
@@ -20,14 +27,22 @@ def session():
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
-    tables = [
-        Workspace.__table__,
-        Folder.__table__,
-        OperationalRole.__table__,
-        FolderPermission.__table__,
-    ]
-    Base.metadata.create_all(engine, tables=tables)
+    # Se crea el schema entero y no una lista de tablas: el PUT de permisos
+    # ahora audita el cambio, y el audit log arrastra las FK a users/documents.
+    # Con la lista explícita, cada endpoint que empieza a escribir en una tabla
+    # nueva rompe estos tests con un "no such table" que no tiene nada que ver
+    # con lo que están probando.
+    Base.metadata.create_all(engine)
     test_session = sessionmaker(bind=engine)()
+    # Los usuarios que firman los PUT tienen que existir: el audit log del
+    # endpoint referencia audit_logs.user_id -> users.id.
+    test_session.add_all(
+        [
+            User(id=uid, email=f"{uid}@test.local", name=uid)
+            for uid in ("admin-user", "superadmin-user")
+        ]
+    )
+    test_session.commit()
     try:
         yield test_session
     finally:
