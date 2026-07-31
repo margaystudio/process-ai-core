@@ -2,7 +2,7 @@
 
 Por defecto (umbral off) toda candidata va a revisión humana (ADR-006). Con un
 umbral configurado, las candidatas con confidence >= umbral nacen 'confirmed'
-por el sistema (created_by_ai=True, confirmed_by=NULL); el resto sigue candidate.
+por el sistema (created_by_ai=True, decided_by=NULL); el resto sigue candidate.
 """
 
 from __future__ import annotations
@@ -79,7 +79,7 @@ def test_default_off_todo_a_revision(session, document):
     )
     assert len(created) == 2
     assert all(r.status == "candidate" for r in created)
-    assert all(r.confirmed_by is None for r in created)
+    assert all(r.decided_by is None for r in created)
 
 
 def test_umbral_autoconfirma_solo_los_de_alta_confianza(session, document):
@@ -97,8 +97,8 @@ def test_umbral_autoconfirma_solo_los_de_alta_confianza(session, document):
     assert auto[0].confidence == 0.95
     # Rastro de autoconfirmación por el sistema.
     assert auto[0].created_by_ai is True
-    assert auto[0].confirmed_by is None
-    assert auto[0].confirmed_at is not None
+    assert auto[0].decided_by is None
+    assert auto[0].decided_at is not None
 
     cand = session.query(DocumentRelation).filter_by(status="candidate").all()
     assert len(cand) == 1

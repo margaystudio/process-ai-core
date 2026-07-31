@@ -1,13 +1,13 @@
 # Ambientes — Ecosistema Margay
 
-> Fecha: 2026-06-02
+> Fecha: 2026-06-02 · **Matriz de Supabase corregida el 2026-07-31** (ver el aviso abajo).
 > Fuente de verdad del mapeo de ambientes. Si algo contradice esto, actualizá este doc.
 
 ## Modelo de ambientes
 
 ```
-LOCAL (cada dev)   → hub/workspace de TEST    → Supabase SANDBOX
-TEST (deployado)   → margay-platform-test     → Supabase SANDBOX
+LOCAL (cada dev)   → hub/workspace de TEST    → Supabase TEST
+TEST (deployado)   → margay-platform-test     → Supabase TEST
 PROD (deployado)   → margay-platform-prod     → Supabase PROD
 ```
 
@@ -19,15 +19,24 @@ que corre contra Supabase **sandbox**. Así el desarrollo nunca toca datos reale
 | | LOCAL | TEST | PROD |
 |---|---|---|---|
 | **GCP project** | (máquina del dev) | `margay-platform-test` | `margay-platform-prod` |
-| **Supabase project** | sandbox | sandbox | prod |
-| **Supabase ref** | `nbigcpjmckewuhrqjzrt` | `nbigcpjmckewuhrqjzrt` | `mqldatizgvmjqisuqabv` |
-| **Supabase URL** | `https://nbigcpjmckewuhrqjzrt.supabase.co` | idem | `https://mqldatizgvmjqisuqabv.supabase.co` |
+| **Supabase project** | Margay Platform Test | Margay Platform Test | Margay Platform Prod |
+| **Supabase ref** | `zgujorkqulkdsnmjdxtj` | `zgujorkqulkdsnmjdxtj` | `sjujhroqaoggwbwiviqu` |
+| **Supabase URL** | `https://zgujorkqulkdsnmjdxtj.supabase.co` | idem | `https://sjujhroqaoggwbwiviqu.supabase.co` |
 | **NODE_ENV/ENVIRONMENT** | local | test | prod |
 
-> ⚠️ **El Supabase que HOY usan todos los repos (`nbigcpjmckewuhrqjzrt`) es el SANDBOX.**
-> El `mqldatizgvmjqisuqabv` es el PROD nuevo (vacío). Lo deployado actualmente en
-> `margay-platform-prod` apunta al sandbox → en los hechos es un staging hasta migrar prod
-> al Supabase nuevo. No hay clientes reales todavía.
+> ⚠️ **Corregido el 2026-07-31: esta matriz decía `nbigc…` y `mqld…`, y ninguno de los dos
+> está en uso.** El cutover a europe-west1 + Supabase nuevo ya ocurrió (ver el CHANGELOG de
+> process-ai-core). Verificado contra la fuente real, no contra los docs:
+>
+> - **PROD** = `sjujhroqaoggwbwiviqu`, leído del secreto `process-ai-database-url` en
+>   `margay-platform-prod` y coincidente con el `SUPABASE_URL` de `ops/api/prod.config.toml`.
+> - **TEST/LOCAL** = `zgujorkqulkdsnmjdxtj`, de `ops/api/test.config.toml` y del `.env` local.
+>
+> Los comentarios de `ops/api/prod.config.toml` también decían `mqld` y se corrigieron. Si
+> encontrás `nbigc` o `mqld` en algún lado, es residuo previo al cutover: verificá contra el
+> secreto o el `.config.toml` antes de creerle a un doc — es lo que costó una hora acá.
+>
+> **PROD ya tiene datos reales** (usuarios, tenants, configuración). Dejó de ser un staging.
 
 > ⚠️ **El JWKS es por proyecto Supabase.** Un JWT firmado por sandbox NO valida contra el
 > JWKS de prod. Cada ambiente debe usar el `SUPABASE_JWKS_URL`, `SUPABASE_URL`, anon key y
@@ -53,15 +62,15 @@ Patrón: `{servicio}.{ambiente}.margaystudio.io` — prod sin segmento de ambien
 |---|---|---|
 | workspace test deployado | ✅ público + DB OK (resuelto 2026-06-02) | — |
 | dev local → workspace test | ✅ funcionando (camino A) | — |
-| workspace `prod.config` | apunta a sandbox (`nbigc...`) | cambiar a Supabase prod (`mqld...`) cuando se active prod real |
+| workspace `prod.config` | ⚠️ **sin verificar** — este doc mentía sobre los refs | revisar contra el secreto de ese repo, no contra este doc |
 | workspace `test.config` | apunta a sandbox ✅ | OK (ya es sandbox) |
 | hub `test.config` | **no existe** | crear (sandbox + workspace test URL) — para admin/staging |
-| hub `prod.config` | apunta a sandbox | cambiar a Supabase prod al activar prod |
-| process-ai `ops/*.config` | solo `.example` | crear configs reales (test + prod) |
+| hub `prod.config` | ⚠️ **sin verificar** — ídem | revisar contra el secreto de ese repo |
+| process-ai `ops/*.config` | ✅ reales, test + prod (verificado 2026-07-31) | — |
 | SA hub/process en test | **no existen** (solo workspace-sa) | crear antes de deployar |
 | Dominios test | no existen | crear domain mappings + DNS |
 | workspace dominio prod | usa `.run.app` | darle `workspace.margaystudio.io` (consistencia) |
-| Supabase prod (`mqld...`) | **vacío** | crear schema workspace + cargar secrets antes de deployar prod |
+| Supabase prod (`sjujhr…`) | ✅ en uso, con datos reales | — (el `mqld…` que decía este doc nunca se usó) |
 
 ## Gotchas de infra resueltos (no repetir)
 

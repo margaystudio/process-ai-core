@@ -2342,8 +2342,12 @@ export interface DocumentRelationItem {
   status: RelationStatus
   evidence_text: string | null
   created_by_ai: boolean
-  confirmed_by: string | null
-  confirmed_at: string | null
+  /** Quién DECIDIÓ sobre la relación: se llena al confirmar Y al rechazar.
+   *  `null` con `status: 'confirmed'` significa que la confirmó el sistema,
+   *  sin intervención humana. Se llamaba `confirmed_by` y mentía en las
+   *  rechazadas. */
+  decided_by: string | null
+  decided_at: string | null
   possible_duplicate_of: RelationTarget | null
 }
 

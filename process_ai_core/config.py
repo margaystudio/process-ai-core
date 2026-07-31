@@ -150,7 +150,7 @@ class Settings:
     # None / no seteado (default): TODA candidata va a revisión humana (ADR-006).
     # Si se setea (0.0–1.0), las candidatas con confidence >= umbral se marcan
     # 'confirmed' automáticamente al generarse, con created_by_ai=True y
-    # confirmed_by=NULL (rastro de "confirmada por el sistema, sin intervención
+    # decided_by=NULL (rastro de "confirmada por el sistema, sin intervención
     # humana"). Es un opt-in operativo explícito; no altera el default de gobernanza.
     relation_autoconfirm_threshold: float | None = None
 

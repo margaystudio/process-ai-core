@@ -150,8 +150,8 @@ def test_confirmar_cambia_estado_y_registra_quien(session, workspace, folder):
     session.commit()
 
     assert rel.status == "confirmed"
-    assert rel.confirmed_by == approver.id
-    assert rel.confirmed_at is not None
+    assert rel.decided_by == approver.id
+    assert rel.decided_at is not None
     # ahora sí forma parte de la red
     assert len(_tyto().confirmed_relations(session, workspace.id, [doc.id])) == 1
 

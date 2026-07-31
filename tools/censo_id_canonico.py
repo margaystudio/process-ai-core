@@ -174,27 +174,20 @@ def censar(conn, schema: str) -> dict:
         for t, c in sitios_ok
     ) or "SELECT NULL::varchar AS uid WHERE FALSE"
 
-    if hay_puente:
-        # Ojo: se resuelve por auth_user_id, NO por tenant. La misma persona tiene
-        # el mismo id canónico en todos los tenants; si dos filas discrepan es un
-        # error de datos y hay que verlo, no promediarlo.
-        mapa_sql = f"""
-            WITH refs AS ({union_refs}),
-            dir AS (
-                SELECT auth_user_id,
-                       min(user_id)                AS user_id,
-                       count(DISTINCT user_id)     AS distintos
-                  FROM {_q(schema, 'users_directory')}
-                 WHERE auth_user_id IS NOT NULL
-                 GROUP BY auth_user_id
-            )
-            SELECT u.id, u.email, u.external_id,
-                   d.user_id, coalesce(d.distintos, 0),
-                   (SELECT count(*) FROM refs r WHERE r.uid = u.id)
-              FROM {_q(schema, 'users')} u
-              LEFT JOIN dir d ON d.auth_user_id = u.external_id
-             ORDER BY 6 DESC, u.email
-        """
+    if tiene_directorio and hay_puente:
+        # Pre-0022: el mapa lo calcula LA MIGRACIÓN, y el censo la importa en vez
+        # de reimplementarla. Si cada uno tuviera su SQL, el censo podría decir
+        # "se puede migrar" y la migración plantarse igual — o peor, al revés.
+        import importlib.util
+
+        ruta = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "alembic", "versions", "0022_id_canonico.py",
+        )
+        spec = importlib.util.spec_from_file_location("_m0022", ruta)
+        m0022 = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(m0022)
+        mapa_sql = f"WITH refs AS ({union_refs}) {m0022._MAPA_SQL(schema)}"
     elif tiene_directorio:
         # Post-0022: el mapa vive en users_id_remap, que es lo que deja constancia
         # de quién se migró y quién se quedó con su id local (id_viejo = id_nuevo).
@@ -213,25 +206,23 @@ def censar(conn, schema: str) -> dict:
         )
         mapa_sql = f"""
             WITH refs AS ({union_refs}), mapa AS ({origen})
-            SELECT u.id, u.email, u.external_id,
-                   m.canonico, 0,
+            SELECT u.id, u.email, m.canonico, 0,
                    (SELECT count(*) FROM refs r WHERE r.uid = u.id)
               FROM {_q(schema, 'users')} u
               LEFT JOIN mapa m ON m.uid = u.id
-             ORDER BY 6 DESC, u.email
+             ORDER BY 5 DESC, u.email
         """
     else:
         mapa_sql = f"""
             WITH refs AS ({union_refs})
-            SELECT u.id, u.email, u.external_id,
-                   NULL::varchar, 0,
+            SELECT u.id, u.email, NULL::varchar, 0,
                    (SELECT count(*) FROM refs r WHERE r.uid = u.id)
               FROM {_q(schema, 'users')} u
-             ORDER BY 6 DESC, u.email
+             ORDER BY 5 DESC, u.email
         """
 
     sin_mapeo_con_refs = 0
-    for uid, email, ext, canonico, distintos, refs in conn.execute(text(mapa_sql)):
+    for uid, email, canonico, distintos, refs in conn.execute(text(mapa_sql)):
         ya_migrado = bool(canonico) and uid == canonico
         estado = (
             "ya migrado" if ya_migrado
@@ -249,7 +240,6 @@ def censar(conn, schema: str) -> dict:
             {
                 "email": email,
                 "id_local": uid,
-                "external_id": ext,
                 "id_canonico": canonico,
                 "referencias": refs,
                 "estado": estado,

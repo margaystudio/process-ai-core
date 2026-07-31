@@ -13,6 +13,7 @@ uuid4 propio del módulo que no coincide con nada de la plataforma.
 EL MAPEO, Y POR QUÉ NO ES UN JOIN A workspace.users
 ----------------------------------------------------
     users.id → users.external_id → users_directory.auth_user_id → users_directory.user_id
+    (respaldo, si el puente quedó NULL: users.email → users_directory.email)
 
 El puente pasa por `users_directory`, tabla NUESTRA, poblada por la API de
 Workspace (migración 0021). Ni un `JOIN workspace.*`: la regla dura de
@@ -97,6 +98,62 @@ def _permitir_sin_mapeo() -> bool:
     }
 
 
+# ── El mapa local → canónico ─────────────────────────────────────────────────
+
+
+def _MAPA_SQL(schema: str) -> str:
+    """`users.id → users_directory.user_id`, por dos puentes, en ese orden.
+
+    Devuelve `(id_local, email, id_canonico, puentes_ambiguos, referencias)`.
+    Espera que el llamador defina una CTE `refs`.
+
+    POR QUÉ SON DOS PUENTES Y NO UNO
+    --------------------------------
+    El diseñado es `users.external_id = users_directory.auth_user_id`: el auth id
+    no cambia nunca y es el puente correcto.
+
+    Pero hay una trampa de ordenamiento que se cobró un intento en prod: **el
+    código que ESCRIBE `auth_user_id` desaparece en el mismo release que la
+    migración que lo LEE.** `_guardar_directorio` dejó de guardarlo porque el
+    modelo ya no tiene la columna —correcto DESPUÉS de esta migración, no
+    antes—, así que el primer barrido del directorio la dejó en NULL y el mapa
+    quedó vacío con el directorio lleno. Es un modo de falla silencioso: la
+    tabla se ve bien y el mapeo no existe.
+
+    El respaldo es el email, que las dos tablas tienen sin depender del orden de
+    despliegue. Es peor puente —el email se puede cambiar en el Hub, y
+    `users.email` local no se refresca— por eso va segundo y nunca primero.
+
+    Si los dos puentes están vacíos para alguien, no se lo mapea: se lo informa.
+    """
+    q = lambda t: f'"{schema}".{t}'  # noqa: E731
+    return f"""
+        , dir AS (
+            SELECT auth_user_id, lower(email) AS email_lc, user_id
+              FROM {q('users_directory')}
+        ),
+        por_auth AS (
+            SELECT auth_user_id AS k, min(user_id) AS user_id,
+                   count(DISTINCT user_id) AS n
+              FROM dir WHERE auth_user_id IS NOT NULL GROUP BY auth_user_id
+        ),
+        por_email AS (
+            SELECT email_lc AS k, min(user_id) AS user_id,
+                   count(DISTINCT user_id) AS n
+              FROM dir WHERE email_lc IS NOT NULL GROUP BY email_lc
+        )
+        SELECT u.id,
+               u.email,
+               coalesce(a.user_id, e.user_id)      AS id_canonico,
+               coalesce(a.n, e.n, 0)               AS ambiguos,
+               (SELECT count(*) FROM refs r WHERE r.uid = u.id) AS referencias
+          FROM {q('users')} u
+          LEFT JOIN por_auth  a ON a.k = u.external_id
+          LEFT JOIN por_email e ON e.k = lower(u.email)
+         ORDER BY 5 DESC, u.email
+    """
+
+
 # ── Conteo por sitio: el protocolo de antes y después ────────────────────────
 
 
@@ -148,23 +205,6 @@ def upgrade() -> None:
     sitios_col = [(t, c) for t, c, _ in SITIOS_COLUMNA if (t, c) in presentes]
     sitios_json = [(t, c) for t, c, _ in SITIOS_JSON if (t, c) in presentes]
 
-    # Mapa: por auth id, NO por tenant. La misma persona tiene el mismo id
-    # canónico en todos sus tenants; si dos filas discrepan es un error de datos.
-    ambiguos = conn.execute(
-        text(
-            f"""
-            SELECT auth_user_id FROM {_q('users_directory')}
-             WHERE auth_user_id IS NOT NULL
-             GROUP BY auth_user_id HAVING count(DISTINCT user_id) > 1
-            """
-        )
-    ).fetchall()
-    if ambiguos:
-        raise RuntimeError(
-            "Hay auth_user_id con más de un id canónico en users_directory: "
-            + ", ".join(a[0] for a in ambiguos)
-        )
-
     # Se cuenta cuántas referencias tiene cada usuario, con el mismo criterio que
     # `tools/censo_id_canonico.py`. Si los dos no coincidieran, el censo diría
     # "se puede migrar" y la migración se plantaría igual — o peor, al revés.
@@ -172,25 +212,22 @@ def upgrade() -> None:
         f"SELECT {c} AS uid FROM {_q(t)} WHERE {c} IS NOT NULL" for t, c in sitios_col
     ) or "SELECT NULL::varchar AS uid WHERE FALSE"
 
-    mapa = conn.execute(
-        text(
-            f"""
-            WITH refs AS ({union_refs})
-            SELECT u.id, u.email, d.user_id,
-                   (SELECT count(*) FROM refs r WHERE r.uid = u.id)
-              FROM {_q('users')} u
-              LEFT JOIN {_q('users_directory')} d
-                ON d.auth_user_id = u.external_id
-             GROUP BY u.id, u.email, d.user_id
-            """
+    mapa = conn.execute(text(f"WITH refs AS ({union_refs}) {_MAPA_SQL(SCHEMA)}")).fetchall()
+
+    # Ambigüedad: el mismo puente apuntando a dos ids canónicos distintos. No se
+    # promedia ni se elige uno — es un error de datos y hay que verlo.
+    ambiguos = [(email, n) for _uid, email, _canon, n, _refs in mapa if n and n > 1]
+    if ambiguos:
+        raise RuntimeError(
+            "Hay usuarios cuyo puente apunta a más de un id canónico en "
+            "users_directory: " + ", ".join(f"{e} ({n})" for e, n in ambiguos)
         )
-    ).fetchall()
 
     # Solo bloquea quien NO tiene mapeo **y sí tiene referencias**. Un usuario sin
     # una sola referencia no le importa a nadie: dejarlo con su id local no rompe
     # nada, y plantarse por él convertiría la guarda en ruido que se termina
     # salteando con el override sin leerlo — que es justo lo que la haría inútil.
-    sin_mapeo = [(uid, email) for uid, email, canon, refs in mapa if not canon and refs]
+    sin_mapeo = [(uid, email) for uid, email, canon, _n, refs in mapa if not canon and refs]
     if sin_mapeo and not _permitir_sin_mapeo():
         detalle = ", ".join(f"{email} ({uid})" for uid, email in sin_mapeo)
         raise RuntimeError(
@@ -204,8 +241,8 @@ def upgrade() -> None:
 
     # `id_nuevo = id_viejo` para los que se quedan sin mapear: quedan registrados
     # y el censo los sigue viendo como pendientes en vez de darlos por migrados.
-    remap = {uid: (canon or uid) for uid, _email, canon, _refs in mapa}
-    emails = {uid: email for uid, email, _c, _r in mapa}
+    remap = {uid: (canon or uid) for uid, _email, canon, _n, _refs in mapa}
+    emails = {uid: email for uid, email, _c, _n, _r in mapa}
 
     viejos, nuevos = set(remap), {v for k, v in remap.items() if v != k}
     choques = viejos & nuevos
