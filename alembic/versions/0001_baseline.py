@@ -19,11 +19,14 @@ from pathlib import Path
 
 from alembic import op
 
-from process_ai_core.db.database import Base, DATABASE_SCHEMA
+from process_ai_core.db.database import DATABASE_SCHEMA
 
-# Importar los modelos asegura que Base.metadata tenga todas las tablas (downgrade).
-import process_ai_core.db.models  # noqa: F401
-import process_ai_core.db.models_catalog  # noqa: F401
+# Sin imports de modelos a propósito. Antes se importaban para poblar
+# `Base.metadata` y que el `downgrade` supiera qué tablas dropear; ese mecanismo
+# se eliminó porque describía el esquema de HOY y una migración corre contra el
+# de SU momento — dejaba atrás las tablas que un modelo dejó de declarar y las
+# que nunca tuvieron modelo. Ahora el downgrade enumera del catálogo y esta
+# migración no depende de código que evoluciona.
 
 # identificadores usados por Alembic.
 revision = "0001_baseline"
