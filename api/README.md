@@ -6,7 +6,8 @@ API HTTP REST para generar documentación de procesos asistida por IA.
 
 ```bash
 # Instalar dependencias (incluye FastAPI, Pydantic, Uvicorn)
-pip install -e .
+pip install -r requirements-dev.lock
+pip install -e . --no-deps
 
 # O instalar solo las dependencias de la API
 pip install fastapi pydantic uvicorn[standard]

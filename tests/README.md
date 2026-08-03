@@ -183,7 +183,8 @@ La base se puede inspeccionar con herramientas como **DBeaver**.
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -e ".[dev]"
+pip install -r requirements-dev.lock
+pip install -e . --no-deps
 ```
 
 Variables de entorno:
