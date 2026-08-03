@@ -71,7 +71,8 @@ pip install supabase pyjwt python-jose[cryptography]
 O si usas el proyecto instalado:
 
 ```bash
-pip install -e .
+pip install -r requirements-dev.lock
+pip install -e . --no-deps
 ```
 
 ## Paso 5: Configurar Supabase Auth

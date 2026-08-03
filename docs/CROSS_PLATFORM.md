@@ -72,7 +72,9 @@ npm run build
 ### Python
 - Python 3.10 o superior
 - Entorno virtual activado
-- Dependencias instaladas: `pip install -e ".[dev]"`
+- Dependencias instaladas: `pip install -r requirements-dev.lock && pip install -e . --no-deps`
+  (desde el lock, no resolviendo los rangos de pyproject: así local, CI y la
+  imagen corren las mismas versiones. Ver Dockerfile.api.)
 
 ### Node.js
 - Node.js 18 o superior
