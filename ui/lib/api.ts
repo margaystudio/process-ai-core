@@ -68,7 +68,8 @@ export interface WorkspaceResponse {
   name: string;
   slug: string;
   workspace_type: string;
-  role?: string | null;
+  /** Acceso base del usuario en este workspace. Ver `WorkspaceAccessRole`. */
+  role?: WorkspaceAccessRole | null;
   is_active?: boolean;
   country?: string | null;
   business_type?: string | null;
@@ -174,12 +175,16 @@ export interface FolderGovernance {
   };
 }
 
+/** Cumulativos: 'edicion' incluye lo de 'lectura'; 'aprobacion' incluye lo de 'edicion'. */
+export type OperationalRoleAccessLevel = 'lectura' | 'edicion' | 'aprobacion';
+
 export interface OperationalRoleResponse {
   id: string;
   workspace_id: string;
   name: string;
   slug: string;
   description: string;
+  access_level: OperationalRoleAccessLevel;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -190,7 +195,7 @@ export interface WorkspaceMember {
   user_id: string;
   email: string;
   name: string;
-  role: string;
+  role: WorkspaceAccessRole;
   operational_role_ids: string[];
 }
 
@@ -579,9 +584,20 @@ export interface FolderCapabilities {
 }
 
 /**
+ * Acceso base del usuario en el workspace (derivado del rol del tenant en el
+ * hub). Ya NO son roles de sistema (owner/admin/approver/creator/viewer):
+ * - 'admin' → gestiona todo el workspace (equivale al "can_manage_workspace").
+ * - 'member' → nivel "edición" en carpetas sin restricción explícita.
+ * - 'external' → solo lectura siempre.
+ * Lo que puede hacer cada usuario en el día a día lo definen los PERMISOS
+ * efectivos (`permissions`) y el acceso por carpeta (`folders`), no este campo.
+ */
+export type WorkspaceAccessRole = 'admin' | 'member' | 'external';
+
+/**
  * Capacidades efectivas del usuario actual en el tenant activo: la MISMA
  * decisión que el backend va a aplicar al autorizar cada request (incluye el
- * bypass de superadmin/owner/admin y la herencia de permisos por carpeta).
+ * bypass de superadmin/admin y la herencia de permisos por carpeta).
  * Reemplaza la matriz de permisos que antes vivía hardcodeada en el front.
  */
 export interface MyCapabilities {
@@ -590,7 +606,7 @@ export interface MyCapabilities {
   tenant_id: string;
   platform_roles: string[];
   tenant_roles: string[];
-  role: 'owner' | 'admin' | 'approver' | 'creator' | 'viewer' | null;
+  role: WorkspaceAccessRole | null;
   is_superadmin: boolean;
   /** Permisos efectivos (ej. 'documents.view', 'documents.create', …). */
   permissions: string[];
@@ -1102,7 +1118,7 @@ export async function listOperationalRoles(workspaceId: string): Promise<Operati
  */
 export async function createOperationalRole(
   workspaceId: string,
-  body: { name: string; slug?: string; description?: string }
+  body: { name: string; slug?: string; description?: string; access_level?: OperationalRoleAccessLevel }
 ): Promise<OperationalRoleResponse> {
   const { getAccessToken } = await import('@/lib/api-auth');
   const token = await getAccessToken();
@@ -1125,7 +1141,7 @@ export async function createOperationalRole(
  */
 export async function updateOperationalRole(
   roleId: string,
-  body: { name?: string; description?: string; is_active?: boolean }
+  body: { name?: string; description?: string; is_active?: boolean; access_level?: OperationalRoleAccessLevel }
 ): Promise<OperationalRoleResponse> {
   const { getAccessToken } = await import('@/lib/api-auth');
   const token = await getAccessToken();

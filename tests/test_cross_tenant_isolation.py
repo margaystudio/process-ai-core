@@ -272,7 +272,7 @@ class TestSyncCreaEntidadesAisladas:
             ).first()
             assert mem_a is not None, "user A debe tener membership en workspace A"
             assert mem_b is not None, "user B debe tener membership en workspace B"
-            assert mem_a.role == "admin", "tenant_admin debe mapearse a rol 'admin'"
+            assert mem_a.base_access == "admin", "tenant_admin debe mapearse a base_access 'admin'"
 
     def test_sync_no_crea_cross_memberships(self, client):
         """user A NO debe tener membership en workspace B (ni viceversa)."""

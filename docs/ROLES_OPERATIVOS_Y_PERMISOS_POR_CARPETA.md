@@ -4,15 +4,29 @@
 
 ## 1. Objetivo
 
-Se agregó una **segunda capa de permisos** basada en **roles operativos**, configurable por workspace.
-
-- **Roles de sistema** (preexistentes): `owner`, `admin`, `approver`, `creator`, `viewer`
-  → Definen **qué puede hacer** un usuario en la plataforma.
-
-- **Roles operativos** (nuevos): ej. Pistero, Cajero, Administración, Jefe de pista, Gerencia
-  → Definen **en qué parte de la estructura de carpetas** puede hacerlo.
-
-**Permiso efectivo = rol de sistema + acceso operativo a la carpeta**
+> **⚠️ ACTUALIZADO (fase 3 del rediseño de permisos, 2026-08).** Los roles de
+> sistema (`owner`/`admin`/`approver`/`creator`/`viewer`) se **eliminaron**.
+> El modelo vigente tiene dos capas y un solo objeto administrable:
+>
+> - **Acceso base** (`workspace_memberships.base_access`), derivado del rol
+>   macro del tenant en margay-workspace, escrito solo por el sync:
+>   `admin` (tenant_admin/superadmin → gestión total + bypass por carpeta),
+>   `member` (tenant_member → nivel "edición" en carpetas sin restricción),
+>   `external` (tenant_external_client → tope de SOLO LECTURA).
+> - **Roles operativos** (los del cliente: Pistero, Gerencia…): cada uno tiene
+>   un **nivel de acceso** (`lectura` | `edicion` | `aprobacion`, acumulativos)
+>   y un conjunto de **carpetas** (folder_permissions, con herencia).
+>
+> **Permiso efectivo = evaluación por par (permiso, carpeta):** alcanza con que
+> ALGÚN rol del usuario tenga el nivel necesario Y acceso a esa carpeta. En
+> carpetas sin restricción vale además el nivel base del acceso. El cap de
+> `external` gana siempre. La implementación canónica vive en
+> `process_ai_core/db/permissions.py`; la especificación ejecutable es
+> `tests/test_permission_context.py`.
+>
+> Las secciones siguientes describen las tablas y la herencia por carpeta, que
+> siguen vigentes; donde digan "rol de sistema", leer "acceso base + nivel del
+> rol operativo".
 
 ---
 

@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
 import { useAsync } from '@/hooks/useAsync'
+import { useCanManageWorkspace } from '@/hooks/useHasPermission'
 import {
   approveDocumentValidation,
   getDocumentVersions,
@@ -22,7 +23,6 @@ import {
   submitVersionForReview,
   type Document,
 } from '@/lib/api'
-import { canAdministerWorkspace } from '@/lib/adminGating'
 import {
   EXTENSIONS_BY_TYPE,
   MAX_FILE_SIZE_BYTES,
@@ -83,9 +83,7 @@ function itemTone(status: ImportStatus): string {
 export default function ImportPage() {
   const inputRef = useRef<HTMLInputElement>(null)
   const {
-    selectedWorkspace,
     selectedWorkspaceId,
-    platformRoles,
     currentUser,
   } = useWorkspace()
   const [folderId, setFolderId] = useState('')
@@ -94,10 +92,7 @@ export default function ImportPage() {
   const [running, setRunning] = useState(false)
   const [pageError, setPageError] = useState<string | null>(null)
 
-  const canAdminister = canAdministerWorkspace({
-    platformRoles,
-    workspaceRole: selectedWorkspace?.role,
-  })
+  const { canManage: canAdminister, loading: canAdministerLoading } = useCanManageWorkspace()
 
   const foldersAsync = useAsync(
     async () => {
@@ -313,6 +308,14 @@ export default function ImportPage() {
 
   const folders = foldersAsync.data ?? []
   const folderName = folders.find((folder) => folder.id === folderId)?.name
+
+  if (canAdministerLoading) {
+    return (
+      <main className="mx-auto max-w-[760px] px-6 py-12">
+        <div className="h-40 animate-pulse rounded-lg bg-ink-100" aria-busy="true" />
+      </main>
+    )
+  }
 
   if (!canAdminister) {
     return (

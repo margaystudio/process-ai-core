@@ -432,7 +432,7 @@ export default function GeneralSettingsTab({
           </div>
         ) : (
           <p className="text-sm text-ink-500">
-            Solo los roles owner o creator pueden editar esta configuración.
+            Solo los administradores del espacio de trabajo pueden editar esta configuración.
           </p>
         )}
       </form>

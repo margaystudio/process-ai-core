@@ -1,6 +1,7 @@
 'use client'
 
-import { OperationalRoleResponse, WorkspaceMember } from '@/lib/api'
+import { OperationalRoleResponse, WorkspaceAccessRole, WorkspaceMember } from '@/lib/api'
+import { Badge } from '@/shared/ui/components'
 
 type UsersSettingsTabProps = {
   members: WorkspaceMember[]
@@ -12,6 +13,19 @@ type UsersSettingsTabProps = {
   onMemberRoleIdsChange: (ids: string[]) => void
   onSaveMemberRoles: () => Promise<void>
   onCancelEdit: () => void
+}
+
+/** Acceso base del workspace (hub) — ya no son roles de sistema, ver `WorkspaceAccessRole`. */
+const ACCESS_ROLE_LABEL: Record<WorkspaceAccessRole, string> = {
+  admin: 'Administrador',
+  member: 'Miembro',
+  external: 'Cliente externo',
+}
+
+const ACCESS_ROLE_BADGE_VARIANT: Record<WorkspaceAccessRole, 'info' | 'neutral' | 'warning'> = {
+  admin: 'info',
+  member: 'neutral',
+  external: 'warning',
 }
 
 export default function UsersSettingsTab({
@@ -40,27 +54,38 @@ export default function UsersSettingsTab({
           <p className="text-ink-500">Cargando miembros...</p>
         ) : (
           <div className="divide-y divide-gray-200">
-            {members.map((member) => (
-              <div key={member.membership_id} className="py-4 flex items-center justify-between gap-4">
-                <div>
-                  <p className="font-medium">{member.name || member.email}</p>
-                  <p className="text-sm text-ink-500">
-                    {member.email} • Rol: {member.role}
-                    {member.operational_role_ids?.length
-                      ? ` • Roles operativos: ${member.operational_role_ids.length}`
-                      : ''}
-                  </p>
+            {members.map((member) => {
+              const isAdmin = member.role === 'admin'
+              return (
+                <div key={member.membership_id} className="py-4 flex items-center justify-between gap-4">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="font-medium">{member.name || member.email}</p>
+                      <Badge variant={ACCESS_ROLE_BADGE_VARIANT[member.role]}>
+                        {ACCESS_ROLE_LABEL[member.role]}
+                      </Badge>
+                    </div>
+                    <p className="text-sm text-ink-500">
+                      {member.email}
+                      {member.operational_role_ids?.length
+                        ? ` • Roles operativos: ${member.operational_role_ids.length}`
+                        : ''}
+                    </p>
+                  </div>
+                  {canManageUsers && (
+                    <span title={isAdmin ? 'Los administradores tienen acceso total' : undefined}>
+                      <button
+                        onClick={() => onOpenMemberEdit(member)}
+                        disabled={isAdmin}
+                        className="px-3 py-1.5 text-sm bg-ink-100 hover:bg-ink-200 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-ink-100 rounded-md"
+                      >
+                        {editingMemberId === member.membership_id ? 'Editando...' : 'Asignar roles operativos'}
+                      </button>
+                    </span>
+                  )}
                 </div>
-                {canManageUsers && (
-                  <button
-                    onClick={() => onOpenMemberEdit(member)}
-                    className="px-3 py-1.5 text-sm bg-ink-100 hover:bg-ink-200 rounded-md"
-                  >
-                    {editingMemberId === member.membership_id ? 'Editando...' : 'Asignar roles operativos'}
-                  </button>
-                )}
-              </div>
-            ))}
+              )
+            })}
           </div>
         )}
         {editingMemberId && (

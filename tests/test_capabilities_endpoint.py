@@ -1,16 +1,11 @@
 """GET /users/me/capabilities: los permisos efectivos que consume la UI.
 
 El contrato que se fija acá es el que reemplaza a la matriz hardcodeada del
-frontend (useHasPermission.ts): lo que diga este endpoint es lo que la UI
-pinta, y tiene que coincidir EXACTAMENTE con lo que el backend después
-permite o rechaza en cada endpoint. Los casos claves:
+frontend: lo que diga este endpoint es lo que la UI pinta, y tiene que
+coincidir EXACTAMENTE con lo que el backend después permite o rechaza.
 
-  - `permissions` son los del rol — un admin NO recibe documents.delete,
-    que era la discrepancia que hacía aparecer el botón Eliminar y devolver
-    403 al usarlo.
-  - `folders` trae el acceso por carpeta YA resuelto (herencia incluida),
-    con el bypass de owner/admin/superadmin aplicado.
-  - superadmin de plataforma (claim) recibe el catálogo completo.
+Modelo (fase 3): acceso base ('admin'|'member'|'external') + roles operativos
+con nivel ('lectura'|'edicion'|'aprobacion') × carpetas.
 """
 
 from __future__ import annotations
@@ -36,6 +31,7 @@ from process_ai_core.db.models import (
     Workspace,
     WorkspaceMembership,
 )
+from process_ai_core.db.permissions import ALL_PERMISSIONS
 
 from api.routes import users as users_route
 
@@ -75,40 +71,10 @@ def session():
 
 @pytest.fixture
 def env(session):
-    """Workspace con roles reales del seed (matriz reducida) y dos carpetas."""
+    """Workspace con dos carpetas (una restringida) y roles de dos niveles."""
     ws = Workspace(id=_uid(), slug=f"ws-{_uid()[:8]}", name="WS", workspace_type="organization")
     session.add(ws)
-
-    perms = {}
-    for name in (
-        "documents.view",
-        "documents.create",
-        "documents.edit",
-        "documents.delete",
-        "documents.approve",
-    ):
-        p = Permission(id=_uid(), name=name, category="documents")
-        perms[name] = p
-        session.add(p)
-
-    roles = {}
-    matriz = {
-        # espejo del seed: admin SIN documents.delete
-        "owner": ["documents.view", "documents.create", "documents.edit",
-                  "documents.delete", "documents.approve"],
-        "admin": ["documents.view", "documents.create", "documents.edit",
-                  "documents.approve"],
-        "creator": ["documents.view", "documents.create", "documents.edit"],
-        "viewer": ["documents.view"],
-        "superadmin": [],
-    }
-    for name, perm_names in matriz.items():
-        r = Role(id=_uid(), name=name, is_system=True)
-        roles[name] = r
-        session.add(r)
-        session.flush()
-        for pn in perm_names:
-            session.add(RolePermission(role_id=r.id, permission_id=perms[pn].id))
+    session.flush()
 
     root = Folder(id=_uid(), workspace_id=ws.id, name="root", path="root",
                   inherits_permissions=True)
@@ -117,26 +83,32 @@ def env(session):
     session.add_all([root, restricted])
     session.flush()
 
-    op_role = OperationalRole(id=_uid(), workspace_id=ws.id, name="Pista", slug="pista")
-    session.add(op_role)
+    op_edicion = OperationalRole(
+        id=_uid(), workspace_id=ws.id, name="Pista", slug="pista", access_level="edicion"
+    )
+    op_aprobacion = OperationalRole(
+        id=_uid(), workspace_id=ws.id, name="Gerencia", slug="gerencia",
+        access_level="aprobacion",
+    )
+    session.add_all([op_edicion, op_aprobacion])
     session.flush()
-    session.add(FolderPermission(id=_uid(), folder_id=restricted.id,
-                                 operational_role_id=op_role.id))
+    for op in (op_edicion, op_aprobacion):
+        session.add(FolderPermission(id=_uid(), folder_id=restricted.id,
+                                     operational_role_id=op.id))
     session.commit()
 
     return SimpleNamespace(
-        session=session, ws=ws, roles=roles, perms=perms,
-        root=root, restricted=restricted, op_role=op_role,
+        session=session, ws=ws, root=root, restricted=restricted,
+        op_edicion=op_edicion, op_aprobacion=op_aprobacion,
     )
 
 
-def _user(env, role_name, *, op_roles=()):
+def _user(env, base_access, *, op_roles=()):
     u = User(id=_uid(), email=f"{_uid()[:8]}@t.io", name="U")
     env.session.add(u)
     env.session.flush()
     m = WorkspaceMembership(
-        id=_uid(), user_id=u.id, workspace_id=env.ws.id,
-        role_id=env.roles[role_name].id,
+        id=_uid(), user_id=u.id, workspace_id=env.ws.id, base_access=base_access,
     )
     env.session.add(m)
     env.session.flush()
@@ -148,7 +120,7 @@ def _user(env, role_name, *, op_roles=()):
     return u
 
 
-def _ctx(env, platform_roles=()):
+def _ctx(platform_roles=()):
     return SimpleNamespace(
         tenant=SimpleNamespace(id="tenant-1"),
         platform_roles=list(platform_roles),
@@ -159,68 +131,71 @@ def _ctx(env, platform_roles=()):
 def _call(env, user, monkeypatch, platform_roles=()):
     monkeypatch.setattr(users_route, "resolve_tenant_workspace_id", lambda ctx: env.ws.id)
     return users_route.get_my_capabilities(
-        ctx=_ctx(env, platform_roles), user_id=user.id, session=env.session
+        ctx=_ctx(platform_roles), user_id=user.id, session=env.session
     )
 
 
-def test_admin_no_recibe_documents_delete(env, monkeypatch):
-    """La discrepancia que la matriz del front tenía mal: admin sin delete."""
+def test_admin_recibe_catalogo_completo_y_bypass_por_carpeta(env, monkeypatch):
     admin = _user(env, "admin")
     caps = _call(env, admin, monkeypatch)
-    assert "documents.delete" not in caps["permissions"]
-    assert "documents.approve" in caps["permissions"]
     assert caps["role"] == "admin"
-    # Pero el acceso por CARPETA sí tiene bypass de admin:
+    assert set(caps["permissions"]) == set(ALL_PERMISSIONS)
+    assert caps["can_manage_workspace"] is True
+    assert caps["can_manage_branding"] is True
     assert caps["folders"][env.restricted.id] == {
         "view": True, "create": True, "approve": True,
     }
 
 
-def test_creator_con_rol_operativo_ve_solo_sus_carpetas(env, monkeypatch):
-    con_acceso = _user(env, "creator", op_roles=[env.op_role])
-    sin_acceso = _user(env, "creator")
+def test_member_con_rol_operativo_ve_solo_sus_carpetas(env, monkeypatch):
+    con_acceso = _user(env, "member", op_roles=[env.op_edicion])
+    sin_acceso = _user(env, "member")
 
     caps_ok = _call(env, con_acceso, monkeypatch)
     assert caps_ok["folders"][env.root.id]["create"] is True
     assert caps_ok["folders"][env.restricted.id]["create"] is True
-    # creator no aprueba en ningún lado (no tiene documents.approve)
+    # su rol es de edición: no aprueba en ningún lado
     assert caps_ok["folders"][env.restricted.id]["approve"] is False
+    assert caps_ok["operational_role_ids"] == [env.op_edicion.id]
 
     caps_no = _call(env, sin_acceso, monkeypatch)
-    assert caps_no["folders"][env.root.id]["create"] is True  # sin restricción
+    assert caps_no["folders"][env.root.id]["create"] is True  # base edición
     assert caps_no["folders"][env.restricted.id] == {
         "view": False, "create": False, "approve": False,
     }
     assert caps_no["operational_role_ids"] == []
-    assert caps_ok["operational_role_ids"] == [env.op_role.id]
 
 
-def test_viewer_solo_lectura_y_sin_gestion(env, monkeypatch):
-    viewer = _user(env, "viewer")
-    caps = _call(env, viewer, monkeypatch)
-    assert caps["permissions"] == ["documents.view"]
+def test_member_con_rol_de_aprobacion_aprueba(env, monkeypatch):
+    aprobador = _user(env, "member", op_roles=[env.op_aprobacion])
+    caps = _call(env, aprobador, monkeypatch)
+    assert "documents.approve" in caps["permissions"]
+    assert caps["folders"][env.restricted.id]["approve"] is True
+    # y no gestiona el workspace por eso
     assert caps["can_manage_workspace"] is False
-    assert caps["can_manage_branding"] is False
-    assert caps["folders"][env.root.id] == {
+
+
+def test_external_solo_lectura_y_sin_gestion(env, monkeypatch):
+    externo = _user(env, "external", op_roles=[env.op_aprobacion])
+    caps = _call(env, externo, monkeypatch)
+    assert caps["role"] == "external"
+    # el cap de external gana aunque su rol operativo sea de aprobación
+    assert "documents.approve" not in caps["permissions"]
+    assert "documents.create" not in caps["permissions"]
+    assert "documents.view" in caps["permissions"]
+    assert caps["can_manage_workspace"] is False
+    assert caps["folders"][env.restricted.id] == {
         "view": True, "create": False, "approve": False,
     }
 
 
 def test_superadmin_de_plataforma_recibe_el_catalogo_completo(env, monkeypatch):
-    """El claim platform_roles alcanza: no hace falta membership superadmin local."""
-    viewer = _user(env, "viewer")
-    caps = _call(env, viewer, monkeypatch, platform_roles=["superadmin"])
+    """El claim platform_roles alcanza: no hace falta membership admin local."""
+    externo = _user(env, "external")
+    caps = _call(env, externo, monkeypatch, platform_roles=["superadmin"])
     assert caps["is_superadmin"] is True
-    assert set(caps["permissions"]) == set(env.perms.keys())
+    assert set(caps["permissions"]) == set(ALL_PERMISSIONS)
     assert caps["folders"][env.restricted.id] == {
         "view": True, "create": True, "approve": True,
     }
     assert caps["can_manage_workspace"] is True
-
-
-def test_owner_gestiona_workspace_y_branding(env, monkeypatch):
-    owner = _user(env, "owner")
-    caps = _call(env, owner, monkeypatch)
-    assert caps["can_manage_workspace"] is True
-    assert caps["can_manage_branding"] is True
-    assert "documents.delete" in caps["permissions"]

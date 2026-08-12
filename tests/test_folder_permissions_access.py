@@ -75,8 +75,7 @@ def _create_workspace_and_folder(session, *, workspace_type: str = "organization
 def test_superadmin_puede_ver_permissions(session, monkeypatch):
     workspace, folder = _create_workspace_and_folder(session)
 
-    monkeypatch.setattr(folders_route, "is_superadmin", lambda *_args, **_kwargs: True)
-    monkeypatch.setattr(folders_route, "get_user_role", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(folders_route, "is_workspace_admin", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(folders_route, "resolve_tenant_workspace_id", lambda _ctx: workspace.id)
 
     resp = (
@@ -95,8 +94,7 @@ def test_superadmin_puede_ver_permissions(session, monkeypatch):
 def test_viewer_miembro_devuelve_403(session, monkeypatch):
     workspace, folder = _create_workspace_and_folder(session)
 
-    monkeypatch.setattr(folders_route, "is_superadmin", lambda *_args, **_kwargs: False)
-    monkeypatch.setattr(folders_route, "get_user_role", lambda *_args, **_kwargs: SimpleNamespace(name="viewer"))
+    monkeypatch.setattr(folders_route, "is_workspace_admin", lambda *_args, **_kwargs: False)
     monkeypatch.setattr(folders_route, "resolve_tenant_workspace_id", lambda _ctx: workspace.id)
 
     with pytest.raises(HTTPException) as exc:
@@ -115,8 +113,7 @@ def test_viewer_miembro_devuelve_403(session, monkeypatch):
 def test_admin_miembro_devuelve_200(session, monkeypatch):
     workspace, folder = _create_workspace_and_folder(session)
 
-    monkeypatch.setattr(folders_route, "is_superadmin", lambda *_args, **_kwargs: False)
-    monkeypatch.setattr(folders_route, "get_user_role", lambda *_args, **_kwargs: SimpleNamespace(name="admin"))
+    monkeypatch.setattr(folders_route, "is_workspace_admin", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(folders_route, "resolve_tenant_workspace_id", lambda _ctx: workspace.id)
 
     resp = (
@@ -163,17 +160,12 @@ def _create_permission_tree(session):
 
 
 def _allow_admin(monkeypatch, workspace_id):
-    monkeypatch.setattr(
-        folders_route,
-        "get_user_role",
-        lambda *_args, **_kwargs: SimpleNamespace(name="admin"),
-    )
+    monkeypatch.setattr(folders_route, "is_workspace_admin", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(folders_route, "resolve_tenant_workspace_id", lambda _ctx: workspace_id)
 
 
 def test_get_permissions_devuelve_roles_heredados_y_origen(session, monkeypatch):
     workspace, root, child, role = _create_permission_tree(session)
-    monkeypatch.setattr(folders_route, "is_superadmin", lambda *_args, **_kwargs: False)
     _allow_admin(monkeypatch, workspace.id)
 
     resp = (
@@ -193,7 +185,6 @@ def test_get_permissions_devuelve_roles_heredados_y_origen(session, monkeypatch)
 
 def test_get_permissions_devuelve_origen_personalizado(session, monkeypatch):
     workspace, root, _child, role = _create_permission_tree(session)
-    monkeypatch.setattr(folders_route, "is_superadmin", lambda *_args, **_kwargs: False)
     _allow_admin(monkeypatch, workspace.id)
 
     resp = (

@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
-import { useUserRole } from '@/hooks/useUserRole'
+import { useHasPermission } from '@/hooks/useHasPermission'
 import { useUserValidation } from '@/hooks/useUserValidation'
 import { createClient } from '@/lib/supabase/client'
 import { redirectToHubLogin } from '@/lib/hub-login'
@@ -13,10 +13,13 @@ import { Card, CardBody, Badge, Button } from '@/shared/ui/components'
 export default function Home() {
   const router = useRouter()
   const { selectedWorkspaceId, loading: workspaceLoading } = useWorkspace()
-  const { role, loading: roleLoading } = useUserRole()
+  const { hasPermission: canApprove, loading: approveLoading } = useHasPermission('documents.approve')
+  const { hasPermission: canEdit, loading: editLoading } = useHasPermission('documents.edit')
+  const { hasPermission: canView, loading: viewLoading } = useHasPermission('documents.view')
+  const permissionsLoading = approveLoading || editLoading || viewLoading
   const userValidation = useUserValidation()
 
-  // El middleware ya validó la sesión SSO. Acá solo enrutamos según rol/workspace.
+  // El middleware ya validó la sesión SSO. Acá solo enrutamos según permisos/workspace.
   useEffect(() => {
     if (userValidation.isValid === null) return
     if (userValidation.isValid === false) return
@@ -27,18 +30,27 @@ export default function Home() {
       return
     }
 
-    if (roleLoading) return
+    if (permissionsLoading) return
 
-    if (role === 'owner' || role === 'admin' || role === 'approver') {
+    if (canApprove) {
       router.push('/dashboard/approval-queue')
-    } else if (role === 'creator') {
-      router.push('/dashboard/to-review')
-    } else if (role === 'viewer') {
+    } else if (canEdit) {
+      router.push('/workspace')
+    } else if (canView) {
       router.push('/dashboard/view')
     } else {
       router.push('/workspace')
     }
-  }, [userValidation, workspaceLoading, selectedWorkspaceId, roleLoading, role, router])
+  }, [
+    userValidation,
+    workspaceLoading,
+    selectedWorkspaceId,
+    permissionsLoading,
+    canApprove,
+    canEdit,
+    canView,
+    router,
+  ])
 
   if (userValidation.isValid === false) {
     return (
@@ -78,8 +90,8 @@ export default function Home() {
         <p className="text-sm text-ink-600">
           {userValidation.isValid === null
             ? 'Cargando tu perfil...'
-            : roleLoading
-            ? 'Determinando tu rol...'
+            : permissionsLoading
+            ? 'Determinando tus permisos...'
             : 'Redirigiendo...'}
         </p>
       </div>

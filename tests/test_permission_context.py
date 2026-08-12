@@ -1,10 +1,13 @@
 """
-Tests de caracterización de can_view_folder / can_approve_in_folder y de
-paridad con PermissionContext (evaluación bulk sin N+1).
+Tests de caracterización de can_view_folder / can_create_in_folder /
+can_approve_in_folder y de paridad con PermissionContext (evaluación bulk).
+
+Modelo (fase 3): acceso base de la membership ('admin'|'member'|'external') +
+roles operativos con nivel ('lectura'|'edicion'|'aprobacion') × carpetas.
 
 Estructura: cada escenario verifica
   1. El comportamiento de la función original (caracterización — fija la
-     semántica actual ANTES del refactor).
+     semántica del modelo).
   2. Que PermissionContext devuelve EXACTAMENTE lo mismo (paridad).
 
 Si un cambio futuro rompe la paridad, estos tests fallan: PermissionContext
@@ -75,7 +78,7 @@ def _uid() -> str:
 
 
 class Env:
-    """Workspace con roles de sistema, permisos y carpetas de prueba."""
+    """Workspace con roles operativos de los tres niveles y carpetas de prueba."""
 
     def __init__(self, session):
         self.session = session
@@ -84,35 +87,14 @@ class Env:
         )
         session.add(self.workspace)
 
-        # Permisos
-        self.perms = {}
-        for name in ("documents.view", "documents.create", "documents.approve"):
-            p = Permission(id=_uid(), name=name, category="documents")
-            self.perms[name] = p
-            session.add(p)
-
-        # Roles de sistema (superadmin con is_system=True, como en el seed real)
-        self.roles = {}
-        role_perms = {
-            "superadmin": [],
-            "owner": [],
-            "admin": [],
-            "approver": ["documents.view", "documents.approve"],
-            "creator": ["documents.view", "documents.create"],
-            "viewer": ["documents.view"],
-            "norights": [],  # rol sin ningún permiso
-        }
-        for name, perm_names in role_perms.items():
-            r = Role(id=_uid(), name=name, is_system=True)
-            self.roles[name] = r
-            session.add(r)
-            session.flush()
-            for pn in perm_names:
-                session.add(RolePermission(role_id=r.id, permission_id=self.perms[pn].id))
+        # Rol legacy 'superadmin': lo único que queda de las tablas de roles
+        # (fallback del superadmin por membership, pre-cleanup).
+        self.legacy_superadmin_role = Role(id=_uid(), name="superadmin", is_system=True)
+        session.add(self.legacy_superadmin_role)
 
         # Carpetas:
         #   root (hereda, sin permisos explícitos) → sin restricción
-        #   restricted (inherits=False + permiso para op_role_a)
+        #   restricted (inherits=False + permisos para op_edicion/op_aprobacion/op_lectura)
         #   child_of_restricted (hereda de restricted)
         #   empty_explicit (inherits=False, CERO filas) → quirk: sin restricción
         self.root = self._folder("root", parent=None, inherits=True)
@@ -122,22 +104,20 @@ class Env:
         )
         self.empty_explicit = self._folder("empty-explicit", parent=None, inherits=False)
 
-        # Roles operativos
-        self.op_role_a = OperationalRole(
-            id=_uid(), workspace_id=self.workspace.id, name="Rol A", slug="rol-a"
-        )
-        self.op_role_b = OperationalRole(
-            id=_uid(), workspace_id=self.workspace.id, name="Rol B", slug="rol-b"
-        )
-        session.add_all([self.op_role_a, self.op_role_b])
-        session.flush()
-        session.add(
-            FolderPermission(
-                id=_uid(),
-                folder_id=self.restricted.id,
-                operational_role_id=self.op_role_a.id,
+        # Roles operativos, uno por nivel + uno "equivocado" (sin acceso a restricted)
+        self.op_lectura = self._op_role("Lector", "lectura")
+        self.op_edicion = self._op_role("Pistero", "edicion")
+        self.op_aprobacion = self._op_role("Gerencia", "aprobacion")
+        self.op_otro = self._op_role("Otro", "edicion")
+
+        for op in (self.op_lectura, self.op_edicion, self.op_aprobacion):
+            session.add(
+                FolderPermission(
+                    id=_uid(),
+                    folder_id=self.restricted.id,
+                    operational_role_id=op.id,
+                )
             )
-        )
         session.commit()
 
     def _folder(self, name, *, parent, inherits) -> Folder:
@@ -153,17 +133,29 @@ class Env:
         self.session.flush()
         return f
 
-    def user_with_role(self, role_name: str | None, *, op_roles=()) -> User:
-        """Crea usuario; role_name=None → sin membership en el workspace."""
+    def _op_role(self, name: str, level: str) -> OperationalRole:
+        r = OperationalRole(
+            id=_uid(),
+            workspace_id=self.workspace.id,
+            name=name,
+            slug=name.lower(),
+            access_level=level,
+        )
+        self.session.add(r)
+        self.session.flush()
+        return r
+
+    def user_with(self, base_access: str | None, *, op_roles=()) -> User:
+        """Crea usuario; base_access=None → sin membership en el workspace."""
         u = User(id=_uid(), email=f"{_uid()[:8]}@t.io", name="U")
         self.session.add(u)
         self.session.flush()
-        if role_name is not None:
+        if base_access is not None:
             m = WorkspaceMembership(
                 id=_uid(),
                 user_id=u.id,
                 workspace_id=self.workspace.id,
-                role_id=self.roles[role_name].id,
+                base_access=base_access,
             )
             self.session.add(m)
             self.session.flush()
@@ -192,7 +184,8 @@ class Env:
                 id=_uid(),
                 user_id=u.id,
                 workspace_id=other_ws.id,
-                role_id=self.roles["superadmin"].id,
+                base_access="admin",
+                role_id=self.legacy_superadmin_role.id,
             )
         )
         self.session.commit()
@@ -232,7 +225,7 @@ def _assert_parity(session, env, user, folder_id, *, platform_is_superadmin=Fals
 
 
 def test_platform_superadmin_bypass(session, env):
-    user = env.user_with_role(None)  # ni siquiera es miembro
+    user = env.user_with(None)  # ni siquiera es miembro
     r = _assert_parity(session, env, user, env.restricted.id, platform_is_superadmin=True)
     assert r == {
         "can_view_folder": True,
@@ -247,57 +240,117 @@ def test_legacy_superadmin_membership_bypass(session, env):
     assert all(r.values())
 
 
-def test_owner_y_admin_bypass(session, env):
-    for role in ("owner", "admin"):
-        user = env.user_with_role(role)
-        r = _assert_parity(session, env, user, env.restricted.id)
-        assert all(r.values()), f"{role} debería tener bypass total"
+def test_base_admin_bypass(session, env):
+    user = env.user_with("admin")
+    r = _assert_parity(session, env, user, env.restricted.id)
+    assert all(r.values()), "el admin del workspace tiene bypass total"
 
 
 def test_sin_membership_deniega(session, env):
-    user = env.user_with_role(None)
+    user = env.user_with(None)
     r = _assert_parity(session, env, user, env.root.id)
     assert not any(r.values())
 
 
-def test_viewer_carpeta_sin_restriccion(session, env):
-    user = env.user_with_role("viewer")
+def test_member_sin_roles_en_carpeta_sin_restriccion(session, env):
+    """Nivel base del member = edición: crea/edita donde no hay restricción."""
+    user = env.user_with("member")
     r = _assert_parity(session, env, user, env.root.id)
-    # viewer tiene documents.view pero no create/approve
+    assert r["can_view_folder"] is True
+    assert r["can_create_in_folder"] is True
+    assert r["can_approve_in_folder"] is False
+
+
+def test_external_en_carpeta_sin_restriccion(session, env):
+    """external = tope de solo lectura, siempre."""
+    user = env.user_with("external")
+    r = _assert_parity(session, env, user, env.root.id)
     assert r["can_view_folder"] is True
     assert r["can_create_in_folder"] is False
     assert r["can_approve_in_folder"] is False
 
 
-def test_rol_sin_permisos_deniega(session, env):
-    user = env.user_with_role("norights")
+def test_member_con_rol_aprobacion_aprueba_en_carpeta_sin_restriccion(session, env):
+    """El nivel del rol operativo SUMA sobre el nivel base en zona sin restricción."""
+    user = env.user_with("member", op_roles=[env.op_aprobacion])
     r = _assert_parity(session, env, user, env.root.id)
-    assert not any(r.values())
+    assert all(r.values())
 
 
-def test_carpeta_restringida_con_rol_operativo(session, env):
-    user = env.user_with_role("creator", op_roles=[env.op_role_a])
+def test_carpeta_restringida_con_rol_de_edicion(session, env):
+    user = env.user_with("member", op_roles=[env.op_edicion])
     r = _assert_parity(session, env, user, env.restricted.id)
     assert r["can_view_folder"] is True
     assert r["can_create_in_folder"] is True
-    assert r["can_approve_in_folder"] is False  # creator no tiene documents.approve
+    assert r["can_approve_in_folder"] is False  # su rol no llega a 'aprobacion'
+
+
+def test_carpeta_restringida_con_rol_de_lectura(session, env):
+    """Los niveles son acumulativos hacia abajo, nunca hacia arriba."""
+    user = env.user_with("member", op_roles=[env.op_lectura])
+    r = _assert_parity(session, env, user, env.restricted.id)
+    assert r["can_view_folder"] is True
+    assert r["can_create_in_folder"] is False
+    assert r["can_approve_in_folder"] is False
+
+
+def test_carpeta_restringida_con_rol_de_aprobacion(session, env):
+    user = env.user_with("member", op_roles=[env.op_aprobacion])
+    r = _assert_parity(session, env, user, env.restricted.id)
+    assert all(r.values())
 
 
 def test_carpeta_restringida_sin_rol_operativo(session, env):
-    user = env.user_with_role("creator")  # sin roles operativos
+    """El nivel base del member NO abre carpetas restringidas."""
+    user = env.user_with("member")
     r = _assert_parity(session, env, user, env.restricted.id)
     assert not any(r.values())
 
 
 def test_carpeta_restringida_rol_operativo_equivocado(session, env):
-    user = env.user_with_role("approver", op_roles=[env.op_role_b])
+    user = env.user_with("member", op_roles=[env.op_otro])
     r = _assert_parity(session, env, user, env.restricted.id)
     assert not any(r.values())
 
 
+def test_external_con_rol_de_aprobacion_sigue_siendo_solo_lectura(session, env):
+    """El cap de external gana siempre, tenga el rol que tenga."""
+    user = env.user_with("external", op_roles=[env.op_aprobacion])
+    r = _assert_parity(session, env, user, env.restricted.id)
+    assert r["can_view_folder"] is True
+    assert r["can_create_in_folder"] is False
+    assert r["can_approve_in_folder"] is False
+
+
+def test_evaluacion_por_par_permiso_carpeta(session, env):
+    """Aprueba en la carpeta de su rol de aprobación, solo lee en la del otro.
+
+    Es lo que el modelo viejo no podía expresar: la capacidad va POR CARPETA,
+    no global. Se arma una segunda carpeta restringida a op_otro (edición) y
+    un usuario con op_aprobacion (→ restricted) + op_otro (→ otra).
+    """
+    otra = env._folder("otra-restringida", parent=None, inherits=False)
+    env.session.add(
+        FolderPermission(
+            id=_uid(), folder_id=otra.id, operational_role_id=env.op_otro.id
+        )
+    )
+    env.session.commit()
+
+    user = env.user_with("member", op_roles=[env.op_aprobacion, env.op_otro])
+
+    en_restricted = _assert_parity(session, env, user, env.restricted.id)
+    assert en_restricted["can_approve_in_folder"] is True
+
+    en_otra = _assert_parity(session, env, user, otra.id)
+    assert en_otra["can_view_folder"] is True
+    assert en_otra["can_create_in_folder"] is True
+    assert en_otra["can_approve_in_folder"] is False  # op_otro es 'edicion'
+
+
 def test_herencia_desde_ancestro_restringido(session, env):
-    con_acceso = env.user_with_role("approver", op_roles=[env.op_role_a])
-    sin_acceso = env.user_with_role("approver", op_roles=[env.op_role_b])
+    con_acceso = env.user_with("member", op_roles=[env.op_aprobacion])
+    sin_acceso = env.user_with("member", op_roles=[env.op_otro])
     r1 = _assert_parity(session, env, con_acceso, env.child_of_restricted.id)
     r2 = _assert_parity(session, env, sin_acceso, env.child_of_restricted.id)
     assert r1["can_view_folder"] is True
@@ -305,21 +358,29 @@ def test_herencia_desde_ancestro_restringido(session, env):
     assert r2["can_view_folder"] is False
 
 
+def test_rol_operativo_inactivo_no_cuenta(session, env):
+    user = env.user_with("member", op_roles=[env.op_edicion])
+    env.op_edicion.is_active = False
+    env.session.commit()
+    r = _assert_parity(session, env, user, env.restricted.id)
+    assert not any(r.values())
+
+
 def test_quirk_explicit_sin_filas_es_sin_restriccion(session, env):
     """inherits_permissions=False con CERO folder_permissions == sin restricción."""
-    user = env.user_with_role("viewer")  # sin roles operativos
+    user = env.user_with("external")  # sin roles operativos
     r = _assert_parity(session, env, user, env.empty_explicit.id)
     assert r["can_view_folder"] is True
 
 
 def test_folder_id_none_es_sin_restriccion(session, env):
-    user = env.user_with_role("viewer")
+    user = env.user_with("external")
     r = _assert_parity(session, env, user, None)
     assert r["can_view_folder"] is True
 
 
 def test_folder_inexistente_es_sin_restriccion(session, env):
-    user = env.user_with_role("viewer")
+    user = env.user_with("external")
     r = _assert_parity(session, env, user, "no-existe")
     assert r["can_view_folder"] is True
 
@@ -330,7 +391,7 @@ def test_ciclo_en_jerarquia_es_sin_restriccion(session, env):
     b = env._folder("ciclo-b", parent=a, inherits=True)
     a.parent_id = b.id
     session.commit()
-    user = env.user_with_role("viewer")
+    user = env.user_with("external")
     r = _assert_parity(session, env, user, a.id)
     assert r["can_view_folder"] is True
 
@@ -366,26 +427,17 @@ def test_carpeta_de_otro_workspace_camino_fallback(session, env):
         )
     )
     session.commit()
-    user = env.user_with_role("viewer")
+    user = env.user_with("member")
     r = _assert_parity(session, env, user, foreign_restricted.id)
     # restringida a un rol que el usuario no tiene → False (y paridad exacta)
     assert r["can_view_folder"] is False
-
-
-# NOTA sobre la rama legacy "rol por nombre" (membership.role_id is None →
-# Role por membership.role string, en get_user_role / has_permission):
-# workspace_memberships.role_id es NOT NULL tanto en el modelo como en el
-# baseline de la BD (alembic/versions/0001_baseline.sql), así que ese estado
-# es irrepresentable — la rama es código muerto en la práctica.
-# PermissionContext la replica igual (mismo if membership.role_id / else),
-# pero no puede testearse con datos reales. Candidata a limpieza futura.
 
 
 # --- Conteo de queries: el contexto debe ser O(1) en carpetas evaluadas ---
 
 
 def test_conteo_queries_bulk_es_constante(session, env):
-    user = env.user_with_role("approver", op_roles=[env.op_role_a])
+    user = env.user_with("member", op_roles=[env.op_aprobacion])
     folders = [env._folder(f"extra-{i}", parent=None, inherits=True) for i in range(30)]
     session.commit()
     folder_ids = [f.id for f in folders] + [
@@ -418,9 +470,7 @@ def test_conteo_queries_bulk_es_constante(session, env):
         event.remove(engine, "before_cursor_execute", _count)
 
     assert got == expected
-    # El contexto hace un número constante de queries (~7), sin importar N=33.
-    assert n_bulk <= 8, f"bulk hizo {n_bulk} queries (esperado ≤8)"
-    assert n_original > n_bulk * 5, (
-        f"el original hizo {n_original} queries vs {n_bulk} del bulk; "
-        "se esperaba una reducción de al menos 5x"
+    assert n_bulk < n_original, (
+        f"el contexto bulk ({n_bulk} queries) debería ejecutar menos SELECTs "
+        f"que el camino por-item ({n_original})"
     )

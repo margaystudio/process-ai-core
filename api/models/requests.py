@@ -218,6 +218,10 @@ class OperationalRoleCreateRequest(BaseModel):
     name: str = Field(..., description="Nombre del rol (ej: Pistero)")
     slug: Optional[str] = Field(default=None, description="Slug único (se infiere de name si no se envía)")
     description: Optional[str] = Field(default="", description="Descripción")
+    access_level: Optional[str] = Field(
+        default="edicion",
+        description="Nivel de acceso del rol: lectura | edicion | aprobacion (acumulativos)",
+    )
 
 
 class OperationalRoleUpdateRequest(BaseModel):
@@ -226,6 +230,9 @@ class OperationalRoleUpdateRequest(BaseModel):
     name: Optional[str] = Field(default=None, description="Nombre del rol")
     description: Optional[str] = Field(default=None, description="Descripción")
     is_active: Optional[bool] = Field(default=None, description="Activo/inactivo")
+    access_level: Optional[str] = Field(
+        default=None, description="Nivel de acceso: lectura | edicion | aprobacion"
+    )
 
 
 class OperationalRoleResponse(BaseModel):
@@ -236,6 +243,7 @@ class OperationalRoleResponse(BaseModel):
     name: str = Field(..., description="Nombre del rol")
     slug: str = Field(..., description="Slug")
     description: str = Field(default="", description="Descripción")
+    access_level: str = Field(default="edicion", description="Nivel de acceso: lectura | edicion | aprobacion")
     is_active: bool = Field(..., description="Activo")
     created_at: str = Field(..., description="Fecha de creación")
     updated_at: str = Field(..., description="Fecha de actualización")

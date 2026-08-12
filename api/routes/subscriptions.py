@@ -27,7 +27,7 @@ from process_ai_core.db.helpers import (
     check_workspace_limit,
 )
 from process_ai_core.db.models import Workspace, SubscriptionPlan
-from process_ai_core.db.permissions import get_user_role
+from process_ai_core.db.permissions import get_membership_base_access
 
 router = APIRouter(
     prefix="/api/v1",
@@ -42,8 +42,7 @@ router = APIRouter(
 
 def _require_workspace_member(session: Session, user_id: str, workspace_id: str) -> None:
     """Lanza 403 si el usuario no es miembro del workspace (mismo patrón que folders)."""
-    role = get_user_role(session, user_id, workspace_id)
-    if not role:
+    if get_membership_base_access(session, user_id, workspace_id) is None:
         raise HTTPException(
             status_code=403,
             detail="No es miembro de este workspace",

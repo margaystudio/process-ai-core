@@ -85,10 +85,10 @@ def test_get_document_devuelve_preguntas_abiertas_en_metadata(monkeypatch, sessi
     monkeypatch.setattr(documents_route, "resolve_tenant_workspace_id", lambda _ctx: workspace.id)
     import process_ai_core.db.permissions as permissions_module
 
+    # Solo-lectura no bloquea acá: el doc está aprobado. Se deja pasar el
+    # permiso global para aislar lo que este test verifica (metadata).
     monkeypatch.setattr(
-        permissions_module,
-        "get_user_role",
-        lambda *_args, **_kwargs: SimpleNamespace(name="viewer"),
+        permissions_module, "has_permission", lambda *_args, **_kwargs: True
     )
 
     response = (documents_route.get_document(doc.id, user_id="test-user", ctx=None))

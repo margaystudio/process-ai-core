@@ -18,7 +18,7 @@ from process_ai_core.db.models import (
 from api.dependencies import get_db, get_current_user_id
 from api.request_identity import capture_request_identity
 from api.workspace_client import require_process_ai_access, sync_workspace_access
-from process_ai_core.db.permissions import get_user_role
+from process_ai_core.db.permissions import ACCESS_LEVELS, is_workspace_admin
 
 from ..models.requests import (
     OperationalRoleCreateRequest,
@@ -64,13 +64,21 @@ def _make_unique_slug(session: Session, workspace_id: str, base_slug: str) -> st
 
 
 def _require_workspace_admin(session: Session, user_id: str, workspace_id: str) -> None:
-    """Lanza 403 si el usuario no es owner/admin (o superadmin) del workspace."""
-    role = get_user_role(session, user_id, workspace_id)
-    if not role or role.name not in ("owner", "admin", "superadmin"):
+    """Lanza 403 si el usuario no es admin del workspace (o superadmin)."""
+    if not is_workspace_admin(session, user_id, workspace_id):
         raise HTTPException(
             status_code=403,
-            detail="Se requiere rol owner o admin en el workspace",
+            detail="Se requiere ser administrador del workspace",
         )
+
+
+def _validate_access_level(value: str) -> str:
+    if value not in ACCESS_LEVELS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"access_level inválido: '{value}'. Valores: {', '.join(ACCESS_LEVELS)}",
+        )
+    return value
 
 
 @router.get("/workspaces/{workspace_id}/operational-roles", response_model=list[OperationalRoleResponse])
@@ -92,6 +100,7 @@ def list_operational_roles(
             name=r.name,
             slug=r.slug,
             description=r.description or "",
+            access_level=r.access_level,
             is_active=r.is_active,
             created_at=r.created_at.isoformat(),
             updated_at=r.updated_at.isoformat(),
@@ -125,6 +134,7 @@ def create_operational_role(
         name=request.name,
         slug=slug,
         description=request.description or "",
+        access_level=_validate_access_level(request.access_level or "edicion"),
         is_active=True,
     )
     session.add(role)
@@ -135,6 +145,7 @@ def create_operational_role(
         name=role.name,
         slug=role.slug,
         description=role.description or "",
+        access_level=role.access_level,
         is_active=role.is_active,
         created_at=role.created_at.isoformat(),
         updated_at=role.updated_at.isoformat(),
@@ -159,6 +170,8 @@ def update_operational_role(
         role.description = request.description
     if request.is_active is not None:
         role.is_active = request.is_active
+    if request.access_level is not None:
+        role.access_level = _validate_access_level(request.access_level)
     role.updated_at = datetime.now(UTC)
     session.flush()
     return OperationalRoleResponse(
@@ -167,6 +180,7 @@ def update_operational_role(
         name=role.name,
         slug=role.slug,
         description=role.description or "",
+        access_level=role.access_level,
         is_active=role.is_active,
         created_at=role.created_at.isoformat(),
         updated_at=role.updated_at.isoformat(),

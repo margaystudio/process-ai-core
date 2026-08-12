@@ -1,8 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { getMyCapabilities, type MyCapabilities } from '@/lib/api'
-import { useWorkspace } from '@/contexts/WorkspaceContext'
+import { useCapabilities } from './useCapabilities'
 
 /**
  * Verifica permisos contra las capacidades EFECTIVAS del backend
@@ -17,29 +15,7 @@ import { useWorkspace } from '@/contexts/WorkspaceContext'
  * Fail-closed: mientras `capabilities` no cargó, `hasPermission` es `false`.
  */
 export function useHasPermission(permissionName: string): { hasPermission: boolean; loading: boolean } {
-  const { selectedWorkspaceId, activeTenantId } = useWorkspace()
-  const [capabilities, setCapabilities] = useState<MyCapabilities | null>(null)
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    let cancelled = false
-    setLoading(true)
-    getMyCapabilities()
-      .then((data) => {
-        if (!cancelled) setCapabilities(data)
-      })
-      .catch(() => {
-        if (!cancelled) setCapabilities(null)
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
-    // Refetch al cambiar de workspace/tenant activo (el caché de 5s en lib/api
-    // amortigua las llamadas duplicadas entre hooks montados en simultáneo).
-  }, [selectedWorkspaceId, activeTenantId])
+  const { capabilities, loading } = useCapabilities()
 
   const hasPermission = Boolean(
     capabilities && (capabilities.is_superadmin || capabilities.permissions.includes(permissionName))
@@ -62,4 +38,22 @@ export function useCanApproveDocuments() {
 
 export function useCanRejectDocuments() {
   return useHasPermission('documents.reject')
+}
+
+/**
+ * Gate de administración del workspace (settings, importación por lote,
+ * relaciones globales, menú "Administración" del sidebar, etc.).
+ * `capabilities.can_manage_workspace` ya resuelve el bypass de superadmin y
+ * el acceso base 'admin' del workspace — no hay más roles de sistema que
+ * comparar acá (reemplaza a `canAdministerWorkspace` de `lib/adminGating`).
+ */
+export function useCanManageWorkspace(): { canManage: boolean; loading: boolean } {
+  const { capabilities, loading } = useCapabilities()
+  return { canManage: Boolean(capabilities?.can_manage_workspace), loading }
+}
+
+/** Gate de personalización (branding) del workspace. */
+export function useCanManageBranding(): { canManage: boolean; loading: boolean } {
+  const { capabilities, loading } = useCapabilities()
+  return { canManage: Boolean(capabilities?.can_manage_branding), loading }
 }

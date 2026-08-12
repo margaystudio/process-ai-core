@@ -295,8 +295,9 @@ def test_renombrar_una_carpeta_sobrevive_a_una_auditoria_rota(session_con_fk, mo
         folders_route, "resolve_tenant_workspace_id", lambda _ctx: workspace.id
     )
     monkeypatch.setattr(
-        folders_route, "get_user_role", lambda *_a, **_k: SimpleNamespace(name="admin")
+        folders_route, "get_membership_base_access", lambda *_a, **_k: "admin"
     )
+    monkeypatch.setattr(folders_route, "is_workspace_admin", lambda *_a, **_k: True)
     monkeypatch.setattr(folders_route, "can_create_in_folder", lambda *_a, **_k: True)
 
     folders_route.update_folder_endpoint(

@@ -37,7 +37,6 @@ import { formatDateTime } from '@/utils/dateFormat'
 import { useCanApproveDocuments, useCanRejectDocuments, useHasPermission } from '@/hooks/useHasPermission'
 import { useFolderAccess } from '@/hooks/useFolderAccess'
 import { useUserId } from '@/hooks/useUserId'
-import { useUserRole } from '@/hooks/useUserRole'
 import { getDocumentActions } from '@/lib/documentActions'
 
 // Sub-componentes
@@ -78,10 +77,9 @@ export default function DocumentDetailPage() {
   const userId = useUserId()
   const { hasPermission: hasApprovePermission } = useCanApproveDocuments()
   const { hasPermission: hasRejectPermission } = useCanRejectDocuments()
-  const { hasPermission: hasDocumentEditPermission } = useHasPermission('documents.edit')
+  const { hasPermission: hasDocumentEditPermission, loading: editPermLoading } = useHasPermission('documents.edit')
   const { hasPermission: hasDocumentCreatePermission } = useHasPermission('documents.create')
   const { hasPermission: hasDocumentDeletePermission } = useHasPermission('documents.delete')
-  const { role: userRoleName } = useUserRole()
   const { canApprove: canApproveInFolder, canCreate: canCreateInFolder } = useFolderAccess()
 
   // Datos
@@ -546,8 +544,8 @@ export default function DocumentDetailPage() {
 
   if (!document) return null
 
-  // Viewer: solo puede ver documentos aprobados
-  if (userRoleName === 'viewer' && document.status !== 'approved') {
+  // Sin permiso de edición (solo lectura): únicamente puede ver documentos aprobados.
+  if (!editPermLoading && !hasDocumentEditPermission && document.status !== 'approved') {
     return (
       <div className="mx-auto max-w-5xl px-8 py-12" data-module="process">
         <div className="rounded-lg border border-danger-bd bg-danger-bg p-5">

@@ -18,8 +18,7 @@ import {
 } from '@/lib/api'
 import { useAsync } from '@/hooks/useAsync'
 import { Switch, InheritancePill } from '@/shared/ui/components'
-import { useWorkspace } from '@/contexts/WorkspaceContext'
-import { canAdministerWorkspace } from '@/lib/adminGating'
+import { useCanManageWorkspace } from '@/hooks/useHasPermission'
 
 // ---- Behaviors (allowlist de 5 keys) ----
 
@@ -292,11 +291,7 @@ function NewTypeForm({ onSave, onCancel }: NewTypeFormProps) {
 // ---- Page ----
 
 export default function DocumentTypesPage() {
-  const { selectedWorkspace, platformRoles } = useWorkspace()
-  const canAdminister = canAdministerWorkspace({
-    platformRoles,
-    workspaceRole: selectedWorkspace?.role,
-  })
+  const { canManage: canAdminister, loading: canAdministerLoading } = useCanManageWorkspace()
 
   const { status, data, error, reload } = useAsync(
     () => getDocumentTypes(true),
@@ -381,6 +376,14 @@ export default function DocumentTypesPage() {
   const isLoading = status === 'idle' || status === 'loading'
 
   // Bloqueo si el usuario no puede administrar
+  if (canAdministerLoading) {
+    return (
+      <div className="flex min-h-full items-center justify-center p-8">
+        <div className="h-8 w-8 animate-spin rounded-full border-[3px] border-ink-200 border-t-accent" aria-busy="true" />
+      </div>
+    )
+  }
+
   if (!canAdminister) {
     return (
       <div className="flex min-h-full items-center justify-center p-8">

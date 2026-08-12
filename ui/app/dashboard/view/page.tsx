@@ -75,8 +75,8 @@ export default function ViewPage() {
   }
 
 
-  // Gate por permiso efectivo (documents.view): así también entra quien tiene
-  // ese permiso sin ser estrictamente "viewer" (approver, creator, etc.).
+  // Gate por permiso efectivo (documents.view): entra cualquiera con ese
+  // permiso, más allá de su nivel de acceso (lectura/edición/aprobación).
   if (!permLoading && !canViewDocuments) {
     return (
       <div className="p-8">

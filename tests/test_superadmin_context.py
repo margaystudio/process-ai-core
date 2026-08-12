@@ -332,9 +332,9 @@ class TestNoSistemaWorkspaceInList:
         assert workspaces[0].slug == "margay-studio"
         assert workspaces[0].workspace_type != "system"
 
-        # La membership tiene rol superadmin
-        role = session.query(Role).filter_by(id=memberships[0].role_id).first()
-        assert role.name == "superadmin"
+        # La membership es admin del workspace; el rol legacy no se escribe más
+        assert memberships[0].base_access == "admin"
+        assert memberships[0].role_id is None
 
         # has_permission via membership local (sin flag) → True
         assert has_permission(session, user.id, ws_real.id, "documents.approve")

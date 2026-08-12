@@ -1,8 +1,7 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { getMyCapabilities, type FolderCapabilities, type MyCapabilities } from '@/lib/api'
-import { useWorkspace } from '@/contexts/WorkspaceContext'
+import type { FolderCapabilities } from '@/lib/api'
+import { useCapabilities } from './useCapabilities'
 
 const NO_ACCESS: FolderCapabilities = { view: false, create: false, approve: false }
 const UNSCOPED_ACCESS: FolderCapabilities = { view: true, create: true, approve: true }
@@ -10,7 +9,7 @@ const UNSCOPED_ACCESS: FolderCapabilities = { view: true, create: true, approve:
 /**
  * Acceso EFECTIVO por carpeta (`capabilities.folders`, de
  * GET /api/v1/users/me/capabilities): herencia entre carpetas y bypass de
- * owner/admin/superadmin ya resueltos por el backend. Es la primera vez que
+ * admin/superadmin ya resueltos por el backend. Es la primera vez que
  * el front puede saber esto ANTES de intentar la acción — antes se mostraban
  * botones de crear/aprobar en carpetas donde el backend terminaba devolviendo 403.
  *
@@ -25,27 +24,7 @@ export function useFolderAccess(): {
   canApprove: (folderId: string | null | undefined) => boolean
   loading: boolean
 } {
-  const { selectedWorkspaceId, activeTenantId } = useWorkspace()
-  const [capabilities, setCapabilities] = useState<MyCapabilities | null>(null)
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    let cancelled = false
-    setLoading(true)
-    getMyCapabilities()
-      .then((data) => {
-        if (!cancelled) setCapabilities(data)
-      })
-      .catch(() => {
-        if (!cancelled) setCapabilities(null)
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [selectedWorkspaceId, activeTenantId])
+  const { capabilities, loading } = useCapabilities()
 
   function access(folderId: string | null | undefined): FolderCapabilities {
     if (!folderId) return UNSCOPED_ACCESS

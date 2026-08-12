@@ -24,13 +24,14 @@ from sqlalchemy.orm import Session
 from process_ai_core.storage import get_storage, workspace_branding_key
 from process_ai_core.db.database import get_db_session
 from ..dependencies import get_db
-from process_ai_core.db.helpers import (
-    add_user_to_workspace_helper,
-)
 from process_ai_core.config import get_settings
-from process_ai_core.db.models import Workspace, WorkspaceMembership, User, Role
+from process_ai_core.db.models import Workspace, WorkspaceMembership, User
 from process_ai_core.db.models import UserOperationalRole
-from ..dependencies import get_current_user_id, is_superadmin
+from ..dependencies import get_current_user_id
+from process_ai_core.db.permissions import (
+    get_membership_base_access,
+    is_workspace_admin,
+)
 from ..models.requests import (
     WorkspaceResponse,
     WorkspaceBrandingUpdateRequest,
@@ -136,39 +137,19 @@ def _serialize_workspace(workspace: Workspace, role: str | None = None) -> Works
     )
 
 
-def _get_workspace_role_name(session: Session, user_id: str, workspace_id: str) -> str | None:
-    membership = session.query(WorkspaceMembership).filter_by(
-        user_id=user_id,
-        workspace_id=workspace_id,
-    ).first()
-    if not membership:
-        return None
-    if membership.role_id:
-        role = session.query(Role).filter_by(id=membership.role_id).first()
-        if role:
-            return role.name
-    return membership.role
+def _require_workspace_settings_access(session: Session, user_id: str, workspace_id: str) -> None:
+    """Configuración y branding del workspace: solo el admin del módulo.
 
-
-def _require_workspace_branding_access(session: Session, user_id: str, workspace_id: str) -> None:
-    role_name = _get_workspace_role_name(session, user_id, workspace_id)
-    if role_name not in {"owner", "creator"}:
+    Antes había dos listas distintas de roles de sistema (settings:
+    owner/creator/admin; branding: owner/creator). Con los roles de sistema
+    eliminados, toda la gestión del workspace es del admin (tenant_admin o
+    superadmin de plataforma).
+    """
+    if not is_workspace_admin(session, user_id, workspace_id):
         raise HTTPException(
             status_code=403,
-            detail="Solo los roles owner o creator pueden personalizar el icono del workspace",
+            detail="Solo un administrador del workspace puede editar su configuración",
         )
-
-
-def _require_workspace_settings_access(session: Session, user_id: str, workspace_id: str) -> None:
-    if is_superadmin(user_id, session):
-        return
-    role_name = _get_workspace_role_name(session, user_id, workspace_id)
-    if role_name in {"owner", "creator", "admin"}:
-        return
-    raise HTTPException(
-        status_code=403,
-        detail="Solo los roles owner, creator o admin pueden editar la configuración del workspace",
-    )
 
 
 def _normalize_optional_str(value: str | None, *, max_length: int | None = None) -> str | None:
@@ -219,8 +200,10 @@ def list_workspaces(
     Returns:
         Lista de WorkspaceResponse
     """
+    from process_ai_core.db.permissions import _is_superadmin
+
     query = session.query(Workspace).filter_by(workspace_type="organization")
-    if not is_superadmin(user_id, session):
+    if not _is_superadmin(session, user_id):
         query = query.join(
             WorkspaceMembership, WorkspaceMembership.workspace_id == Workspace.id
         ).filter(WorkspaceMembership.user_id == user_id)
@@ -237,9 +220,9 @@ def get_workspace_members(
     Lista los miembros del workspace (memberships) con usuario, rol de sistema y roles operativos.
     Requiere ser miembro del workspace (owner/admin para gestión).
     """
-    from process_ai_core.db.permissions import get_user_role
-    role = get_user_role(session, user_id, workspace_id)
-    if not role:
+    if not get_membership_base_access(session, user_id, workspace_id) and not is_workspace_admin(
+        session, user_id, workspace_id
+    ):
         raise HTTPException(status_code=403, detail="No eres miembro de este workspace")
     workspace = session.query(Workspace).filter_by(id=workspace_id).first()
     if not workspace:
@@ -251,17 +234,11 @@ def get_workspace_members(
     # Batch-load para evitar N+1 (antes: 3 queries por miembro contra el Postgres
     # remoto). Ahora son 4 queries fijas sin importar la cantidad de miembros.
     user_ids = {m.user_id for m in memberships if m.user_id}
-    role_ids = {m.role_id for m in memberships if m.role_id}
     membership_ids = [m.id for m in memberships]
 
     users_by_id = (
         {u.id: u for u in session.query(User).filter(User.id.in_(user_ids)).all()}
         if user_ids
-        else {}
-    )
-    roles_by_id = (
-        {r.id: r for r in session.query(Role).filter(Role.id.in_(role_ids)).all()}
-        if role_ids
         else {}
     )
     op_role_ids_by_membership: dict[str, list[str]] = {}
@@ -279,14 +256,14 @@ def get_workspace_members(
     out = []
     for m in memberships:
         user = users_by_id.get(m.user_id)
-        role_obj = roles_by_id.get(m.role_id) if m.role_id else None
-        role_name = role_obj.name if role_obj else (m.role or "")
         out.append({
             "membership_id": m.id,
             "user_id": m.user_id,
             "email": user.email if user else "",
             "name": user.name if user else "",
-            "role": role_name,
+            # Acceso base derivado del rol macro del tenant ('admin'|'member'|'external').
+            # La clave sigue siendo "role" para no romper el contrato con la UI.
+            "role": m.base_access,
             "operational_role_ids": op_role_ids_by_membership.get(m.id, []),
         })
     return {"workspace_id": workspace_id, "members": out}
@@ -340,8 +317,9 @@ def update_workspace_settings(
         )
 
     session.flush()
-    role_name = _get_workspace_role_name(session, user_id, workspace_id)
-    return _serialize_workspace(workspace, role=role_name)
+    return _serialize_workspace(
+        workspace, role=get_membership_base_access(session, user_id, workspace_id)
+    )
 
 
 @router.get("/{workspace_id}", response_model=WorkspaceResponse, dependencies=[Depends(require_process_ai_access)])
@@ -372,14 +350,16 @@ def get_workspace(
             detail=f"Workspace {workspace_id} no encontrado"
         )
 
-    role_name = _get_workspace_role_name(session, user_id, workspace_id)
-    if not role_name and not is_superadmin(user_id, session):
+    from process_ai_core.db.permissions import _is_superadmin
+
+    base_access = get_membership_base_access(session, user_id, workspace_id)
+    if not base_access and not _is_superadmin(session, user_id):
         raise HTTPException(
             status_code=404,
             detail=f"Workspace {workspace_id} no encontrado"
         )
 
-    return _serialize_workspace(workspace, role=role_name)
+    return _serialize_workspace(workspace, role=base_access)
 
 
 @router.post("/{workspace_id}/branding/icon", dependencies=[Depends(require_process_ai_access)])
@@ -397,7 +377,7 @@ async def upload_workspace_branding_icon(
     if not workspace:
         raise HTTPException(status_code=404, detail="Workspace no encontrado")
 
-    _require_workspace_branding_access(session, user_id, workspace_id)
+    _require_workspace_settings_access(session, user_id, workspace_id)
 
     ext = Path(file.filename or "icon.png").suffix.lower() or ".png"
     if ext not in ALLOWED_BRANDING_EXTENSIONS:
@@ -454,7 +434,7 @@ def delete_workspace_branding_icon(
     if not workspace:
         raise HTTPException(status_code=404, detail="Workspace no encontrado")
 
-    _require_workspace_branding_access(session, user_id, workspace_id)
+    _require_workspace_settings_access(session, user_id, workspace_id)
 
     filename = _get_workspace_branding_icon_filename(workspace)
     if filename:
@@ -485,7 +465,7 @@ def update_workspace_branding(
     if not workspace:
         raise HTTPException(status_code=404, detail="Workspace no encontrado")
 
-    _require_workspace_branding_access(session, user_id, workspace_id)
+    _require_workspace_settings_access(session, user_id, workspace_id)
 
     primary_color = _validate_hex_color(request.primary_color, "primary_color")
     secondary_color = _validate_hex_color(request.secondary_color, "secondary_color")

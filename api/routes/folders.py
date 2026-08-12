@@ -35,13 +35,13 @@ from process_ai_core.db.models import (
 )
 from process_ai_core.db.models_semantic import DocumentRelation
 from api.dependencies import get_db, get_current_user_id
-from api.dependencies import is_superadmin
 from process_ai_core.db.permissions import (
-    get_user_role,
     can_view_folder,
     can_create_in_folder,
+    get_membership_base_access,
     has_permission,
     build_permission_context,
+    is_workspace_admin,
     resolve_folder_permissions_source,
 )
 
@@ -71,8 +71,7 @@ router = APIRouter(
 
 def _require_workspace_member(session: Session, user_id: str, workspace_id: str) -> None:
     """Lanza 403 si el usuario no es miembro del workspace."""
-    role = get_user_role(session, user_id, workspace_id)
-    if not role:
+    if get_membership_base_access(session, user_id, workspace_id) is None:
         raise HTTPException(
             status_code=403,
             detail="No es miembro de este workspace",
@@ -126,17 +125,12 @@ def _folder_metadata(folder: Folder) -> dict:
 
 def _require_folder_permissions_admin(session: Session, user_id: str, workspace_id: str) -> None:
     """
-    Guard único para leer/escribir permisos de carpeta: superadmin (claim
-    global de configuración) o rol owner/admin del workspace. Antes el GET
-    aceptaba el bypass de is_superadmin() y el PUT no: un superadmin de
-    plataforma podía LEER los permisos pero no escribirlos.
-    (Se acepta también el rol nominal "superadmin" — fix de auth de develop.)
+    Guard único para leer/escribir permisos de carpeta: superadmin o admin del
+    workspace. Antes el GET aceptaba el bypass de superadmin y el PUT no: un
+    superadmin de plataforma podía LEER los permisos pero no escribirlos.
     """
-    if is_superadmin(user_id, session):
-        return
-    role = get_user_role(session, user_id, workspace_id)
-    if not role or role.name not in ("owner", "admin", "superadmin"):
-        raise HTTPException(status_code=403, detail="Se requiere rol owner o admin")
+    if not is_workspace_admin(session, user_id, workspace_id):
+        raise HTTPException(status_code=403, detail="Se requiere ser administrador del workspace")
 
 
 def resolve_inherited(folder: Folder, attr: str) -> tuple[object, str, str | None]:
@@ -208,10 +202,8 @@ def create_folder_endpoint(
                     detail="No tiene permisos para crear en esta carpeta",
                 )
         else:
-            # Para carpetas raíz, exigir permiso global de creación en el workspace.
-            user_role = get_user_role(session, user_id, workspace_id)
-            role_name = user_role.name if user_role else None
-            if role_name not in ("owner", "admin") and not has_permission(
+            # Para carpetas raíz, exigir admin o permiso global de creación.
+            if not is_workspace_admin(session, user_id, workspace_id) and not has_permission(
                 session, user_id, workspace_id, "documents.create"
             ):
                 raise HTTPException(

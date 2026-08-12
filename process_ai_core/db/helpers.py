@@ -2130,47 +2130,44 @@ def reset_monthly_counters(session: Session, workspace_id: str):
     session.flush()
 
 
-# ── Mapeo de roles de workspace → roles de sistema local ────────────────────
+# ── Mapeo de roles de workspace → acceso base local ─────────────────────────
 
-#: Orden de prioridad de mayor a menor privilegio (sin superadmin).
-_SYSTEM_ROLE_PRIORITY = ["owner", "admin", "approver", "creator", "viewer"]
+#: Orden de prioridad si llegan varios tenant_roles (mayor privilegio gana).
+_BASE_ACCESS_PRIORITY = ["admin", "member", "external"]
 
-def _resolve_system_role_name(
+
+def _resolve_base_access(
     tenant_roles: list[str],
     platform_roles: list[str],
 ) -> str:
     """
-    Devuelve el nombre del rol de sistema local de mayor privilegio dadas las
-    listas de roles del contexto de workspace.
+    Deriva el acceso base local desde el rol macro del control plane.
 
-    Mapeo:
-      platform_role "superadmin" → "superadmin"
+    Mapeo (ver ADR "Roles por módulo" de la plataforma):
+      platform_role "superadmin"           → "admin"
       tenant_role "tenant_admin"           → "admin"
-      tenant_role "tenant_member"          → "creator"
-      tenant_role "tenant_external_client" → env TENANT_EXTERNAL_CLIENT_ROLE (default "viewer")
+      tenant_role "tenant_member"          → "member"
+      tenant_role "tenant_external_client" → "external"
 
-    Si llegan varios tenant_roles, se elige el de mayor privilegio.
-    Si ninguno coincide, se devuelve "viewer" (mínimo privilegio).
+    Si llegan varios tenant_roles, gana el de mayor privilegio. Si ninguno
+    coincide (rol desconocido o lista vacía), "external": el fallback es el
+    acceso MÁS restrictivo, nunca uno inventado.
     """
     if "superadmin" in platform_roles:
-        return "superadmin"
+        return "admin"
 
-    external_client_role = os.getenv("TENANT_EXTERNAL_CLIENT_ROLE", "viewer")
     mapping: dict[str, str] = {
         "tenant_admin": "admin",
-        "tenant_member": "creator",
-        "tenant_external_client": external_client_role,
+        "tenant_member": "member",
+        "tenant_external_client": "external",
     }
-
-    local_roles = [mapping[r] for r in tenant_roles if r in mapping]
-    if not local_roles:
-        return "viewer"
-
-    for candidate in _SYSTEM_ROLE_PRIORITY:
-        if candidate in local_roles:
+    local = [mapping[r] for r in tenant_roles if r in mapping]
+    if not local:
+        return "external"
+    for candidate in _BASE_ACCESS_PRIORITY:
+        if candidate in local:
             return candidate
-
-    return "viewer"
+    return "external"
 
 
 def get_or_create_local_user_from_workspace(
@@ -2253,91 +2250,32 @@ def sync_membership_from_context(
     """
     Crea o actualiza la WorkspaceMembership local según el contexto del workspace.
 
-    Idempotente: llamar N veces con los mismos datos produce el mismo estado.
-    Re-sync: si el rol del tenant cambió, actualiza la membership local.
+    Es el ÚNICO escritor de base_access. Idempotente: llamar N veces con los
+    mismos datos produce el mismo estado. Re-sync: si el rol macro del tenant
+    cambió, el acceso base local se actualiza en el siguiente request.
 
-    Si los roles del sistema no están sembrados (seed_permissions.py no se
-    ejecutó), loguea una advertencia y retorna la membership existente (o None
-    si no existe).
-
-    Raises:
-        ValueError: si el rol de sistema requerido no existe Y no hay membership.
+    A diferencia del modelo anterior (roles de sistema), no depende de ningún
+    seed: el acceso base es un valor cerrado ('admin'|'member'|'external') y
+    los permisos finos viven en los roles operativos del cliente.
     """
-    role_name = _resolve_system_role_name(tenant_roles, platform_roles)
+    base_access = _resolve_base_access(tenant_roles, platform_roles)
 
-    role = session.query(Role).filter_by(name=role_name, is_system=True).first()
-    if not role:
-        logger.warning(
-            "Rol de sistema '%s' no encontrado; seed_permissions.py puede no haberse ejecutado. "
-            "Intentando fallback a 'viewer'.",
-            role_name,
-        )
-        role = session.query(Role).filter_by(name="viewer", is_system=True).first()
-        if not role:
-            raise ValueError(
-                f"Rol '{role_name}' (ni 'viewer') encontrado en la DB. "
-                "Ejecutá python tools/seed_permissions.py primero."
-            )
-
-    # Delegar en el helper existente (ya hace get-or-create + update)
-    return add_user_to_workspace_helper(session, local_user_id, workspace_id, role.name)
-
-
-def add_user_to_workspace_helper(
-    session: Session,
-    user_id: str,
-    workspace_id: str,
-    role_name: str,
-) -> WorkspaceMembership:
-    """
-    Agrega un usuario a un workspace con un rol específico.
-    
-    Args:
-        session: Sesión de base de datos
-        user_id: ID del usuario
-        workspace_id: ID del workspace
-        role_name: Nombre del rol (ej: "owner", "admin", "creator", "viewer", "approver")
-    
-    Returns:
-        WorkspaceMembership creado o actualizado
-    """
-    
-    # Verificar que el usuario existe
-    user = session.query(User).filter_by(id=user_id).first()
-    if not user:
-        raise ValueError(f"Usuario {user_id} no encontrado")
-    
-    # Verificar que el workspace existe
-    workspace = session.query(Workspace).filter_by(id=workspace_id).first()
-    if not workspace:
-        raise ValueError(f"Workspace {workspace_id} no encontrado")
-    
-    # Buscar el rol por nombre
-    role = session.query(Role).filter_by(name=role_name).first()
-    if not role:
-        raise ValueError(f"Rol '{role_name}' no encontrado")
-    
-    # Verificar que no exista ya el membership
-    existing = session.query(WorkspaceMembership).filter_by(
-        user_id=user_id,
+    membership = session.query(WorkspaceMembership).filter_by(
+        user_id=local_user_id,
         workspace_id=workspace_id,
     ).first()
-    
-    if existing:
-        if existing.role_id != role.id:
-            existing.role_id = role.id
-            existing.role = role_name
-        return existing
-    else:
-        # Crear nuevo membership
-        membership = WorkspaceMembership(
-            user_id=user_id,
-            workspace_id=workspace_id,
-            role_id=role.id,
-            role=role_name,  # Deprecated, mantener para compatibilidad
-        )
-        session.add(membership)
-        session.flush()
+    if membership:
+        if membership.base_access != base_access:
+            membership.base_access = base_access
         return membership
+
+    membership = WorkspaceMembership(
+        user_id=local_user_id,
+        workspace_id=workspace_id,
+        base_access=base_access,
+    )
+    session.add(membership)
+    session.flush()
+    return membership
 
 

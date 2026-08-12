@@ -16,10 +16,10 @@ import {
 import { AppShell, Topbar, Sidebar, type NavGroup, type TopbarTenant } from '@/shared/ui/components'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
 import { useUser } from '@/hooks/useUser'
+import { useCanManageWorkspace } from '@/hooks/useHasPermission'
 import { createClient } from '@/lib/supabase/client'
 import { redirectToHubLogin } from '@/lib/hub-login'
 import { clearLocalAuthState } from '@/lib/clear-auth-state'
-import { canAdministerWorkspace } from '@/lib/adminGating'
 
 // Páginas fuera del shell del módulo (sin sidebar). El login es del hub (SSO).
 const BARE_PREFIXES = ['/login', '/invitations', '/auth']
@@ -35,9 +35,11 @@ function initialsOf(name: string): string {
 export default function ChromeShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const router = useRouter()
-  const { workspaces, selectedWorkspace, selectedWorkspaceId, activeTenantId, platformRoles, setActiveTenantId, currentUser } =
+  const { workspaces, selectedWorkspaceId, activeTenantId, setActiveTenantId, currentUser } =
     useWorkspace()
   const user = useUser()
+  // Hook: debe llamarse siempre, antes del early return de abajo (páginas "bare").
+  const { canManage: canAdminister } = useCanManageWorkspace()
 
   const isBare = BARE_PREFIXES.some((p) => pathname?.startsWith(p))
   if (isBare) return <>{children}</>
@@ -63,11 +65,6 @@ export default function ChromeShell({ children }: { children: React.ReactNode })
   const settingsPath = selectedWorkspaceId
     ? `/workspace/${selectedWorkspaceId}/settings`
     : '/workspace'
-
-  const canAdminister = canAdministerWorkspace({
-    platformRoles,
-    workspaceRole: selectedWorkspace?.role,
-  })
 
   // Switcher de organización (tenant) en el topbar, como el hub.
   const tenants: TopbarTenant[] = workspaces

@@ -23,6 +23,7 @@ vi.mock('@/contexts/WorkspaceContext', () => ({
 vi.mock('@/hooks/useHasPermission', () => ({
   useCanApproveDocuments: () => ({ hasPermission: true }),
   useCanRejectDocuments: () => ({ hasPermission: true }),
+  useCanManageWorkspace: () => ({ canManage: true, loading: false }),
   useHasPermission: () => ({ hasPermission: true }),
 }))
 

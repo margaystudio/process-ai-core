@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session
 E164_REGEX = re.compile(r"^\+[1-9]\d{6,14}$")
 
 from process_ai_core.db.database import get_db_session
-from process_ai_core.db.models import User, Workspace, WorkspaceMembership, Role
+from process_ai_core.db.models import User, Workspace, WorkspaceMembership
 from process_ai_core.db.permissions import has_permission
 from process_ai_core.db.helpers import get_or_create_workspace_for_tenant
 from ..dependencies import get_db, get_current_user_id
@@ -88,12 +88,8 @@ def _get_workspace_branding_color(workspace: Workspace, key: str) -> str | None:
 # Ver `margay-dev-agent/knowledge/11-directorio-de-usuarios.md` §1.
 
 
-def _membership_role_name(session: Session, membership: WorkspaceMembership) -> str | None:
-    if membership.role_id:
-        role_obj = session.query(Role).filter_by(id=membership.role_id).first()
-        if role_obj:
-            return role_obj.name
-    return getattr(membership, "role", None)
+# El "rol" que viaja en estas respuestas es el acceso base de la membership
+# ('admin' | 'member' | 'external'); los roles de sistema se eliminaron.
 
 
 def _is_legacy_system_workspace(workspace: Workspace) -> bool:
@@ -134,7 +130,7 @@ def get_current_user_me(
         .filter_by(user_id=authenticated_user_id, workspace_id=active_workspace_id)
         .first()
     )
-    active_role = _membership_role_name(session, active_membership) if active_membership else None
+    active_role = active_membership.base_access if active_membership else None
 
     workspaces = []
     for tenant in ctx.tenants:
@@ -204,14 +200,16 @@ def get_my_capabilities(
     siendo de cada endpoint.
 
     Respuesta:
-      - role: rol de sistema en el workspace (owner/admin/approver/creator/viewer)
-      - permissions: nombres de permisos efectivos (los del rol; todos si superadmin)
-      - folders: {folder_id: {view, create, approve}} — con bypass de
-        owner/admin/superadmin aplicado, igual que can_*_in_folder
-      - can_manage_workspace / can_manage_branding: espejo de los guards de
-        settings y branding de workspaces.py
+      - role: acceso base en el workspace ('admin' | 'member' | 'external'),
+        derivado del rol macro del tenant
+      - permissions: nombres de permisos efectivos (nivel base + niveles de
+        los roles operativos del usuario; catálogo completo si admin/superadmin)
+      - folders: {folder_id: {view, create, approve}} — evaluación por par
+        (permiso, carpeta), igual que can_*_in_folder
+      - can_manage_workspace / can_manage_branding: espejo del guard de
+        settings/branding de workspaces.py (admin del workspace)
     """
-    from process_ai_core.db.models import Folder, Permission
+    from process_ai_core.db.models import Folder
     from process_ai_core.db.permissions import build_permission_context
 
     workspace_id = resolve_tenant_workspace_id(ctx)
@@ -219,12 +217,6 @@ def get_my_capabilities(
     perm_ctx = build_permission_context(
         session, user_id, workspace_id, platform_is_superadmin
     )
-
-    if perm_ctx.is_superadmin:
-        # Bypass total: el catálogo completo, no los permisos de un rol.
-        permissions = sorted(p.name for p in session.query(Permission).all())
-    else:
-        permissions = sorted(perm_ctx.permission_names)
 
     folder_ids = [
         fid for (fid,) in session.query(Folder.id).filter_by(workspace_id=workspace_id)
@@ -238,21 +230,21 @@ def get_my_capabilities(
         for fid in folder_ids
     }
 
-    role_name = perm_ctx.system_role_name
+    is_admin = perm_ctx.is_superadmin or perm_ctx.base_access == "admin"
     return {
         "user_id": user_id,
         "workspace_id": workspace_id,
         "tenant_id": ctx.tenant.id,
         "platform_roles": ctx.platform_roles,
         "tenant_roles": ctx.tenant_roles,
-        "role": role_name,
+        "role": perm_ctx.base_access,
         "is_superadmin": perm_ctx.is_superadmin,
-        "permissions": permissions,
+        "permissions": sorted(perm_ctx.permission_names),
         "operational_role_ids": sorted(perm_ctx.operational_role_ids),
-        # Espejo de _require_workspace_settings_access / _require_workspace_branding_access
-        "can_manage_workspace": perm_ctx.is_superadmin
-        or role_name in ("owner", "creator", "admin"),
-        "can_manage_branding": role_name in ("owner", "creator"),
+        # Espejo de _require_workspace_settings_access (settings y branding
+        # son ambos del admin del workspace desde la fase 3).
+        "can_manage_workspace": is_admin,
+        "can_manage_branding": is_admin,
         "folders": folder_access,
     }
 
@@ -305,7 +297,7 @@ def get_user(
             "workspaces": [
                 {
                     "workspace_id": m.workspace_id,
-                    "role": m.role,
+                    "role": m.base_access,
                     "created_at": m.created_at.isoformat(),
                 }
                 for m in memberships
@@ -357,7 +349,7 @@ def get_user_workspaces(
     
     # Usar la sesión proporcionada por la dependencia en lugar de crear una nueva
     # Esto asegura que veamos los cambios recientes
-    from process_ai_core.db.models import Workspace, Role, User
+    from process_ai_core.db.models import Workspace, User
     
     # Verificar que el usuario existe
     user = session.query(User).filter_by(id=user_id).first()
@@ -375,18 +367,11 @@ def get_user_workspaces(
         logger.warning(f"Usuario {user_id} no tiene membresías")
         return []
 
-    # Batch-load de workspaces y roles para evitar N+1 (antes: 2 queries por
-    # membresía contra el Postgres remoto). Ahora 3 queries fijas.
+    # Batch-load de workspaces para evitar N+1.
     workspace_ids = {m.workspace_id for m in memberships if m.workspace_id}
-    role_ids = {m.role_id for m in memberships if m.role_id}
     workspaces_by_id = (
         {w.id: w for w in session.query(Workspace).filter(Workspace.id.in_(workspace_ids)).all()}
         if workspace_ids
-        else {}
-    )
-    role_name_by_id = (
-        {r.id: r.name for r in session.query(Role).filter(Role.id.in_(role_ids)).all()}
-        if role_ids
         else {}
     )
 
@@ -397,19 +382,12 @@ def get_user_workspaces(
             logger.warning(f"Workspace {membership.workspace_id} no encontrado para membresía {membership.id}")
             continue
 
-        # Rol: por role_id, con fallback al string legacy `role`.
-        role_name = (
-            role_name_by_id.get(membership.role_id)
-            if membership.role_id
-            else membership.role
-        )
-
         workspaces.append({
             "id": workspace.id,
             "name": workspace.name,
             "slug": workspace.slug,
             "workspace_type": workspace.workspace_type,
-            "role": role_name,
+            "role": membership.base_access,
             "branding_icon_url": _get_workspace_branding_icon_url(workspace),
             "branding_primary_color": _get_workspace_branding_color(workspace, "primary_color"),
             "branding_secondary_color": _get_workspace_branding_color(workspace, "secondary_color"),
@@ -449,22 +427,10 @@ def get_user_role_in_workspace(
             user_id=user_id,
             workspace_id=workspace_id,
         ).first()
-        
-        if not membership:
-            return {"role": None}
-        
-        # Obtener el nombre del rol desde role_id si existe
-        role_name = None
-        if membership.role_id:
-            from process_ai_core.db.models import Role
-            role = session.query(Role).filter_by(id=membership.role_id).first()
-            if role:
-                role_name = role.name
-        else:
-            # Compatibilidad: usar role string si role_id no existe
-            role_name = membership.role
-        
-        return {"role": role_name}
+
+        # La clave sigue siendo "role" para no romper consumidores, pero el
+        # valor es el acceso base ('admin' | 'member' | 'external').
+        return {"role": membership.base_access if membership else None}
 
 
 @router.get("/{user_id}/permission/{workspace_id}/{permission_name}")
