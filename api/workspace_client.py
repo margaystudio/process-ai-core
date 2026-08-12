@@ -45,6 +45,12 @@ class WorkspaceApplication(BaseModel):
     name: str
     type: str
     entry_url: Optional[str] = None
+    # Rol EFECTIVO del usuario en ESTE módulo, resuelto por Workspace según el
+    # ADR "Roles por módulo": tenant_admin hereda y gana; si no, el override de
+    # la membresía de la app; si no, el rol de tenant. Valores: los mismos 3
+    # roles de tenant (tenant_admin/tenant_member/tenant_external_client).
+    # None con un Workspace anterior a la fase 1 del ADR.
+    role: Optional[str] = None
 
 
 class WorkspaceTenantModules(BaseModel):
@@ -66,6 +72,8 @@ class WorkspaceSessionContext(BaseModel):
     @model_validator(mode="after")
     def _derive_applications(self) -> "WorkspaceSessionContext":
         # Apps del tenant activo desde tenant_modules; ignora el campo deprecated.
+        # Con esto, Workspace puede dejar de emitir `applications` (el shim de
+        # margay_contracts existía solo por process-ai): este módulo ya no lo lee.
         if self.tenant_modules:
             mod = next(
                 (m for m in self.tenant_modules if m.tenant.id == self.tenant.id), None
@@ -348,11 +356,15 @@ def sync_workspace_access(
             sync_membership_from_context,
         )
 
+        # Rol efectivo POR APP (ADR "Roles por módulo"): permite que un
+        # tenant_member sea admin solo de Process AI. Fallback: tenant_roles.
+        sync_roles = module_roles_for_sync(ctx)
+
         fp = sync_fingerprint(
             supabase_sub=supabase_sub,
             tenant_id=ctx.tenant.id,
             email=ctx.user.email,
-            tenant_roles=ctx.tenant_roles,
+            tenant_roles=sync_roles,
             platform_roles=ctx.platform_roles,
         )
         if should_skip_sync(fp):
@@ -382,7 +394,7 @@ def sync_workspace_access(
                         session,
                         local_user_id=local_user_id,
                         workspace_id=workspace_id,
-                        tenant_roles=ctx.tenant_roles,
+                        tenant_roles=sync_roles,
                         platform_roles=ctx.platform_roles,
                     )
                 remember_sync(
@@ -408,6 +420,23 @@ def sync_workspace_access(
 
 def _get_required_app_key() -> str:
     return os.getenv("PROCESS_AI_APP_KEY", "process_ai")
+
+
+def module_roles_for_sync(ctx: WorkspaceSessionContext) -> list[str]:
+    """
+    Roles con los que se sincroniza la membership local: el rol EFECTIVO del
+    usuario en la app process_ai del tenant activo, si Workspace lo emite
+    (ADR "Roles por módulo"); si no, los tenant_roles globales.
+
+    Es lo que permite que un tenant_member sea admin SOLO de Process AI (o
+    external solo acá) sin serlo del tenant entero. El claim de plataforma no
+    se toca: platform_roles sigue viajando aparte.
+    """
+    required_key = _get_required_app_key()
+    app = next((a for a in ctx.applications if a.key == required_key), None)
+    if app is not None and app.role:
+        return [app.role]
+    return ctx.tenant_roles
 
 
 def require_process_ai_access(

@@ -126,6 +126,16 @@ Los roles de sistema locales (owner/admin/approver/creator/viewer) que este docu
 mencionaba en versiones anteriores se **eliminaron**: eran un vocabulario intermedio que
 nadie administraba. Ver `docs/ROLES_OPERATIVOS_Y_PERMISOS_POR_CARPETA.md` §1.
 
+**Rol efectivo POR APP (fase 4, ADR "Roles por módulo").** El sync usa
+`tenant_modules[].applications[].role` (el rol efectivo del usuario en la app
+`process_ai` del tenant activo, resuelto por Workspace) con fallback a los
+`tenant_roles` globales si Workspace no lo emite. Consecuencia: un
+`tenant_member` puede ser admin SOLO de Process AI (override de la membresía
+de la app en el hub) sin ser admin del tenant. El campo raíz `applications`
+(deprecado) **ya no se lee**: este módulo deriva las apps de `tenant_modules`,
+así que Workspace puede eliminar el shim de compatibilidad de
+`margay_contracts` que mantenía por process-ai.
+
 ---
 
 ## 4. Pasos de implementación

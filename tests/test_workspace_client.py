@@ -19,6 +19,7 @@ from api.workspace_client import (
     _cache_clear,
     fetch_workspace_context,
     get_workspace_context,
+    module_roles_for_sync,
 )
 
 # ── Fixtures ─────────────────────────────────────────────────────────────────
@@ -255,3 +256,65 @@ def test_dependency_bad_format_raises_401():
         (get_workspace_context(authorization="Token abc123"))
 
     assert exc_info.value.status_code == 401
+
+
+# ── Fase 4: rol efectivo por app (ADR "Roles por módulo") ────────────────────
+
+
+def _payload_con_tenant_modules(app_role=None, app_key="process_ai"):
+    tenant = {"id": "tenant-uuid-1", "name": "Acme", "slug": "acme"}
+    app = {
+        "key": app_key,
+        "name": "Process AI",
+        "type": "module",
+        "entry_url": None,
+    }
+    if app_role is not None:
+        app["role"] = app_role
+    return {
+        "user": {"id": "user-uuid-1", "email": "alice@example.com"},
+        "platform_roles": [],
+        "tenant_roles": ["tenant_member"],
+        "tenant": tenant,
+        "tenants": [tenant],
+        # el campo raíz deprecado viene vacío a propósito: el módulo no lo lee
+        "applications": [],
+        "tenant_modules": [{"tenant": tenant, "applications": [app]}],
+    }
+
+
+def test_applications_se_derivan_de_tenant_modules_con_rol():
+    ctx = WorkspaceSessionContext.model_validate(
+        _payload_con_tenant_modules(app_role="tenant_admin")
+    )
+    assert [a.key for a in ctx.applications] == ["process_ai"]
+    assert ctx.applications[0].role == "tenant_admin"
+
+
+def test_module_roles_usa_el_rol_efectivo_de_la_app():
+    """Un tenant_member que es admin SOLO de process_ai sincroniza como admin."""
+    ctx = WorkspaceSessionContext.model_validate(
+        _payload_con_tenant_modules(app_role="tenant_admin")
+    )
+    assert module_roles_for_sync(ctx) == ["tenant_admin"]
+
+
+def test_module_roles_fallback_a_tenant_roles_sin_rol_por_app():
+    """Workspace anterior a la fase 1 del ADR: la app viene sin `role`."""
+    ctx = WorkspaceSessionContext.model_validate(_payload_con_tenant_modules())
+    assert module_roles_for_sync(ctx) == ["tenant_member"]
+
+
+def test_module_roles_fallback_si_la_app_no_esta():
+    ctx = WorkspaceSessionContext.model_validate(
+        _payload_con_tenant_modules(app_role="tenant_admin", app_key="otra_app")
+    )
+    assert module_roles_for_sync(ctx) == ["tenant_member"]
+
+
+def test_rol_external_solo_en_el_modulo():
+    """Un tenant_member scopeado como cliente externo SOLO en process_ai."""
+    ctx = WorkspaceSessionContext.model_validate(
+        _payload_con_tenant_modules(app_role="tenant_external_client")
+    )
+    assert module_roles_for_sync(ctx) == ["tenant_external_client"]
