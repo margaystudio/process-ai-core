@@ -13,12 +13,19 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
 from api.dependencies import get_current_user_id
+from api.request_identity import capture_request_identity
+from api.workspace_client import require_process_ai_access, sync_workspace_access
 from process_ai_core.evidence_processing import process_evidence_file
 from process_ai_core.upload_validation import ALLOWED_UPLOAD_EXTENSIONS
 
 router = APIRouter(
     prefix="/api/v1/evidence",
     tags=["evidence"],
+    dependencies=[
+        Depends(sync_workspace_access),
+        Depends(capture_request_identity),
+        Depends(require_process_ai_access),
+    ],
 )
 
 MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024

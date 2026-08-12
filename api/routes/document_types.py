@@ -28,6 +28,7 @@ from ..dependencies import get_current_user_id, get_db
 from ..workspace_client import (
     WorkspaceSessionContext,
     get_workspace_context,
+    require_process_ai_access,
     resolve_tenant_workspace_id,
     sync_workspace_access,
 )
@@ -36,7 +37,11 @@ from ..request_identity import capture_request_identity
 router = APIRouter(
     prefix="/api/v1/document-types",
     tags=["document-types"],
-    dependencies=[Depends(sync_workspace_access), Depends(capture_request_identity)],
+    dependencies=[
+        Depends(sync_workspace_access),
+        Depends(capture_request_identity),
+        Depends(require_process_ai_access),
+    ],
 )
 
 

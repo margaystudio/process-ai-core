@@ -16,6 +16,8 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
 from ..dependencies import get_db, get_current_user_id
+from ..request_identity import capture_request_identity
+from ..workspace_client import require_process_ai_access, sync_workspace_access
 from process_ai_core.db.helpers import (
     list_subscription_plans,
     get_subscription_plan,
@@ -27,7 +29,15 @@ from process_ai_core.db.helpers import (
 from process_ai_core.db.models import Workspace, SubscriptionPlan
 from process_ai_core.db.permissions import get_user_role
 
-router = APIRouter(prefix="/api/v1", tags=["subscriptions"])
+router = APIRouter(
+    prefix="/api/v1",
+    tags=["subscriptions"],
+    dependencies=[
+        Depends(sync_workspace_access),
+        Depends(capture_request_identity),
+        Depends(require_process_ai_access),
+    ],
+)
 
 
 def _require_workspace_member(session: Session, user_id: str, workspace_id: str) -> None:

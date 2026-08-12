@@ -28,6 +28,7 @@ from ..artifact_urls import artifact_path
 from api.workspace_client import (
     WorkspaceSessionContext,
     get_workspace_context,
+    require_process_ai_access,
     resolve_tenant_workspace_id,
     sync_workspace_access,
 )
@@ -36,7 +37,11 @@ from api.request_identity import capture_request_identity
 router = APIRouter(
     prefix="/api/v1/process-runs",
     tags=["process-runs"],
-    dependencies=[Depends(sync_workspace_access), Depends(capture_request_identity)],
+    dependencies=[
+        Depends(sync_workspace_access),
+        Depends(capture_request_identity),
+        Depends(require_process_ai_access),
+    ],
 )
 
 @router.post("", response_model=ProcessRunResponse)
@@ -537,7 +542,11 @@ def get_process_run(
 
 
 @router.post("/{run_id}/generate-pdf")
-def generate_pdf_from_run(run_id: str):
+def generate_pdf_from_run(
+    run_id: str,
+    user_id: str = Depends(get_current_user_id),
+    ctx: WorkspaceSessionContext = Depends(get_workspace_context),
+):
     """
     Genera un PDF desde un run existente (sin ejecutar el pipeline completo).
 
@@ -558,19 +567,22 @@ def generate_pdf_from_run(run_id: str):
     """
     from process_ai_core.db.database import get_db_session
     from process_ai_core.db.models import Run, Document
+    from ._document_access import assert_run_viewable
     from ._run_paths import run_dir as _run_dir
 
     # Resolver workspace del run (necesario para el dir tenant-scoped y la firma)
-    workspace_id_for_signing: str | None = None
+    # y verificar acceso: tenant activo + permiso por carpeta del documento.
+    # Antes este endpoint no pedía autenticación.
+    active_workspace_id = resolve_tenant_workspace_id(ctx)
     with get_db_session() as session:
-        run_obj = session.query(Run).filter_by(id=run_id).first()
-        if run_obj and run_obj.document_id:
-            doc_obj = session.query(Document).filter_by(id=run_obj.document_id).first()
-            if doc_obj:
-                workspace_id_for_signing = doc_obj.workspace_id
-
-    if not workspace_id_for_signing:
-        raise HTTPException(status_code=404, detail=f"Run {run_id} no encontrado")
+        document = assert_run_viewable(
+            session,
+            run_id,
+            workspace_id=active_workspace_id,
+            user_id=user_id,
+            contexto="El run",
+        )
+        workspace_id_for_signing = document.workspace_id
 
     run_dir = _run_dir(workspace_id_for_signing, run_id)
     md_path = run_dir / "process.md"

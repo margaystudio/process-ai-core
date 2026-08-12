@@ -36,8 +36,17 @@ from ..models.requests import (
     WorkspaceBrandingUpdateRequest,
     WorkspaceSettingsUpdateRequest,
 )
+from ..request_identity import capture_request_identity
+from ..workspace_client import require_process_ai_access, sync_workspace_access
 
-router = APIRouter(prefix="/api/v1/workspaces", tags=["workspaces"])
+# require_process_ai_access va por endpoint y no a nivel de router: la ruta del
+# icono de branding se carga desde un <link>/<img> del navegador, que no puede
+# mandar headers de auth, así que tiene que quedar fuera del gate.
+router = APIRouter(
+    prefix="/api/v1/workspaces",
+    tags=["workspaces"],
+    dependencies=[Depends(sync_workspace_access), Depends(capture_request_identity)],
+)
 
 logger = logging.getLogger(__name__)
 
@@ -196,20 +205,29 @@ def _validate_hex_color(color: str, field_name: str) -> str:
 
 
 
-@router.get("", response_model=list[WorkspaceResponse])
-def list_workspaces():
+@router.get("", response_model=list[WorkspaceResponse], dependencies=[Depends(require_process_ai_access)])
+def list_workspaces(
+    user_id: str = Depends(get_current_user_id),
+    session: Session = Depends(get_db),
+):
     """
-    Lista todos los workspaces (clientes/organizaciones).
+    Lista los workspaces de los que el usuario autenticado es miembro.
+
+    Antes no pedía autenticación y devolvía TODOS los tenants de la
+    plataforma. Un superadmin local sigue viendo todos.
 
     Returns:
         Lista de WorkspaceResponse
     """
-    with get_db_session() as session:
-        workspaces = session.query(Workspace).filter_by(workspace_type="organization").all()
-        return [_serialize_workspace(w) for w in workspaces]
+    query = session.query(Workspace).filter_by(workspace_type="organization")
+    if not is_superadmin(user_id, session):
+        query = query.join(
+            WorkspaceMembership, WorkspaceMembership.workspace_id == Workspace.id
+        ).filter(WorkspaceMembership.user_id == user_id)
+    return [_serialize_workspace(w) for w in query.all()]
 
 
-@router.get("/{workspace_id}/members")
+@router.get("/{workspace_id}/members", dependencies=[Depends(require_process_ai_access)])
 def get_workspace_members(
     workspace_id: str,
     user_id: str = Depends(get_current_user_id),
@@ -274,7 +292,7 @@ def get_workspace_members(
     return {"workspace_id": workspace_id, "members": out}
 
 
-@router.patch("/{workspace_id}/settings", response_model=WorkspaceResponse)
+@router.patch("/{workspace_id}/settings", response_model=WorkspaceResponse, dependencies=[Depends(require_process_ai_access)])
 def update_workspace_settings(
     workspace_id: str,
     request: WorkspaceSettingsUpdateRequest,
@@ -326,10 +344,17 @@ def update_workspace_settings(
     return _serialize_workspace(workspace, role=role_name)
 
 
-@router.get("/{workspace_id}", response_model=WorkspaceResponse)
-def get_workspace(workspace_id: str):
+@router.get("/{workspace_id}", response_model=WorkspaceResponse, dependencies=[Depends(require_process_ai_access)])
+def get_workspace(
+    workspace_id: str,
+    user_id: str = Depends(get_current_user_id),
+    session: Session = Depends(get_db),
+):
     """
-    Obtiene un workspace por su ID.
+    Obtiene un workspace por su ID. Solo para miembros (o superadmin).
+
+    404 también para no-miembros: para quien está en otro tenant, este
+    workspace no existe (mismo criterio que los documentos).
 
     Args:
         workspace_id: ID del workspace
@@ -338,20 +363,26 @@ def get_workspace(workspace_id: str):
         WorkspaceResponse
 
     Raises:
-        404: Si el workspace no existe
+        404: Si el workspace no existe o el usuario no es miembro
     """
-    with get_db_session() as session:
-        workspace = session.query(Workspace).filter_by(id=workspace_id).first()
-        if not workspace:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Workspace {workspace_id} no encontrado"
-            )
+    workspace = session.query(Workspace).filter_by(id=workspace_id).first()
+    if not workspace:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Workspace {workspace_id} no encontrado"
+        )
 
-        return _serialize_workspace(workspace)
+    role_name = _get_workspace_role_name(session, user_id, workspace_id)
+    if not role_name and not is_superadmin(user_id, session):
+        raise HTTPException(
+            status_code=404,
+            detail=f"Workspace {workspace_id} no encontrado"
+        )
+
+    return _serialize_workspace(workspace, role=role_name)
 
 
-@router.post("/{workspace_id}/branding/icon")
+@router.post("/{workspace_id}/branding/icon", dependencies=[Depends(require_process_ai_access)])
 async def upload_workspace_branding_icon(
     workspace_id: str,
     file: UploadFile = File(...),
@@ -409,7 +440,7 @@ async def upload_workspace_branding_icon(
     }
 
 
-@router.delete("/{workspace_id}/branding/icon")
+@router.delete("/{workspace_id}/branding/icon", dependencies=[Depends(require_process_ai_access)])
 def delete_workspace_branding_icon(
     workspace_id: str,
     user_id: str = Depends(get_current_user_id),
@@ -439,7 +470,7 @@ def delete_workspace_branding_icon(
     return {"icon_url": None}
 
 
-@router.put("/{workspace_id}/branding")
+@router.put("/{workspace_id}/branding", dependencies=[Depends(require_process_ai_access)])
 def update_workspace_branding(
     workspace_id: str,
     request: WorkspaceBrandingUpdateRequest,
@@ -475,6 +506,11 @@ def update_workspace_branding(
 def get_workspace_branding_icon(workspace_id: str, filename: str):
     """
     Sirve el icono personalizado del workspace desde object storage.
+
+    SIN auth a propósito: la UI lo usa como favicon (<link rel="icon">) y en
+    <img>, que no pueden mandar el header Authorization. El riesgo es acotado:
+    el filename es un uuid4 hex irrecuperable sin conocer la metadata del
+    workspace, y el contenido es un logo, no datos.
     """
     if ".." in filename or "/" in filename or "\\" in filename:
         raise HTTPException(status_code=400, detail="Nombre de archivo no válido")

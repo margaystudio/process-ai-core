@@ -47,6 +47,7 @@ from process_ai_core.db.permissions import (
 from api.workspace_client import (
     WorkspaceSessionContext,
     get_workspace_context,
+    require_process_ai_access,
     resolve_tenant_workspace_id,
     sync_workspace_access,
 )
@@ -59,7 +60,11 @@ from ..models.requests import (
 router = APIRouter(
     prefix="/api/v1/folders",
     tags=["folders"],
-    dependencies=[Depends(sync_workspace_access), Depends(capture_request_identity)],
+    dependencies=[
+        Depends(sync_workspace_access),
+        Depends(capture_request_identity),
+        Depends(require_process_ai_access),
+    ],
 )
 
 

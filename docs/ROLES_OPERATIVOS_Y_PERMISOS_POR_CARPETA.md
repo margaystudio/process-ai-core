@@ -315,17 +315,18 @@ Se implementó `_is_superadmin()` como primera verificación en `can_view_folder
 
 ---
 
-## 8. Deuda técnica identificada (no corregida)
+## 8. Deuda técnica identificada — CORREGIDA (hotfix de seguridad, fase 1 del rediseño de permisos)
 
-Los siguientes son problemas **preexistentes** que no se corrigieron para mantener estabilidad, pero que conviene tener en cuenta:
+Todos los ítems que estaban listados acá se corrigieron (ver
+`tests/test_endpoints_cerrados.py`, que fija el contrato):
 
-- `POST /documents/{id}/validate` (crear validación) — sin autenticación.
-- `GET /documents/{id}/validations` (listar validaciones) — sin autenticación.
-- `POST /validations/{id}/approve` — recibe `user_id` del body en vez de JWT.
-- Todo el CRUD de `folders.py` (POST, GET, GET/{id}, PUT/{id}, DELETE/{id}) — sin autenticación.
-- `GET /documents/{id}/versions`, `GET /documents/{id}/current-version`, `GET /documents/{id}/audit-log` — sin autenticación.
-- `POST /process-runs/{id}/generate-pdf` — sin autenticación.
-- `POST /documents/{id}/versions/{vid}/cancel`, `POST /documents/{id}/versions/{vid}/clone` — reciben `user_id` del body.
+- `POST /documents/{id}/validate` y `GET /documents/{id}/validations` — ahora exigen JWT; crear pide `documents.edit` + `can_create_in_folder`, listar pide poder VER el documento (carpeta incluida).
+- `GET /documents/{id}/versions`, `.../versions/{vid}/pdf`, `.../preview-pdf`, `/current-version`, `/audit-log` — ahora pasan por `assert_document_viewable` (tenant + permiso por carpeta). Antes un usuario sin acceso a la carpeta podía leer el PDF congelado y el historial completo.
+- `POST /process-runs/{id}/generate-pdf` — ahora exige JWT + `assert_run_viewable`.
+- `submit` / `cancel-submission` / `clone` — además de `documents.edit`, verifican `can_create_in_folder` sobre la carpeta del documento.
+- `POST /users/{id}/workspaces/{ws}/membership` — **eliminado**. No tenía autenticación y el rol llegaba por query param con default `"owner"`: cualquiera podía otorgarse owner (que bypassea el permiso por carpeta). Las memberships tienen un solo escritor: `sync_workspace_access`.
+- `GET /workspaces`, `GET /workspaces/{id}`, `GET /users/{id}/workspaces`, `GET /users/{id}/role/{ws}` — ahora exigen sesión; los de users son self-only y los de workspaces filtran por membresía.
+- `require_process_ai_access` (gate de app por tenant) pasó de proteger solo el router de documents a TODOS los routers con datos de tenant (folders, validations, process-runs, semantic, tyto, document-types, operational-roles, subscriptions, context-files, artifacts, evidence y los endpoints de workspaces). Quedan afuera, a propósito: `users` (self-only; `/me` es lo que la UI usa para mostrar "sin acceso"), `verification` (público, extremo del QR) y el ícono de branding (lo carga un `<img>`/favicon sin headers).
 
 ---
 

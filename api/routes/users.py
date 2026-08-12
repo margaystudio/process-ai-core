@@ -2,18 +2,21 @@
 Endpoint para gestionar usuarios.
 
 Este endpoint maneja:
-- POST /api/v1/users: Crear un nuevo usuario
-- GET /api/v1/users: Listar usuarios
-- GET /api/v1/users/{user_id}: Obtener un usuario
-- POST /api/v1/users/{user_id}/workspaces/{workspace_id}/membership: Agregar usuario a workspace con rol
+- GET /api/v1/users/me: Perfil + tenants/workspaces del usuario autenticado
+- GET /api/v1/users/{user_id}: Obtener el propio usuario (self-only)
+- GET /api/v1/users/{user_id}/workspaces: Workspaces del propio usuario (self-only)
+- GET /api/v1/users/{user_id}/role/{workspace_id}: Rol propio en un workspace (self-only)
+- PUT /api/v1/users/{user_id}: Actualizar teléfono del propio usuario (self-only)
+
+El alta de usuarios y de memberships NO tiene endpoint: es responsabilidad de
+`sync_workspace_access`, que sincroniza desde margay-workspace en cada request.
 """
 
 import json
 import re
 
-from fastapi import APIRouter, HTTPException, Query, Depends
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 E164_REGEX = re.compile(r"^\+[1-9]\d{6,14}$")
@@ -23,13 +26,23 @@ from process_ai_core.db.models import User, Workspace, WorkspaceMembership, Role
 from process_ai_core.db.permissions import has_permission
 from process_ai_core.db.helpers import get_or_create_workspace_for_tenant
 from ..dependencies import get_db, get_current_user_id
+from ..request_identity import capture_request_identity
 from ..workspace_client import (
     WorkspaceSessionContext,
     get_workspace_context,
     sync_workspace_access,
 )
 
-router = APIRouter(prefix="/api/v1/users", tags=["users"])
+# Sin require_process_ai_access a propósito: estas rutas son solo datos del
+# PROPIO usuario (self-only), y /me es lo que la UI necesita para poder mostrar
+# "sin acceso" o el switcher de tenants a alguien que no tiene la app en el
+# tenant activo. El gate de módulo va en los routers que exponen datos del
+# tenant (documentos, carpetas, etc.).
+router = APIRouter(
+    prefix="/api/v1/users",
+    tags=["users"],
+    dependencies=[Depends(sync_workspace_access), Depends(capture_request_identity)],
+)
 
 
 def _get_workspace_branding_icon_url(workspace: Workspace) -> str | None:
@@ -228,98 +241,43 @@ def get_user(
         }
 
 
-@router.post("/{user_id}/workspaces/{workspace_id}/membership")
-def add_user_to_workspace(
-    user_id: str,
-    workspace_id: str,
-    role_name: str = Query(default="owner", description="Rol del usuario en el workspace"),  # "owner" | "admin" | "creator" | "viewer" | "approver"
-):
-    """
-    Agrega un usuario a un workspace con un rol específico.
-    
-    Ahora usa role_id (FK a Role) en lugar de role (string).
-    
-    Args:
-        user_id: ID del usuario
-        workspace_id: ID del workspace
-        role_name: Nombre del rol del usuario en el workspace
-    
-    Returns:
-        Datos del membership creado
-    """
-    with get_db_session() as session:
-        from process_ai_core.db.models import Role
-        
-        # Verificar que el usuario existe
-        user = session.query(User).filter_by(id=user_id).first()
-        if not user:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Usuario {user_id} no encontrado"
-            )
-        
-        # Verificar que el workspace existe
-        workspace = session.query(Workspace).filter_by(id=workspace_id).first()
-        if not workspace:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Workspace {workspace_id} no encontrado"
-            )
-        
-        # Buscar el rol por nombre
-        role = session.query(Role).filter_by(name=role_name).first()
-        if not role:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Rol '{role_name}' no encontrado. Roles disponibles: owner, admin, approver, creator, viewer"
-            )
-        
-        # Verificar que no exista ya el membership
-        existing = session.query(WorkspaceMembership).filter_by(
-            user_id=user_id,
-            workspace_id=workspace_id,
-        ).first()
-        
-        if existing:
-            # Actualizar el role_id si ya existe
-            existing.role_id = role.id
-            # Mantener role como string para compatibilidad (deprecated)
-            existing.role = role_name
-        else:
-            # Crear nuevo membership
-            membership = WorkspaceMembership(
-                user_id=user_id,
-                workspace_id=workspace_id,
-                role_id=role.id,
-                role=role_name,  # Deprecated, mantener para compatibilidad
-            )
-            session.add(membership)
-            session.flush()
-            existing = membership
-        
-        session.commit()
-        
-        return {
-            "id": existing.id,
-            "user_id": existing.user_id,
-            "workspace_id": existing.workspace_id,
-            "role_id": existing.role_id,
-            "role": role_name,  # Retornar nombre del rol para compatibilidad
-            "created_at": existing.created_at.isoformat(),
-        }
+# NO existe `POST /{user_id}/workspaces/{workspace_id}/membership`, a propósito.
+#
+# Había uno **sin ninguna autenticación** y con `role_name` por query param con
+# default "owner": cualquiera que conociera la URL podía otorgarse owner en
+# cualquier workspace — y owner bypassea el permiso por carpeta completo
+# (can_*_in_folder). Ninguna pantalla lo usaba: el único caller era el flujo de
+# onboarding muerto (ui/app/onboarding), que ya fallaba antes porque su paso
+# previo (POST /workspaces) tampoco existe.
+#
+# Las memberships locales tienen UN solo escritor: `sync_workspace_access`, que
+# las deriva del rol de tenant que informa margay-workspace. Un alta manual acá
+# sería pisada por el sync en el siguiente request del usuario.
 
 
 @router.get("/{user_id}/workspaces")
-def get_user_workspaces(user_id: str, session: Session = Depends(get_db)):
+def get_user_workspaces(
+    user_id: str,
+    authenticated_user_id: str = Depends(get_current_user_id),
+    session: Session = Depends(get_db),
+):
     """
-    Obtiene todos los workspaces a los que pertenece un usuario.
-    
+    Obtiene todos los workspaces a los que pertenece el PROPIO usuario.
+
+    Self-only: antes no pedía autenticación y permitía enumerar las membresías
+    y roles de cualquier usuario conociendo su id.
+
     Args:
-        user_id: ID del usuario
-    
+        user_id: ID del usuario (debe coincidir con el autenticado)
+
     Returns:
         Lista de workspaces con información de membresía
     """
+    if user_id != authenticated_user_id:
+        raise HTTPException(
+            status_code=403,
+            detail="You can only view your own workspaces"
+        )
     import logging
     logger = logging.getLogger(__name__)
     
@@ -394,17 +352,26 @@ def get_user_workspaces(user_id: str, session: Session = Depends(get_db)):
 def get_user_role_in_workspace(
     user_id: str,
     workspace_id: str,
+    authenticated_user_id: str = Depends(get_current_user_id),
 ):
     """
-    Obtiene el rol de un usuario en un workspace específico.
-    
+    Obtiene el rol del PROPIO usuario en un workspace específico.
+
+    Self-only: antes no pedía autenticación y exponía el rol de cualquier
+    usuario en cualquier workspace.
+
     Args:
-        user_id: ID del usuario
+        user_id: ID del usuario (debe coincidir con el autenticado)
         workspace_id: ID del workspace
-    
+
     Returns:
         Rol del usuario o None si no pertenece al workspace
     """
+    if user_id != authenticated_user_id:
+        raise HTTPException(
+            status_code=403,
+            detail="You can only view your own role"
+        )
     with get_db_session() as session:
         membership = session.query(WorkspaceMembership).filter_by(
             user_id=user_id,

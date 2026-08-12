@@ -244,11 +244,16 @@ def get_current_user_id(
             remember_user_id(supabase_user_id, local_user.id)
             return local_user.id
 
-            logger.warning("Authenticated subject not found in local database")
-            raise HTTPException(
-                status_code=404,
-                detail=f"User not found in local database. Supabase ID: {supabase_user_id}",
-            )
+        # Sin usuario local: antes este raise era inalcanzable (estaba detrás
+        # del return) y la función devolvía None, que se filtraba como user_id
+        # a los checks de permisos. JWT válido pero sin User local = el sync
+        # contra workspace todavía no corrió o falló: 401 para que el cliente
+        # reintente con sesión fresca.
+        logger.warning("Authenticated subject not found in local database")
+        raise HTTPException(
+            status_code=401,
+            detail="User not found in local database",
+        )
     except HTTPException:
         raise
     except Exception as e:

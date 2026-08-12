@@ -32,13 +32,24 @@ from process_ai_core.storage import get_storage, normalize_key, run_artifact_key
 from api.dependencies import get_current_user_id
 from api.routes._document_access import assert_run_viewable
 from api.routes.documents._helpers import authorized_file_response, media_type_for
+from api.request_identity import capture_request_identity
 from api.workspace_client import (
     WorkspaceSessionContext,
     get_workspace_context,
+    require_process_ai_access,
     resolve_tenant_workspace_id,
+    sync_workspace_access,
 )
 
-router = APIRouter(prefix="/api/v1/artifacts", tags=["artifacts"])
+router = APIRouter(
+    prefix="/api/v1/artifacts",
+    tags=["artifacts"],
+    dependencies=[
+        Depends(sync_workspace_access),
+        Depends(capture_request_identity),
+        Depends(require_process_ai_access),
+    ],
+)
 
 
 @router.get("/{run_id}/{filename:path}")

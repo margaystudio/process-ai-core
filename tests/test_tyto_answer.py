@@ -393,6 +393,29 @@ def test_log_registra_respuesta_y_rechazo(session, workspace, folder):
 
 # ── 7. Endpoint: contrato y gate de autenticación ────────────────────────────
 
+def _fake_workspace_ctx():
+    """Contexto mínimo con la app process_ai: el gate de módulo corre a nivel
+    de router y necesita un contexto real, no un object() opaco."""
+    from api.workspace_client import (
+        WorkspaceApplication,
+        WorkspaceSessionContext,
+        WorkspaceTenant,
+        WorkspaceUser,
+    )
+
+    tenant = WorkspaceTenant(id="tenant-tyto", name="Tenant", slug="tenant-tyto")
+    return WorkspaceSessionContext(
+        user=WorkspaceUser(id="wsu-1", email="user@test.io"),
+        platform_roles=[],
+        tenant_roles=["tenant_member"],
+        tenant=tenant,
+        tenants=[tenant],
+        applications=[
+            WorkspaceApplication(key="process_ai", name="Process AI", type="module")
+        ],
+    )
+
+
 @pytest.fixture
 def client(session, workspace, monkeypatch):
     from fastapi.testclient import TestClient
@@ -411,7 +434,7 @@ def client(session, workspace, monkeypatch):
 
     app.dependency_overrides[get_db] = lambda: session
     app.dependency_overrides[get_current_user_id] = lambda: "user-1"
-    app.dependency_overrides[get_workspace_context] = lambda: object()
+    app.dependency_overrides[get_workspace_context] = _fake_workspace_ctx
     app.dependency_overrides[sync_workspace_access] = lambda: None
     try:
         yield TestClient(app)

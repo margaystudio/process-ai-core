@@ -16,6 +16,8 @@ from process_ai_core.db.models import (
     Workspace, OperationalRole, UserOperationalRole, WorkspaceMembership,
 )
 from api.dependencies import get_db, get_current_user_id
+from api.request_identity import capture_request_identity
+from api.workspace_client import require_process_ai_access, sync_workspace_access
 from process_ai_core.db.permissions import get_user_role
 
 from ..models.requests import (
@@ -25,7 +27,15 @@ from ..models.requests import (
     OperationalRoleAssignRequest,
 )
 
-router = APIRouter(prefix="/api/v1", tags=["operational-roles"])
+router = APIRouter(
+    prefix="/api/v1",
+    tags=["operational-roles"],
+    dependencies=[
+        Depends(sync_workspace_access),
+        Depends(capture_request_identity),
+        Depends(require_process_ai_access),
+    ],
+)
 
 
 def _slugify(name: str) -> str:

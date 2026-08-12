@@ -34,7 +34,16 @@ from fastapi import HTTPException
 
 from api.routes.documents import versions as versions_mod
 from process_ai_core.db.database import get_db_session
-from process_ai_core.db.models import Document, DocumentVersion, Folder, Process, Workspace
+from process_ai_core.db.models import (
+    Document,
+    DocumentVersion,
+    Folder,
+    Process,
+    Role,
+    User,
+    Workspace,
+    WorkspaceMembership,
+)
 from process_ai_core.storage.local import LocalDiskStorage
 
 PDF_BYTES = b"%PDF-1.4\n% blob congelado\n%%EOF\n"
@@ -88,13 +97,30 @@ def _make_version(session, monkeypatch, *, status="APPROVED", **version_kwargs):
     session.add(version)
     session.flush()
 
+    # Usuario con acceso: el endpoint ahora exige identidad + permiso por
+    # carpeta (rol owner ⇒ bypass del permiso operativo, como en producción).
+    rol_owner = session.query(Role).filter_by(name="owner").first()
+    if rol_owner is None:
+        rol_owner = Role(id=f"pdf-rol-{uid}", name="owner", is_system=True)
+        session.add(rol_owner)
+        session.flush()
+    user = User(id=f"pdf-usr-{uid}", email=f"pdf-{uid}@test.io", name="PDF User")
+    session.add(user)
+    session.flush()
+    session.add(
+        WorkspaceMembership(
+            id=f"pdf-mem-{uid}", user_id=user.id, workspace_id=ws.id, role_id=rol_owner.id
+        )
+    )
+    session.flush()
+
     @contextmanager
     def fake_db_session():
         yield session
 
     monkeypatch.setattr(versions_mod, "get_db_session", fake_db_session)
     monkeypatch.setattr(versions_mod, "resolve_tenant_workspace_id", lambda ctx: ws.id)
-    return version, ws
+    return version, ws, user.id
 
 
 def _cleanup(session, version, workspace):
@@ -102,6 +128,7 @@ def _cleanup(session, version, workspace):
     session.query(Process).filter_by(id=version.document_id).delete()
     session.query(Document).filter_by(id=version.document_id).delete()
     session.query(Folder).filter_by(workspace_id=workspace.id).delete()
+    session.query(WorkspaceMembership).filter_by(workspace_id=workspace.id).delete()
     session.query(Workspace).filter_by(id=workspace.id).delete()
     session.commit()
 
@@ -114,7 +141,7 @@ def _explode(*args, **kwargs):
 
 
 def test_approved_sirve_el_blob_congelado_sin_renderizar(session, storage, monkeypatch):
-    version, ws = _make_version(session, monkeypatch)
+    version, ws, user_id = _make_version(session, monkeypatch)
     key = f"workspaces/{ws.id}/documents/{version.document_id}/versions/{version.id}/document.pdf"
     storage.put(key, PDF_BYTES, content_type="application/pdf")
     version.pdf_storage_key = key
@@ -130,6 +157,7 @@ def test_approved_sirve_el_blob_congelado_sin_renderizar(session, storage, monke
             document_id=version.document_id,
             version_id=version.id,
             request=_fake_request(),
+            user_id=user_id,
             ctx=None,
         )
         assert response.status_code == 200
@@ -143,7 +171,7 @@ def test_approved_sirve_el_blob_congelado_sin_renderizar(session, storage, monke
 
 
 def test_approved_devuelve_304_con_etag_coincidente(session, storage, monkeypatch):
-    version, ws = _make_version(session, monkeypatch)
+    version, ws, user_id = _make_version(session, monkeypatch)
     key = f"workspaces/{ws.id}/documents/{version.document_id}/versions/{version.id}/document.pdf"
     storage.put(key, PDF_BYTES, content_type="application/pdf")
     sha = hashlib.sha256(PDF_BYTES).hexdigest()
@@ -156,7 +184,7 @@ def test_approved_devuelve_304_con_etag_coincidente(session, storage, monkeypatc
             document_id=version.document_id,
             version_id=version.id,
             request=_fake_request({"if-none-match": f'"{sha}"'}),
-            ctx=None,
+            user_id=user_id, ctx=None,
         )
         assert response.status_code == 304
         assert response.body == b""
@@ -166,7 +194,7 @@ def test_approved_devuelve_304_con_etag_coincidente(session, storage, monkeypatc
 
 def test_pdf_importado_se_sirve_por_el_mismo_camino(session, storage, monkeypatch):
     """document_import guarda el archivo fuente como pdf_storage_key (no document.pdf)."""
-    version, ws = _make_version(session, monkeypatch)
+    version, ws, user_id = _make_version(session, monkeypatch)
     key = (
         f"workspaces/{ws.id}/documents/{version.document_id}"
         f"/versions/{version.id}/source/manual de calidad.pdf"
@@ -186,6 +214,7 @@ def test_pdf_importado_se_sirve_por_el_mismo_camino(session, storage, monkeypatc
             document_id=version.document_id,
             version_id=version.id,
             request=_fake_request(),
+            user_id=user_id,
             ctx=None,
         )
         assert response.body == PDF_BYTES
@@ -210,7 +239,7 @@ def _pdf_de_una_pagina() -> bytes:
 
 
 def test_download_cambia_la_disposicion_a_attachment(session, storage, monkeypatch):
-    version, ws = _make_version(session, monkeypatch)
+    version, ws, user_id = _make_version(session, monkeypatch)
     key = f"workspaces/{ws.id}/documents/{version.document_id}/versions/{version.id}/document.pdf"
     storage.put(key, PDF_BYTES, content_type="application/pdf")
     version.pdf_storage_key = key
@@ -222,11 +251,11 @@ def test_download_cambia_la_disposicion_a_attachment(session, storage, monkeypat
     try:
         vista = versions_mod.get_version_frozen_pdf(
             document_id=version.document_id, version_id=version.id,
-            request=_fake_request(), ctx=None,
+            request=_fake_request(), user_id=user_id, ctx=None,
         )
         descarga = versions_mod.get_version_frozen_pdf(
             document_id=version.document_id, version_id=version.id,
-            request=_fake_request(), download=True, ctx=None,
+            request=_fake_request(), download=True, user_id=user_id, ctx=None,
         )
 
         assert "inline" in vista.headers["content-disposition"]
@@ -248,7 +277,7 @@ def test_la_descarga_de_una_version_superada_lleva_el_sello(session, storage, mo
     """
     import fitz
 
-    version, ws = _make_version(session, monkeypatch, status="OBSOLETE")
+    version, ws, user_id = _make_version(session, monkeypatch, status="OBSOLETE")
     version.is_current = False
     pdf_original = _pdf_de_una_pagina()
     key = f"workspaces/{ws.id}/documents/{version.document_id}/versions/{version.id}/document.pdf"
@@ -269,7 +298,7 @@ def test_la_descarga_de_una_version_superada_lleva_el_sello(session, storage, mo
     try:
         descarga = versions_mod.get_version_frozen_pdf(
             document_id=version.document_id, version_id=version.id,
-            request=_fake_request(), download=True, ctx=None,
+            request=_fake_request(), download=True, user_id=user_id, ctx=None,
         )
 
         assert "attachment" in descarga.headers["content-disposition"]
@@ -290,7 +319,7 @@ def test_la_descarga_de_una_version_superada_lleva_el_sello(session, storage, mo
         # Y una versión aprobada vigente se descarga SIN sello.
         aprobada = versions_mod.get_version_frozen_pdf(
             document_id=version.document_id, version_id=vigente.id,
-            request=_fake_request(), download=True, ctx=None,
+            request=_fake_request(), download=True, user_id=user_id, ctx=None,
         )
         assert "X-Document-Stamped" not in aprobada.headers
     finally:
@@ -302,7 +331,7 @@ def test_la_descarga_de_una_version_superada_lleva_el_sello(session, storage, mo
 
 
 def test_approved_sin_storage_key_reintenta_el_freeze(session, storage, monkeypatch):
-    version, ws = _make_version(session, monkeypatch)
+    version, ws, user_id = _make_version(session, monkeypatch)
     assert version.pdf_storage_key is None
     key = f"workspaces/{ws.id}/documents/{version.document_id}/versions/{version.id}/document.pdf"
     calls = []
@@ -321,6 +350,7 @@ def test_approved_sin_storage_key_reintenta_el_freeze(session, storage, monkeypa
             document_id=version.document_id,
             version_id=version.id,
             request=_fake_request(),
+            user_id=user_id,
             ctx=None,
         )
         assert calls == [version.id], "debe reintentar el freeze exactamente una vez"
@@ -332,7 +362,7 @@ def test_approved_sin_storage_key_reintenta_el_freeze(session, storage, monkeypa
 
 
 def test_approved_con_freeze_fallido_devuelve_404_y_no_regenera(session, storage, monkeypatch):
-    version, ws = _make_version(session, monkeypatch)
+    version, ws, user_id = _make_version(session, monkeypatch)
     monkeypatch.setattr(versions_mod, "freeze_approved_pdf", lambda *a, **k: False)
     # Caer al render on-the-fly sería justo el bug que este endpoint evita.
     monkeypatch.setattr(versions_mod, "export_pdf_from_content", _explode)
@@ -343,7 +373,7 @@ def test_approved_con_freeze_fallido_devuelve_404_y_no_regenera(session, storage
                 document_id=version.document_id,
                 version_id=version.id,
                 request=_fake_request(),
-                ctx=None,
+                user_id=user_id, ctx=None,
             )
         assert exc.value.status_code == 404
         assert "congelado" in exc.value.detail
@@ -352,7 +382,7 @@ def test_approved_con_freeze_fallido_devuelve_404_y_no_regenera(session, storage
 
 
 def test_draft_no_tiene_pdf_congelado(session, storage, monkeypatch):
-    version, ws = _make_version(session, monkeypatch, status="DRAFT")
+    version, ws, user_id = _make_version(session, monkeypatch, status="DRAFT")
     # Un DRAFT nunca se congela: no debe intentar el freeze.
     monkeypatch.setattr(versions_mod, "freeze_approved_pdf", _explode)
 
@@ -362,7 +392,7 @@ def test_draft_no_tiene_pdf_congelado(session, storage, monkeypatch):
                 document_id=version.document_id,
                 version_id=version.id,
                 request=_fake_request(),
-                ctx=None,
+                user_id=user_id, ctx=None,
             )
         assert exc.value.status_code == 404
         assert "preview-pdf" in exc.value.detail
@@ -374,7 +404,7 @@ def test_draft_no_tiene_pdf_congelado(session, storage, monkeypatch):
 
 
 def test_preview_pdf_de_version_aprobada_redirige_al_congelado(session, storage, monkeypatch):
-    version, ws = _make_version(session, monkeypatch)
+    version, ws, user_id = _make_version(session, monkeypatch)
     monkeypatch.setattr(versions_mod, "export_pdf_from_content", _explode)
 
     try:
@@ -382,7 +412,7 @@ def test_preview_pdf_de_version_aprobada_redirige_al_congelado(session, storage,
             versions_mod.get_version_preview_pdf(
                 document_id=version.document_id,
                 version_id=version.id,
-                ctx=None,
+                user_id=user_id, ctx=None,
             )
         )
         assert response.status_code == 307
@@ -394,7 +424,7 @@ def test_preview_pdf_de_version_aprobada_redirige_al_congelado(session, storage,
 
 
 def test_preview_pdf_de_obsolete_congelada_redirige_al_congelado(session, storage, monkeypatch):
-    version, ws = _make_version(session, monkeypatch, status="OBSOLETE")
+    version, ws, user_id = _make_version(session, monkeypatch, status="OBSOLETE")
     version.pdf_storage_key = "workspaces/x/documents/y/versions/z/document.pdf"
     session.flush()
     monkeypatch.setattr(versions_mod, "export_pdf_from_content", _explode)
@@ -404,7 +434,7 @@ def test_preview_pdf_de_obsolete_congelada_redirige_al_congelado(session, storag
             versions_mod.get_version_preview_pdf(
                 document_id=version.document_id,
                 version_id=version.id,
-                ctx=None,
+                user_id=user_id, ctx=None,
             )
         )
         assert response.status_code == 307
@@ -421,7 +451,7 @@ def test_la_redireccion_del_preview_no_pierde_el_parametro_de_descarga(
     archivo se serviría `inline` justo en el caso donde la descarga más importa:
     el de la versión superada, que es la que lleva el sello.
     """
-    version, ws = _make_version(session, monkeypatch, status="OBSOLETE")
+    version, ws, user_id = _make_version(session, monkeypatch, status="OBSOLETE")
     version.pdf_storage_key = "workspaces/x/documents/y/versions/z/document.pdf"
     session.flush()
     monkeypatch.setattr(versions_mod, "export_pdf_from_content", _explode)
@@ -432,7 +462,7 @@ def test_la_redireccion_del_preview_no_pierde_el_parametro_de_descarga(
                 document_id=version.document_id,
                 version_id=version.id,
                 download=True,
-                ctx=None,
+                user_id=user_id, ctx=None,
             )
         )
         assert response.status_code == 307
@@ -442,7 +472,7 @@ def test_la_redireccion_del_preview_no_pierde_el_parametro_de_descarga(
 
 
 def test_preview_pdf_de_draft_sigue_regenerando(session, storage, monkeypatch):
-    version, ws = _make_version(session, monkeypatch, status="DRAFT")
+    version, ws, user_id = _make_version(session, monkeypatch, status="DRAFT")
     rendered = []
 
     def fake_render(*, content, format, run_dir, pdf_name, **kwargs):
@@ -459,7 +489,7 @@ def test_preview_pdf_de_draft_sigue_regenerando(session, storage, monkeypatch):
             versions_mod.get_version_preview_pdf(
                 document_id=version.document_id,
                 version_id=version.id,
-                ctx=None,
+                user_id=user_id, ctx=None,
             )
         )
         assert len(rendered) == 1, "el DRAFT debe re-renderizarse en cada request"
@@ -483,7 +513,7 @@ def test_cache_control_revalida_en_vez_de_congelar_el_permiso(session, storage, 
     servidor: a un usuario con el acceso revocado le seguiría abriendo. Con
     `no-cache` el blob se cachea igual, pero cada apertura revalida.
     """
-    version, ws = _make_version(session, monkeypatch)
+    version, ws, user_id = _make_version(session, monkeypatch)
     key = f"workspaces/{ws.id}/documents/{version.document_id}/versions/{version.id}/document.pdf"
     storage.put(key, PDF_BYTES, content_type="application/pdf")
     version.pdf_storage_key = key
@@ -495,6 +525,7 @@ def test_cache_control_revalida_en_vez_de_congelar_el_permiso(session, storage, 
             document_id=version.document_id,
             version_id=version.id,
             request=_fake_request(),
+            user_id=user_id,
             ctx=None,
         )
         cache_control = response.headers["cache-control"]
@@ -515,7 +546,7 @@ def test_sin_acceso_al_documento_no_se_sirve_el_pdf_ni_con_etag_valido(
     revocan el acceso (o cambia de workspace activo), la revalidación NO puede
     resolverse en 304: la autorización corre antes que el atajo del ETag.
     """
-    version, ws = _make_version(session, monkeypatch)
+    version, ws, user_id = _make_version(session, monkeypatch)
     key = f"workspaces/{ws.id}/documents/{version.document_id}/versions/{version.id}/document.pdf"
     storage.put(key, PDF_BYTES, content_type="application/pdf")
     sha = hashlib.sha256(PDF_BYTES).hexdigest()
@@ -529,6 +560,7 @@ def test_sin_acceso_al_documento_no_se_sirve_el_pdf_ni_con_etag_valido(
             document_id=version.document_id,
             version_id=version.id,
             request=_fake_request(),
+            user_id=user_id,
             ctx=None,
         )
         assert ok.status_code == 200 and ok.body == PDF_BYTES
@@ -544,7 +576,7 @@ def test_sin_acceso_al_documento_no_se_sirve_el_pdf_ni_con_etag_valido(
                 document_id=version.document_id,
                 version_id=version.id,
                 request=_fake_request(),
-                ctx=None,
+                user_id=user_id, ctx=None,
             )
         assert exc.value.status_code in (403, 404)
 
@@ -554,7 +586,7 @@ def test_sin_acceso_al_documento_no_se_sirve_el_pdf_ni_con_etag_valido(
                 document_id=version.document_id,
                 version_id=version.id,
                 request=_fake_request({"if-none-match": f'"{sha}"'}),
-                ctx=None,
+                user_id=user_id, ctx=None,
             )
         assert exc_etag.value.status_code in (403, 404)
     finally:
@@ -596,7 +628,19 @@ def _crear_version_aprobada_committeada():
         )
         s.add(ver)
         s.flush()
-        return ws.id, doc.id, ver.id
+        rol_owner = s.query(Role).filter_by(name="owner").first()
+        if rol_owner is None:
+            rol_owner = Role(id=f"cc-rol-{uid}", name="owner", is_system=True)
+            s.add(rol_owner)
+            s.flush()
+        user = User(id=f"cc-usr-{uid}", email=f"cc-{uid}@test.io", name="CC User")
+        s.add(user)
+        s.flush()
+        s.add(WorkspaceMembership(
+            id=f"cc-mem-{uid}", user_id=user.id, workspace_id=ws.id, role_id=rol_owner.id
+        ))
+        s.flush()
+        return ws.id, doc.id, ver.id, user.id
 
 
 def _borrar_version_committeada(workspace_id, document_id, version_id):
@@ -604,6 +648,7 @@ def _borrar_version_committeada(workspace_id, document_id, version_id):
         s.query(DocumentVersion).filter_by(id=version_id).delete()
         s.query(Process).filter_by(id=document_id).delete()
         s.query(Document).filter_by(id=document_id).delete()
+        s.query(WorkspaceMembership).filter_by(workspace_id=workspace_id).delete()
         s.query(Folder).filter_by(workspace_id=workspace_id).delete()
         s.query(Workspace).filter_by(id=workspace_id).delete()
 
@@ -618,7 +663,7 @@ def test_dos_requests_concurrentes_producen_un_solo_render(storage, monkeypatch)
     """
     import api.routes._freeze as freeze_mod
 
-    workspace_id, document_id, version_id = _crear_version_aprobada_committeada()
+    workspace_id, document_id, version_id, user_id = _crear_version_aprobada_committeada()
 
     # Se cuenta el render real (no las llamadas a freeze_approved_pdf, que
     # retorna temprano si ya hay key). El sleep ensancha la ventana de carrera.
@@ -641,6 +686,7 @@ def test_dos_requests_concurrentes_producen_un_solo_render(storage, monkeypatch)
             document_id=document_id,
             version_id=version_id,
             request=_fake_request(),
+            user_id=user_id,
             ctx=None,
         )
 
