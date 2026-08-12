@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { Card, CardBody, Input, Button } from '@/shared/ui/components'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
-import { useUserRole } from '@/hooks/useUserRole'
+import { useHasPermission } from '@/hooks/useHasPermission'
 import {
   listApprovedDocuments,
   Document,
@@ -18,7 +18,7 @@ import { useDocumentFilter } from '@/hooks/useDocumentFilter'
 
 export default function ViewPage() {
   const { selectedWorkspaceId, selectedWorkspace } = useWorkspace()
-  const { role } = useUserRole()
+  const { hasPermission: canViewDocuments, loading: permLoading } = useHasPermission('documents.view')
   const [documents, setDocuments] = useState<Document[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -75,15 +75,16 @@ export default function ViewPage() {
   }
 
 
-  // Verificar que el usuario es viewer (superadmin = bypass de plataforma)
-  if (role && role !== 'viewer' && role !== 'superadmin') {
+  // Gate por permiso efectivo (documents.view): así también entra quien tiene
+  // ese permiso sin ser estrictamente "viewer" (approver, creator, etc.).
+  if (!permLoading && !canViewDocuments) {
     return (
       <div className="p-8">
         <div className="mx-auto max-w-7xl">
           <Card className="border-danger-bd">
             <CardBody>
               <p className="text-body text-ink-700">
-                No tenés permisos para ver esta página. Tu rol actual es: {role}
+                No tenés permisos para ver esta página.
               </p>
             </CardBody>
           </Card>

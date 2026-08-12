@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Card, CardBody, Input, Button } from '@/shared/ui/components'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
-import { useUserRole } from '@/hooks/useUserRole'
+import { useHasPermission } from '@/hooks/useHasPermission'
 import { useUserId } from '@/hooks/useUserId'
 import {
   listDocumentsToReview,
@@ -19,7 +19,7 @@ import { useDocumentFilter } from '@/hooks/useDocumentFilter'
 export default function ToReviewPage() {
   const router = useRouter()
   const { selectedWorkspaceId, selectedWorkspace } = useWorkspace()
-  const { role } = useUserRole()
+  const { hasPermission: canEditDocuments, loading: permLoading } = useHasPermission('documents.edit')
   const [documents, setDocuments] = useState<Document[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -67,15 +67,16 @@ export default function ToReviewPage() {
   // Filtrar documentos por búsqueda y carpeta
   const filteredDocuments = useDocumentFilter(documents, searchQuery, selectedFolderId)
 
-  // Verificar que el usuario es creador (superadmin = bypass de plataforma)
-  if (role && role !== 'creator' && role !== 'superadmin') {
+  // Gate por permiso efectivo: esta es la pantalla de "mis documentos a
+  // corregir", así que el dueño de la acción es quien puede editar documentos.
+  if (!permLoading && !canEditDocuments) {
     return (
       <div className="p-8">
         <div className="mx-auto max-w-7xl">
           <Card className="border-danger-bd">
             <CardBody>
               <p className="text-body text-ink-700">
-                No tenés permisos para ver esta página. Tu rol actual es: {role}
+                No tenés permisos para ver esta página.
               </p>
             </CardBody>
           </Card>

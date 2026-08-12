@@ -20,6 +20,7 @@ vi.mock('@/lib/api', () => ({
   getFolderGovernance: vi.fn(),
   getFolderPermissions: vi.fn(),
   getFolderStats: vi.fn(),
+  getMyCapabilities: vi.fn().mockResolvedValue({ folders: {} }),
   listDocuments: vi.fn(),
   listFolders: vi.fn(),
   listOperationalRoles: vi.fn(),

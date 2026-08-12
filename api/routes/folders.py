@@ -42,6 +42,7 @@ from process_ai_core.db.permissions import (
     can_create_in_folder,
     has_permission,
     build_permission_context,
+    resolve_folder_permissions_source,
 )
 
 from api.workspace_client import (
@@ -117,38 +118,25 @@ def _folder_metadata(folder: Folder) -> dict:
     return metadata if isinstance(metadata, dict) else {}
 
 
-def _resolve_effective_folder_permissions(
-    session: Session,
-    folder: Folder,
-) -> tuple[list[str], Folder | None]:
-    """Devuelve los roles efectivos y la carpeta que los define."""
-    current = folder
-    visited: set[str] = set()
+# La resolución de herencia de permisos vive en UN solo lugar:
+# process_ai_core.db.permissions.resolve_folder_permissions_source (acá había
+# una tercera copia del algoritmo, además de la per-ítem y la de
+# PermissionContext, y las tres podían divergir en silencio).
 
-    while current:
-        if current.id in visited:
-            # Una jerarquia corrupta no debe provocar un loop infinito.
-            return [], None
-        visited.add(current.id)
 
-        if not getattr(current, "inherits_permissions", True):
-            rows = (
-                session.query(FolderPermission.operational_role_id)
-                .filter_by(folder_id=current.id)
-                .all()
-            )
-            return [row[0] for row in rows], current
-
-        if not current.parent_id:
-            return [], None
-
-        current = (
-            session.query(Folder)
-            .filter_by(id=current.parent_id, workspace_id=folder.workspace_id)
-            .first()
-        )
-
-    return [], None
+def _require_folder_permissions_admin(session: Session, user_id: str, workspace_id: str) -> None:
+    """
+    Guard único para leer/escribir permisos de carpeta: superadmin (claim
+    global de configuración) o rol owner/admin del workspace. Antes el GET
+    aceptaba el bypass de is_superadmin() y el PUT no: un superadmin de
+    plataforma podía LEER los permisos pero no escribirlos.
+    (Se acepta también el rol nominal "superadmin" — fix de auth de develop.)
+    """
+    if is_superadmin(user_id, session):
+        return
+    role = get_user_role(session, user_id, workspace_id)
+    if not role or role.name not in ("owner", "admin", "superadmin"):
+        raise HTTPException(status_code=403, detail="Se requiere rol owner o admin")
 
 
 def resolve_inherited(folder: Folder, attr: str) -> tuple[object, str, str | None]:
@@ -346,16 +334,10 @@ def get_folder_permissions(
         raise HTTPException(status_code=404, detail="Carpeta no encontrada")
     _assert_folder_in_active_workspace(folder.workspace_id, resolve_tenant_workspace_id(ctx), folder_id)
 
-    # Autorización: superadmin (acceso global a la configuración) o rol owner/admin
-    # del workspace. Se resuelve primero; la respuesta se arma una sola vez.
-    # (Se acepta también el rol nominal "superadmin" — fix de auth de develop.)
-    if not is_superadmin(user_id, session):
-        role = get_user_role(session, user_id, folder.workspace_id)
-        if not role or role.name not in ("owner", "admin", "superadmin"):
-            raise HTTPException(status_code=403, detail="Se requiere rol owner o admin")
+    _require_folder_permissions_admin(session, user_id, folder.workspace_id)
 
     inherits = getattr(folder, "inherits_permissions", True)
-    role_ids, source_folder = _resolve_effective_folder_permissions(session, folder)
+    role_ids, source_folder = resolve_folder_permissions_source(session, folder)
     roles_by_id = {
         role.id: role
         for role in (
@@ -397,9 +379,7 @@ def update_folder_permissions(
     if not folder:
         raise HTTPException(status_code=404, detail="Carpeta no encontrada")
     _assert_folder_in_active_workspace(folder.workspace_id, resolve_tenant_workspace_id(ctx), folder_id)
-    role = get_user_role(session, user_id, folder.workspace_id)
-    if not role or role.name not in ("owner", "admin", "superadmin"):
-        raise HTTPException(status_code=403, detail="Se requiere rol owner o admin")
+    _require_folder_permissions_admin(session, user_id, folder.workspace_id)
     was_inheriting = getattr(folder, "inherits_permissions", True)
     will_inherit = request.inherits_permissions if request.inherits_permissions is not None else was_inheriting
     requested_role_ids = (
@@ -417,7 +397,7 @@ def update_folder_permissions(
     # Al cortar la herencia sin una lista explicita, se conserva el acceso efectivo
     # actual materializando los permisos del ancestro en esta carpeta.
     if was_inheriting and not will_inherit and requested_role_ids is None:
-        requested_role_ids, _ = _resolve_effective_folder_permissions(session, folder)
+        requested_role_ids, _ = resolve_folder_permissions_source(session, folder)
 
     if request.inherits_permissions is not None:
         folder.inherits_permissions = request.inherits_permissions

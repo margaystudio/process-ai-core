@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useFolders } from "@/hooks/useFolders";
+import { useFolderAccess } from "@/hooks/useFolderAccess";
 import { WizardIcon } from "./WizardIcon";
 
 const FOLDER_ICON =
@@ -24,6 +25,9 @@ export function FolderSelector({
   const [open, setOpen] = useState(false);
   // Carpetas cacheadas: se cargan una vez con la pantalla (no en cada apertura del selector).
   const { folders, loading, error } = useFolders();
+  // Acceso efectivo por carpeta (herencia + bypass ya resueltos por el backend):
+  // deshabilita las carpetas donde el backend igual rechazaría la creación.
+  const { canCreate: canCreateInFolder } = useFolderAccess();
 
   // Nombre de la carpeta seleccionada (para mostrar). Disponible sin abrir el modal.
   const selectedFolder = folders.find((f) => f.id === value) ?? null;
@@ -109,17 +113,23 @@ export function FolderSelector({
               {!loading &&
                 folders.map((f) => {
                   const sel = f.id === value;
+                  const allowed = canCreateInFolder(f.id);
                   return (
                     <button
                       key={f.id}
                       type="button"
+                      disabled={!allowed}
+                      title={allowed ? undefined : "No tenés permiso para crear documentos en esta carpeta"}
                       onClick={() => {
+                        if (!allowed) return;
                         onChange(f.id, f.path || f.name);
                         setOpen(false);
                       }}
                       className={
                         "flex items-center gap-3 rounded-[10px] border px-3.5 py-3 text-left transition-colors " +
-                        (sel
+                        (!allowed
+                          ? "cursor-not-allowed border-line bg-surface opacity-50"
+                          : sel
                           ? "border-indigo-light bg-indigo-tint"
                           : "border-line bg-surface hover:bg-surface-hover")
                       }
@@ -127,17 +137,22 @@ export function FolderSelector({
                       <WizardIcon
                         d={FOLDER_ICON}
                         size={17}
-                        className={sel ? "text-indigo" : "text-ink-400"}
+                        className={sel && allowed ? "text-indigo" : "text-ink-400"}
                       />
                       <span
                         className={
                           "flex-1 text-[13.5px] font-bold " +
-                          (sel ? "text-indigo" : "text-ink-800")
+                          (sel && allowed ? "text-indigo" : "text-ink-800")
                         }
                       >
                         {f.path || f.name}
                       </span>
-                      {sel && (
+                      {!allowed && (
+                        <span className="text-[11px] font-semibold text-ink-400">
+                          Sin acceso
+                        </span>
+                      )}
+                      {sel && allowed && (
                         <WizardIcon
                           d="M20 6L9 17l-5-5"
                           size={15}

@@ -1,52 +1,51 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useEffect, useState } from 'react'
+import { getMyCapabilities, type MyCapabilities } from '@/lib/api'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
-import { useUserRole } from './useUserRole'
 
 /**
- * Verifica permisos usando rol del workspace (GET /users/me) — sin round-trip extra al backend.
- * El rol ya viene sincronizado desde margay-workspace vía sync_workspace_access.
+ * Verifica permisos contra las capacidades EFECTIVAS del backend
+ * (GET /api/v1/users/me/capabilities) — la misma decisión que el backend va a
+ * aplicar al autorizar cada request, incluido el bypass de superadmin.
+ *
+ * Ya no reimplementa una matriz de permisos por rol acá: esa matriz vivía
+ * hardcodeada y se desincronizaba del backend (ej. admin nunca tuvo
+ * documents.delete, pero el front igual mostraba el botón y el backend
+ * respondía 403).
+ *
+ * Fail-closed: mientras `capabilities` no cargó, `hasPermission` es `false`.
  */
 export function useHasPermission(permissionName: string): { hasPermission: boolean; loading: boolean } {
-  const { platformRoles, tenantRoles, loading } = useWorkspace()
-  const { role, loading: roleLoading } = useUserRole()
+  const { selectedWorkspaceId, activeTenantId } = useWorkspace()
+  const [capabilities, setCapabilities] = useState<MyCapabilities | null>(null)
+  const [loading, setLoading] = useState(true)
 
-  const hasPermission = useMemo(() => {
-    if (platformRoles.includes('superadmin')) return true
-    if (tenantRoles.includes('tenant_admin')) return true
-    if (role === 'owner' || role === 'admin') return true
-    return checkPermissionByRole(role, permissionName)
-  }, [role, platformRoles, tenantRoles, permissionName])
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    getMyCapabilities()
+      .then((data) => {
+        if (!cancelled) setCapabilities(data)
+      })
+      .catch(() => {
+        if (!cancelled) setCapabilities(null)
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+    // Refetch al cambiar de workspace/tenant activo (el caché de 5s en lib/api
+    // amortigua las llamadas duplicadas entre hooks montados en simultáneo).
+  }, [selectedWorkspaceId, activeTenantId])
 
-  return { hasPermission, loading: loading || roleLoading }
-}
+  const hasPermission = Boolean(
+    capabilities && (capabilities.is_superadmin || capabilities.permissions.includes(permissionName))
+  )
 
-function checkPermissionByRole(role: string | null, permissionName: string): boolean {
-  if (!role) return false
-
-  if (role === 'superadmin') return true
-
-  const rolePermissions: Record<string, string[]> = {
-    approver: [
-      'documents.view',
-      'documents.export',
-      'documents.approve',
-      'documents.reject',
-      'workspaces.view',
-    ],
-    creator: [
-      'documents.create',
-      'documents.view',
-      'documents.edit',
-      'documents.export',
-      'workspaces.view',
-      'workspaces.manage_folders',
-    ],
-    viewer: ['documents.view', 'documents.export', 'workspaces.view'],
-  }
-
-  return (rolePermissions[role] || []).includes(permissionName)
+  return { hasPermission, loading }
 }
 
 export function useCanEditWorkspace() {

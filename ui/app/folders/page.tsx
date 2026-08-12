@@ -41,6 +41,7 @@ import {
 } from '@/lib/api'
 import { useAsync } from '@/hooks/useAsync'
 import { useFolderCrud } from '@/hooks/useFolderCrud'
+import { useFolderAccess } from '@/hooks/useFolderAccess'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
 import { Dialog, InheritancePill, Switch, Tabs, TabsContent, type InheritanceKind, type TabItem } from '@/shared/ui/components'
 
@@ -1296,6 +1297,7 @@ export default function FoldersPage() {
   const { selectedWorkspaceId } = useWorkspace()
   const workspaceId = selectedWorkspaceId ?? ''
   const crud = useFolderCrud(workspaceId)
+  const { canCreate: canCreateInFolder } = useFolderAccess()
   const { status, data, error, reload } = useAsync(async () => {
     if (!workspaceId) return { folders: [], documents: [] }
     const [folders, documents] = await Promise.all([
@@ -1619,11 +1621,13 @@ export default function FoldersPage() {
               className="h-[42px] w-full rounded-[10px] border border-line-input px-3 text-sm outline-none focus:border-indigo focus:ring-[3px] focus:ring-indigo/10"
             >
               <option value="">Raiz</option>
-              {allNodes.map((node) => (
-                <option key={node.id} value={node.id}>
-                  {node.path || node.name}
-                </option>
-              ))}
+              {allNodes
+                .filter((node) => canCreateInFolder(node.id))
+                .map((node) => (
+                  <option key={node.id} value={node.id}>
+                    {node.path || node.name}
+                  </option>
+                ))}
             </select>
           </label>
 

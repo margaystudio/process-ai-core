@@ -62,16 +62,6 @@ export interface RunResponse {
   error?: string;
 }
 
-export interface WorkspaceCreateRequest {
-  name: string;
-  slug: string;
-  country?: string;
-  business_type?: string;
-  language_style?: string;
-  default_audience?: string;
-  context_text?: string;
-}
-
 export interface WorkspaceResponse {
   id: string;
   tenant_id?: string | null;
@@ -524,62 +514,6 @@ export async function downloadArtifact(url: string, fallbackName: string): Promi
   }
 }
 
-/**
- * Crea un nuevo workspace (cliente/organización).
- */
-export async function createWorkspace(
-  request: WorkspaceCreateRequest,
-  userId?: string | null
-): Promise<WorkspaceResponse> {
-  const headers: HeadersInit = {
-    'Content-Type': 'application/json',
-  }
-
-  // Si Supabase no está configurado y tenemos userId, enviarlo en Authorization
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-  
-  if (!supabaseUrl || !supabaseKey) {
-    // Modo desarrollo sin Supabase: usar userId o generar uno temporal
-    let devUserId = userId
-    if (!devUserId) {
-      // Generar o obtener un userId temporal de localStorage
-      devUserId = localStorage.getItem('dev_user_id')
-      if (!devUserId) {
-        // Generar un UUID v4 temporal
-        devUserId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-          const r = Math.random() * 16 | 0
-          const v = c === 'x' ? r : (r & 0x3 | 0x8)
-          return v.toString(16)
-        })
-        localStorage.setItem('dev_user_id', devUserId)
-      }
-    }
-    headers['Authorization'] = `Bearer ${devUserId}`
-  } else if (supabaseUrl && supabaseKey) {
-    // Modo con Supabase: token vía el puente server-side (getAccessToken lee la
-    // cookie HttpOnly en el server; el getSession() del browser no la ve).
-    const { getAccessToken } = await import('@/lib/api-auth')
-    const token = await getAccessToken()
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`
-    }
-  }
-
-  const response = await authFetch(`${API_URL}/api/v1/workspaces`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(request),
-  });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
-    throw new Error(error.detail || `HTTP ${response.status}`);
-  }
-
-  return response.json();
-}
-
 export interface CurrentUserResponse {
   user: {
     id: string
@@ -633,6 +567,84 @@ export async function getCurrentUser(options?: { force?: boolean }): Promise<Cur
       workspaces: (data.workspaces ?? []).map(normalizeWorkspaceResponse),
     }
     _currentUserCache = { data: result, ts: Date.now() }
+    return result
+  })
+}
+
+/** Acceso efectivo a una carpeta puntual (herencia + bypass ya resueltos por el backend). */
+export interface FolderCapabilities {
+  view: boolean;
+  create: boolean;
+  approve: boolean;
+}
+
+/**
+ * Capacidades efectivas del usuario actual en el tenant activo: la MISMA
+ * decisión que el backend va a aplicar al autorizar cada request (incluye el
+ * bypass de superadmin/owner/admin y la herencia de permisos por carpeta).
+ * Reemplaza la matriz de permisos que antes vivía hardcodeada en el front.
+ */
+export interface MyCapabilities {
+  user_id: string;
+  workspace_id: string;
+  tenant_id: string;
+  platform_roles: string[];
+  tenant_roles: string[];
+  role: 'owner' | 'admin' | 'approver' | 'creator' | 'viewer' | null;
+  is_superadmin: boolean;
+  /** Permisos efectivos (ej. 'documents.view', 'documents.create', …). */
+  permissions: string[];
+  operational_role_ids: string[];
+  can_manage_workspace: boolean;
+  can_manage_branding: boolean;
+  /** Acceso por carpeta, ya resuelto. Clave = folder_id. */
+  folders: Record<string, FolderCapabilities>;
+}
+
+let _myCapabilitiesCache: { data: MyCapabilities; ts: number } | null = null
+const MY_CAPABILITIES_CACHE_MS = 5000
+
+export function invalidateMyCapabilitiesCache(): void {
+  _myCapabilitiesCache = null
+}
+
+/**
+ * Capacidades efectivas del usuario en el tenant activo (GET /users/me/capabilities).
+ * Respeta active_tenant_id en localStorage (header X-Active-Tenant-Id), igual que getCurrentUser.
+ */
+export async function getMyCapabilities(options?: { force?: boolean }): Promise<MyCapabilities> {
+  if (options?.force) {
+    invalidateMyCapabilitiesCache()
+  } else if (_myCapabilitiesCache && Date.now() - _myCapabilitiesCache.ts < MY_CAPABILITIES_CACHE_MS) {
+    return _myCapabilitiesCache.data
+  }
+
+  return dedupeInFlight('users/me/capabilities', async () => {
+    const { getAuthHeaders } = await import('@/lib/api-auth')
+    const headers = await getAuthHeaders({})
+    const response = await authFetch(`${API_URL}/api/v1/users/me/capabilities`, { headers })
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Error desconocido' }))
+      throw new Error(error.detail || `HTTP ${response.status}`)
+    }
+
+    const data = await response.json()
+    const result: MyCapabilities = {
+      user_id: data.user_id,
+      workspace_id: data.workspace_id,
+      tenant_id: data.tenant_id,
+      platform_roles: data.platform_roles ?? [],
+      tenant_roles: data.tenant_roles ?? [],
+      role: data.role ?? null,
+      is_superadmin: Boolean(data.is_superadmin),
+      permissions: data.permissions ?? [],
+      operational_role_ids: data.operational_role_ids ?? [],
+      can_manage_workspace: Boolean(data.can_manage_workspace),
+      can_manage_branding: Boolean(data.can_manage_branding),
+      folders: data.folders ?? {},
+    }
+    _myCapabilitiesCache = { data: result, ts: Date.now() }
     return result
   })
 }
@@ -775,29 +787,6 @@ export async function updateMyProfile(
     phone_verified: res.phone_verified ?? false,
     phone_verified_at: res.phone_verified_at ?? null,
   };
-}
-
-/**
- * Agrega un usuario a un workspace con un rol específico.
- */
-export async function addUserToWorkspace(
-  userId: string,
-  workspaceId: string,
-  roleName: string
-): Promise<{ id: string; user_id: string; workspace_id: string; role: string; created_at: string }> {
-  const response = await authFetch(
-    `${API_URL}/api/v1/users/${userId}/workspaces/${workspaceId}/membership?role_name=${encodeURIComponent(roleName)}`,
-    {
-      method: 'POST',
-    }
-  );
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
-    throw new Error(error.detail || `HTTP ${response.status}`);
-  }
-
-  return response.json()
 }
 
 /**

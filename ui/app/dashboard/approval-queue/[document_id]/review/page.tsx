@@ -17,6 +17,7 @@ import {
   useCanApproveDocuments,
   useCanRejectDocuments,
 } from '@/hooks/useHasPermission'
+import { useFolderAccess } from '@/hooks/useFolderAccess'
 import { getDocumentActions } from '@/lib/documentActions'
 import { defaultValidityDate } from '@/lib/validity'
 import {
@@ -167,6 +168,7 @@ export default function DocumentReviewPage() {
   const userId = useUserId()
   const { hasPermission: canApprovePermission } = useCanApproveDocuments()
   const { hasPermission: canRejectPermission } = useCanRejectDocuments()
+  const { canApprove: canApproveInFolder } = useFolderAccess()
 
   const [doc, setDoc] = useState<Document | null>(null)
   const [versions, setVersions] = useState<DocumentVersion[]>([])
@@ -267,6 +269,7 @@ export default function DocumentReviewPage() {
     canRejectPermission,
     canEditPermission: false,
     canDeletePermission: false,
+    folderAccess: { canApprove: canApproveInFolder(doc?.folder_id) },
   })
 
   // ¿Es el creador de la versión en revisión? (muestra aviso en vez de botones)

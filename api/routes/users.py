@@ -30,6 +30,8 @@ from ..request_identity import capture_request_identity
 from ..workspace_client import (
     WorkspaceSessionContext,
     get_workspace_context,
+    require_process_ai_access,
+    resolve_tenant_workspace_id,
     sync_workspace_access,
 )
 
@@ -182,6 +184,76 @@ def get_current_user_me(
         "platform_roles": ctx.platform_roles,
         "tenant_roles": ctx.tenant_roles,
         "workspaces": workspaces,
+    }
+
+
+@router.get("/me/capabilities", dependencies=[Depends(require_process_ai_access)])
+def get_my_capabilities(
+    ctx: WorkspaceSessionContext = Depends(get_workspace_context),
+    user_id: str = Depends(get_current_user_id),
+    session: Session = Depends(get_db),
+):
+    """
+    Permisos EFECTIVOS del usuario en el workspace activo, resueltos por el
+    backend — mismo patrón que `GET /oms/me/capabilities` en margay-oms.
+
+    Es la única fuente de verdad para el gating de la UI: qué permisos de
+    documentos tiene el usuario y qué puede hacer en CADA carpeta (herencia ya
+    resuelta). El frontend no reimplementa la matriz de roles ni la herencia:
+    todo lo que se pinta o se oculta sale de acá, y el enforcement real sigue
+    siendo de cada endpoint.
+
+    Respuesta:
+      - role: rol de sistema en el workspace (owner/admin/approver/creator/viewer)
+      - permissions: nombres de permisos efectivos (los del rol; todos si superadmin)
+      - folders: {folder_id: {view, create, approve}} — con bypass de
+        owner/admin/superadmin aplicado, igual que can_*_in_folder
+      - can_manage_workspace / can_manage_branding: espejo de los guards de
+        settings y branding de workspaces.py
+    """
+    from process_ai_core.db.models import Folder, Permission
+    from process_ai_core.db.permissions import build_permission_context
+
+    workspace_id = resolve_tenant_workspace_id(ctx)
+    platform_is_superadmin = "superadmin" in ctx.platform_roles
+    perm_ctx = build_permission_context(
+        session, user_id, workspace_id, platform_is_superadmin
+    )
+
+    if perm_ctx.is_superadmin:
+        # Bypass total: el catálogo completo, no los permisos de un rol.
+        permissions = sorted(p.name for p in session.query(Permission).all())
+    else:
+        permissions = sorted(perm_ctx.permission_names)
+
+    folder_ids = [
+        fid for (fid,) in session.query(Folder.id).filter_by(workspace_id=workspace_id)
+    ]
+    folder_access = {
+        fid: {
+            "view": perm_ctx.can_view_folder(fid),
+            "create": perm_ctx.can_create_in_folder(fid),
+            "approve": perm_ctx.can_approve_in_folder(fid),
+        }
+        for fid in folder_ids
+    }
+
+    role_name = perm_ctx.system_role_name
+    return {
+        "user_id": user_id,
+        "workspace_id": workspace_id,
+        "tenant_id": ctx.tenant.id,
+        "platform_roles": ctx.platform_roles,
+        "tenant_roles": ctx.tenant_roles,
+        "role": role_name,
+        "is_superadmin": perm_ctx.is_superadmin,
+        "permissions": permissions,
+        "operational_role_ids": sorted(perm_ctx.operational_role_ids),
+        # Espejo de _require_workspace_settings_access / _require_workspace_branding_access
+        "can_manage_workspace": perm_ctx.is_superadmin
+        or role_name in ("owner", "creator", "admin"),
+        "can_manage_branding": role_name in ("owner", "creator"),
+        "folders": folder_access,
     }
 
 

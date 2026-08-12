@@ -319,20 +319,31 @@ def _get_user_operational_role_ids(session: Session, user_id: str, workspace_id:
     return {r[0] for r in rows}
 
 
-def _get_folder_allowed_operational_role_ids(session: Session, folder_id: str) -> set[str]:
+def resolve_folder_permissions_source(
+    session: Session, folder: "Folder | None"
+) -> tuple[list[str], "Folder | None"]:
     """
-    IDs de roles operativos que pueden acceder a la carpeta.
-    Si inherits_permissions es True, sube al padre hasta encontrar permisos explícitos.
-    Si la carpeta raíz hereda y no tiene permisos, se considera que no hay restricción (todos).
+    Resolución CANÓNICA de la herencia de permisos de una carpeta.
+
+    Devuelve (ids de roles operativos efectivos, carpeta que los define).
+    Sube por parent_id mientras inherits_permissions sea True; la primera
+    carpeta con herencia cortada define la lista. Lista vacía == sin
+    restricción (cualquier miembro con el permiso de documentos pasa), tanto
+    para la raíz heredando como para una carpeta con herencia cortada y cero
+    filas. Ciclo en la jerarquía → sin restricción.
+
+    Única implementación con acceso a DB: la usan los checks por-ítem de este
+    módulo y el GET/PUT de permisos de carpeta (antes folders.py tenía una
+    copia propia). PermissionContext replica esta semántica en memoria, con
+    tests de paridad en tests/test_permission_context.py.
     """
-    folder = get_folder_by_id(session, folder_id)
     if not folder:
-        return set()
+        return [], None
     visited: set[str] = set()
     current = folder
     while current:
         if current.id in visited:
-            return set()
+            return [], None
         visited.add(current.id)
         if not getattr(current, "inherits_permissions", True):
             rows = (
@@ -340,12 +351,24 @@ def _get_folder_allowed_operational_role_ids(session: Session, folder_id: str) -
                 .filter_by(folder_id=current.id)
                 .all()
             )
-            return {r[0] for r in rows}
+            return [r[0] for r in rows], current
         if current.parent_id:
             current = get_folder_by_id(session, current.parent_id)
         else:
-            return set()
-    return set()
+            return [], None
+    return [], None
+
+
+def _get_folder_allowed_operational_role_ids(session: Session, folder_id: str) -> set[str]:
+    """
+    IDs de roles operativos que pueden acceder a la carpeta.
+    Si inherits_permissions es True, sube al padre hasta encontrar permisos explícitos.
+    Si la carpeta raíz hereda y no tiene permisos, se considera que no hay restricción (todos).
+    """
+    role_ids, _ = resolve_folder_permissions_source(
+        session, get_folder_by_id(session, folder_id)
+    )
+    return set(role_ids)
 
 
 def _has_folder_access_by_operational_roles(

@@ -22,7 +22,7 @@ import { clearLocalAuthState } from '@/lib/clear-auth-state'
 import { canAdministerWorkspace } from '@/lib/adminGating'
 
 // Páginas fuera del shell del módulo (sin sidebar). El login es del hub (SSO).
-const BARE_PREFIXES = ['/login', '/onboarding', '/invitations', '/auth']
+const BARE_PREFIXES = ['/login', '/invitations', '/auth']
 
 function initialsOf(name: string): string {
   const clean = name.trim()

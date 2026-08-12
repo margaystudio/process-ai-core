@@ -35,6 +35,7 @@ import ArtifactViewerModal from '@/components/processes/ArtifactViewerModal'
 import { FileItemData } from '@/components/processes/FileItem'
 import { formatDateTime } from '@/utils/dateFormat'
 import { useCanApproveDocuments, useCanRejectDocuments, useHasPermission } from '@/hooks/useHasPermission'
+import { useFolderAccess } from '@/hooks/useFolderAccess'
 import { useUserId } from '@/hooks/useUserId'
 import { useUserRole } from '@/hooks/useUserRole'
 import { getDocumentActions } from '@/lib/documentActions'
@@ -81,6 +82,7 @@ export default function DocumentDetailPage() {
   const { hasPermission: hasDocumentCreatePermission } = useHasPermission('documents.create')
   const { hasPermission: hasDocumentDeletePermission } = useHasPermission('documents.delete')
   const { role: userRoleName } = useUserRole()
+  const { canApprove: canApproveInFolder, canCreate: canCreateInFolder } = useFolderAccess()
 
   // Datos
   const [document, setDocument] = useState<Document | null>(null)
@@ -210,6 +212,10 @@ export default function DocumentDetailPage() {
     canRejectPermission: hasRejectPermission ?? false,
     canEditPermission: hasDocumentEditPermission ?? false,
     canDeletePermission: hasDocumentDeletePermission ?? false,
+    folderAccess: {
+      canApprove: canApproveInFolder(document?.folder_id),
+      canCreate: canCreateInFolder(document?.folder_id),
+    },
   })
 
   // ── Versión relevante para la previsualización ─────────────────────────────
