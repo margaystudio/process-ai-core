@@ -1,9 +1,13 @@
 'use client'
 
-import { OperationalRoleResponse, WorkspaceAccessRole, WorkspaceMember } from '@/lib/api'
+import { useState } from 'react'
+import { OperationalRoleResponse, WorkspaceMember } from '@/lib/api'
+import { WORKSPACE_ACCESS_ROLE_BADGE_VARIANT, WORKSPACE_ACCESS_ROLE_LABEL } from '@/lib/accessLevels'
 import { Badge } from '@/shared/ui/components'
+import MemberEffectiveAccessModal from './MemberEffectiveAccessModal'
 
 type UsersSettingsTabProps = {
+  workspaceId: string
   members: WorkspaceMember[]
   operationalRoles: OperationalRoleResponse[]
   canManageUsers: boolean
@@ -15,20 +19,8 @@ type UsersSettingsTabProps = {
   onCancelEdit: () => void
 }
 
-/** Acceso base del workspace (hub) — ya no son roles de sistema, ver `WorkspaceAccessRole`. */
-const ACCESS_ROLE_LABEL: Record<WorkspaceAccessRole, string> = {
-  admin: 'Administrador',
-  member: 'Miembro',
-  external: 'Cliente externo',
-}
-
-const ACCESS_ROLE_BADGE_VARIANT: Record<WorkspaceAccessRole, 'info' | 'neutral' | 'warning'> = {
-  admin: 'info',
-  member: 'neutral',
-  external: 'warning',
-}
-
 export default function UsersSettingsTab({
+  workspaceId,
   members,
   operationalRoles,
   canManageUsers,
@@ -39,6 +31,9 @@ export default function UsersSettingsTab({
   onSaveMemberRoles,
   onCancelEdit,
 }: UsersSettingsTabProps) {
+  // Miembro cuyo acceso efectivo se está viendo ("Ver acceso"). `null` = modal cerrado.
+  const [viewingAccessMember, setViewingAccessMember] = useState<WorkspaceMember | null>(null)
+
   return (
     <div>
       <div className="mb-6">
@@ -61,8 +56,8 @@ export default function UsersSettingsTab({
                   <div>
                     <div className="flex items-center gap-2">
                       <p className="font-medium">{member.name || member.email}</p>
-                      <Badge variant={ACCESS_ROLE_BADGE_VARIANT[member.role]}>
-                        {ACCESS_ROLE_LABEL[member.role]}
+                      <Badge variant={WORKSPACE_ACCESS_ROLE_BADGE_VARIANT[member.role]}>
+                        {WORKSPACE_ACCESS_ROLE_LABEL[member.role]}
                       </Badge>
                     </div>
                     <p className="text-sm text-ink-500">
@@ -72,17 +67,25 @@ export default function UsersSettingsTab({
                         : ''}
                     </p>
                   </div>
-                  {canManageUsers && (
-                    <span title={isAdmin ? 'Los administradores tienen acceso total' : undefined}>
-                      <button
-                        onClick={() => onOpenMemberEdit(member)}
-                        disabled={isAdmin}
-                        className="px-3 py-1.5 text-sm bg-ink-100 hover:bg-ink-200 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-ink-100 rounded-md"
-                      >
-                        {editingMemberId === member.membership_id ? 'Editando...' : 'Asignar roles operativos'}
-                      </button>
-                    </span>
-                  )}
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setViewingAccessMember(member)}
+                      className="px-3 py-1.5 text-sm bg-ink-100 hover:bg-ink-200 rounded-md"
+                    >
+                      Ver acceso
+                    </button>
+                    {canManageUsers && (
+                      <span title={isAdmin ? 'Los administradores tienen acceso total' : undefined}>
+                        <button
+                          onClick={() => onOpenMemberEdit(member)}
+                          disabled={isAdmin}
+                          className="px-3 py-1.5 text-sm bg-ink-100 hover:bg-ink-200 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-ink-100 rounded-md"
+                        >
+                          {editingMemberId === member.membership_id ? 'Editando...' : 'Asignar roles operativos'}
+                        </button>
+                      </span>
+                    )}
+                  </div>
                 </div>
               )
             })}
@@ -127,6 +130,12 @@ export default function UsersSettingsTab({
           </div>
         )}
       </div>
+
+      <MemberEffectiveAccessModal
+        workspaceId={workspaceId}
+        member={viewingAccessMember}
+        onClose={() => setViewingAccessMember(null)}
+      />
     </div>
   )
 }

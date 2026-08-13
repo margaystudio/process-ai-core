@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { OperationalRoleAccessLevel, OperationalRoleResponse } from '@/lib/api'
+import { ACCESS_LEVEL_BADGE_VARIANT, ACCESS_LEVEL_DESCRIPTION, ACCESS_LEVEL_LABEL } from '@/lib/accessLevels'
 import { Badge, Button, OptionSet } from '@/shared/ui/components'
 
 type RolesSettingsTabProps = {
@@ -24,25 +25,6 @@ const ACCESS_LEVEL_OPTIONS: { value: OperationalRoleAccessLevel; label: string }
   { value: 'edicion', label: 'Edición' },
   { value: 'aprobacion', label: 'Aprobación' },
 ]
-
-/** Descripción corta de cada nivel — acumulativos: cada uno incluye lo anterior. */
-const ACCESS_LEVEL_DESCRIPTION: Record<OperationalRoleAccessLevel, string> = {
-  lectura: 'Puede ver y exportar documentos',
-  edicion: 'Además puede crear y editar',
-  aprobacion: 'Además puede aprobar y rechazar',
-}
-
-const ACCESS_LEVEL_LABEL: Record<OperationalRoleAccessLevel, string> = {
-  lectura: 'Lectura',
-  edicion: 'Edición',
-  aprobacion: 'Aprobación',
-}
-
-const ACCESS_LEVEL_BADGE_VARIANT: Record<OperationalRoleAccessLevel, 'neutral' | 'info' | 'warning'> = {
-  lectura: 'neutral',
-  edicion: 'info',
-  aprobacion: 'warning',
-}
 
 /** Selector de nivel de acceso: 3 opciones + descripción corta de la elegida. */
 function AccessLevelSelector({

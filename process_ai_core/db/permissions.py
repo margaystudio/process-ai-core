@@ -464,6 +464,15 @@ class PermissionContext:
             for rid in self.operational_levels.keys() & allowed
         )
 
+    def allowed_operational_role_ids(self, folder_id: str | None) -> set[str]:
+        """Roles operativos con acceso a la carpeta (herencia resuelta).
+
+        set() == sin restricción. Es la vista pública de la resolución en
+        memoria; la usa el visor de acceso efectivo para explicar POR QUÉ un
+        usuario entra (o no) a cada carpeta.
+        """
+        return self._folder_allowed_role_ids(folder_id)
+
     def can_view_folder(self, folder_id: str | None) -> bool:
         return self._can_in_folder("documents.view", folder_id)
 

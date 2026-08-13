@@ -31,6 +31,7 @@ from ..dependencies import get_current_user_id
 from process_ai_core.db.permissions import (
     get_membership_base_access,
     is_workspace_admin,
+    resolve_folder_permissions_source,
 )
 from ..models.requests import (
     WorkspaceResponse,
@@ -38,7 +39,11 @@ from ..models.requests import (
     WorkspaceSettingsUpdateRequest,
 )
 from ..request_identity import capture_request_identity
-from ..workspace_client import require_process_ai_access, sync_workspace_access
+from ..workspace_client import (
+    get_workspace_context,
+    require_process_ai_access,
+    sync_workspace_access,
+)
 
 # require_process_ai_access va por endpoint y no a nivel de router: la ruta del
 # icono de branding se carga desde un <link>/<img> del navegador, que no puede
@@ -267,6 +272,117 @@ def get_workspace_members(
             "operational_role_ids": op_role_ids_by_membership.get(m.id, []),
         })
     return {"workspace_id": workspace_id, "members": out}
+
+
+@router.get(
+    "/{workspace_id}/members/{membership_id}/effective-access",
+    dependencies=[Depends(require_process_ai_access)],
+)
+def get_member_effective_access(
+    workspace_id: str,
+    membership_id: str,
+    user_id: str = Depends(get_current_user_id),
+    session: Session = Depends(get_db),
+    ctx=Depends(get_workspace_context),
+):
+    """
+    Acceso EFECTIVO de un miembro, para el admin del workspace: qué puede
+    hacer en cada carpeta y POR QUÉ (qué rol operativo se lo da, o de qué
+    ancestro hereda la restricción).
+
+    Es la herramienta de soporte del modelo de permisos: convierte "¿por qué
+    Juan no puede aprobar acá?" en una consulta, en vez de un ticket. Solo
+    admin/superadmin: expone la configuración de acceso de otra persona.
+    """
+    from process_ai_core.db.models import Folder, OperationalRole, UserOperationalRole
+    from process_ai_core.db.permissions import build_permission_context
+
+    platform_is_superadmin = "superadmin" in (ctx.platform_roles or [])
+    if not is_workspace_admin(session, user_id, workspace_id, platform_is_superadmin):
+        raise HTTPException(
+            status_code=403,
+            detail="Solo un administrador puede ver el acceso efectivo de otros usuarios",
+        )
+
+    membership = session.query(WorkspaceMembership).filter_by(
+        id=membership_id, workspace_id=workspace_id
+    ).first()
+    if not membership:
+        raise HTTPException(status_code=404, detail="Membresía no encontrada")
+
+    target = session.query(User).filter_by(id=membership.user_id).first()
+
+    # Nota: el claim de plataforma del USUARIO OBJETIVO no se conoce acá (viaja
+    # en SU sesión); si el objetivo fuera superadmin, esto muestra su acceso
+    # como miembro común. Aceptable: los superadmin no se administran acá.
+    perm_ctx = build_permission_context(session, membership.user_id, workspace_id)
+
+    roles = (
+        session.query(OperationalRole)
+        .join(
+            UserOperationalRole,
+            UserOperationalRole.operational_role_id == OperationalRole.id,
+        )
+        .filter(UserOperationalRole.workspace_membership_id == membership.id)
+        .order_by(OperationalRole.name)
+        .all()
+    )
+
+    folders = (
+        session.query(Folder)
+        .filter_by(workspace_id=workspace_id)
+        .order_by(Folder.path)
+        .all()
+    )
+    folder_name_by_id = {f.id: f.name for f in folders}
+
+    folder_rows = []
+    for f in folders:
+        allowed = perm_ctx.allowed_operational_role_ids(f.id)
+        restricted = bool(allowed)
+        source_id = None
+        if restricted:
+            # De qué carpeta sale la lista efectiva (la propia o un ancestro).
+            _, source = resolve_folder_permissions_source(session, f)
+            source_id = source.id if source else None
+        folder_rows.append({
+            "id": f.id,
+            "name": f.name,
+            "path": f.path,
+            "parent_id": f.parent_id,
+            "view": perm_ctx.can_view_folder(f.id),
+            "create": perm_ctx.can_create_in_folder(f.id),
+            "approve": perm_ctx.can_approve_in_folder(f.id),
+            "restricted": restricted,
+            "source_folder_id": source_id,
+            "source_folder_name": folder_name_by_id.get(source_id),
+            # Los roles del usuario que abren ESTA carpeta (vacío si entra por
+            # el nivel base o si no entra).
+            "granted_by_role_ids": sorted(
+                perm_ctx.operational_role_ids & allowed
+            ) if restricted else [],
+        })
+
+    return {
+        "membership_id": membership.id,
+        "user_id": membership.user_id,
+        "email": target.email if target else "",
+        "name": target.name if target else "",
+        "base_access": perm_ctx.base_access,
+        "is_admin": perm_ctx.base_access == "admin",
+        "permissions": sorted(perm_ctx.permission_names),
+        "operational_roles": [
+            {
+                "id": r.id,
+                "name": r.name,
+                "slug": r.slug,
+                "access_level": r.access_level,
+                "is_active": r.is_active,
+            }
+            for r in roles
+        ],
+        "folders": folder_rows,
+    }
 
 
 @router.patch("/{workspace_id}/settings", response_model=WorkspaceResponse, dependencies=[Depends(require_process_ai_access)])

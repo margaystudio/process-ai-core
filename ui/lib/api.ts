@@ -1193,6 +1193,72 @@ export async function getWorkspaceMembers(workspaceId: string): Promise<{ worksp
   return response.json();
 }
 
+/** Rol operativo del usuario, tal como viene embebido en `MemberEffectiveAccess`. */
+export interface MemberEffectiveAccessRole {
+  id: string;
+  name: string;
+  slug: string;
+  access_level: OperationalRoleAccessLevel;
+  is_active: boolean;
+}
+
+/** Acceso efectivo a una carpeta puntual para el visor de acceso de un miembro. */
+export interface MemberEffectiveAccessFolder {
+  id: string;
+  name: string;
+  path: string;
+  parent_id: string | null;
+  view: boolean;
+  create: boolean;
+  approve: boolean;
+  /** `false` ⇒ carpeta sin restricción: entra cualquier miembro por su nivel base. */
+  restricted: boolean;
+  /** Carpeta (esta u ancestro) de la que viene la restricción/lista de roles. */
+  source_folder_id: string;
+  source_folder_name: string;
+  /** Roles operativos DEL USUARIO que le abren esta carpeta. Vacío = no entra. */
+  granted_by_role_ids: string[];
+}
+
+/**
+ * Acceso efectivo de un miembro del workspace: la vista "¿por qué Juan no
+ * puede aprobar esta carpeta?" para el admin. Viene de
+ * GET /workspaces/{workspace_id}/members/{membership_id}/effective-access
+ * (admin-only).
+ */
+export interface MemberEffectiveAccess {
+  membership_id: string;
+  user_id: string;
+  email: string;
+  name: string;
+  base_access: WorkspaceAccessRole;
+  is_admin: boolean;
+  permissions: string[];
+  operational_roles: MemberEffectiveAccessRole[];
+  /** Ordenadas por `path`. */
+  folders: MemberEffectiveAccessFolder[];
+}
+
+/**
+ * Acceso efectivo de un miembro (admin-only; 403 para no-admins).
+ */
+export async function getMemberEffectiveAccess(
+  workspaceId: string,
+  membershipId: string
+): Promise<MemberEffectiveAccess> {
+  const { getAuthHeaders } = await import('@/lib/api-auth');
+  const headers = await getAuthHeaders({});
+  const response = await authFetch(
+    `${API_URL}/api/v1/workspaces/${workspaceId}/members/${membershipId}/effective-access`,
+    { headers }
+  );
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
+    throw new Error(error.detail || `HTTP ${response.status}`);
+  }
+  return response.json();
+}
+
 /**
  * Asigna roles operativos a un usuario (membership).
  */

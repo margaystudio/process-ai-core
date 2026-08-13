@@ -425,8 +425,9 @@ export default function WorkspaceSettingsPage() {
               />
             )}
 
-            {activeTab === 'users' && hasAccess && (
+            {activeTab === 'users' && hasAccess && workspaceId && (
               <UsersSettingsTab
+                workspaceId={workspaceId}
                 members={members}
                 operationalRoles={operationalRoles}
                 canManageUsers={canManageUsers}
