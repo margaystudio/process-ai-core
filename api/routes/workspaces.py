@@ -56,13 +56,28 @@ router = APIRouter(
 
 logger = logging.getLogger(__name__)
 
-ALLOWED_BRANDING_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".svg"}
+# Sin `.svg` a propósito. Un SVG es un documento XML que puede traer <script>
+# adentro, y este icono se sirve SIN autenticación (es el favicon) desde el
+# origen de la API: alcanzaba con subir un logo y abrir su URL para ejecutar JS
+# en ese origen. Además el mismo archivo se embebe en el PDF, donde un SVG con
+# referencias externas reabre el problema del fetcher. Los formatos ráster no
+# tienen esa capacidad.
+ALLOWED_BRANDING_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 _BRANDING_MEDIA_TYPES = {
     ".png": "image/png",
     ".jpg": "image/jpeg",
     ".jpeg": "image/jpeg",
     ".webp": "image/webp",
-    ".svg": "image/svg+xml",
+}
+
+
+#: Cabeceras del icono público. `nosniff` evita que el navegador reinterprete
+#: como HTML un archivo servido como imagen, y la CSP lo deja inerte aunque
+#: alguien logre servir markup por acá (cubre los SVG subidos antes de que se
+#: sacara `.svg` de la allow-list).
+_CABECERAS_ICONO = {
+    "X-Content-Type-Options": "nosniff",
+    "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
 }
 
 
@@ -618,12 +633,14 @@ def get_workspace_branding_icon(workspace_id: str, filename: str):
         # Compatibilidad: iconos subidos antes de mover el branding a storage.
         legacy = Path(get_settings().output_dir) / "workspace-branding" / workspace_id / filename
         if legacy.exists():
-            return FileResponse(path=str(legacy), filename=filename)
+            return FileResponse(
+                path=str(legacy), filename=filename, headers=_CABECERAS_ICONO
+            )
         raise HTTPException(status_code=404, detail="Icono no encontrado")
 
     return Response(
         content=contents,
         media_type=_branding_icon_media_type(filename),
-        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+        headers=_CABECERAS_ICONO | {"Content-Disposition": f'inline; filename="{filename}"'},
     )
 

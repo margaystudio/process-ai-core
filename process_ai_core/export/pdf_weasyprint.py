@@ -808,8 +808,17 @@ class PdfWeasyprintExporter:
             stylesheets.append(_INVALIDATION_CSS)
 
         try:
-            kwargs = {"url_fetcher": self.url_fetcher} if self.url_fetcher else {}
-            doc = HTML(string=full_html, base_url=self.base_url, **kwargs)
+            # Sin fetcher explícito NO se cae al de WeasyPrint: el default baja
+            # http(s) y file:// arbitrarios, y el HTML del documento lo escribe
+            # el usuario (SSRF + lectura de archivos locales). El camino de
+            # generación entra por acá. Ver `safe_url_fetcher`.
+            from .asset_fetcher import safe_url_fetcher
+
+            doc = HTML(
+                string=full_html,
+                base_url=self.base_url,
+                url_fetcher=self.url_fetcher or safe_url_fetcher,
+            )
             doc.write_pdf(
                 str(output_path), stylesheets=[CSS(string=s) for s in stylesheets]
             )

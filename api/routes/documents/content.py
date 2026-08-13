@@ -23,6 +23,7 @@ from process_ai_core.db.helpers import (
 from process_ai_core.config import get_settings
 
 from process_ai_core.export.markdown_html import render_frozen_html
+from process_ai_core.html_sanitize import sanitize_document_html
 
 from api.routes._branding import get_workspace_pdf_branding
 from api.routes._document_context import build_document_context
@@ -315,7 +316,13 @@ def save_editable_content(
         # tiene; persistir eso metería una credencial con vencimiento adentro del
         # contenido de la versión, que además es entrada congelada del artefacto
         # de auditoría. Ver `strip_image_url_tokens`.
-        draft.content_html = strip_image_url_tokens(content_html)
+        # Saneo antes de persistir: este endpoint acepta HTML de cualquier
+        # cliente, no solo del editor (que filtra al escribir, pero no es el
+        # único camino). Lo guardado se le muestra al aprobador, así que un
+        # `<img onerror=…>` acá sería XSS contra justo quien tiene el permiso
+        # que un atacante querría. La UI además sanea al pintar; esto deja el
+        # dato limpio en la base para todos los consumidores.
+        draft.content_html = sanitize_document_html(strip_image_url_tokens(content_html))
         draft.content_type = "manual_edit"
         draft_id = draft.id
         draft_version_number = draft.version_number

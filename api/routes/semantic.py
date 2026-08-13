@@ -35,7 +35,12 @@ from process_ai_core.db.models_semantic import (
     RELATION_STATUSES,
     RELATION_TYPES,
 )
-from process_ai_core.db.permissions import has_permission
+from process_ai_core.db.permissions import (
+    can_approve_in_folder,
+    can_create_in_folder,
+    can_view_folder,
+    has_permission,
+)
 from process_ai_core.semantic import RelationService, normalize_name
 from process_ai_core.semantic.pipeline import run_semantic_pipeline
 
@@ -162,6 +167,38 @@ def _get_document_or_404(session: Session, document_id: str, workspace_id: str) 
     if not doc or doc.workspace_id != workspace_id:
         raise HTTPException(status_code=404, detail=f"Documento {document_id} no encontrado")
     return doc
+
+
+def _assert_acceso_a_carpeta(
+    session: Session, doc: Document, user_id: str, workspace_id: str, nivel: str
+) -> None:
+    """
+    Aplica el permiso por CARPETA sobre el documento de la relación.
+
+    `has_permission` es deliberadamente laxo —su docstring lo dice: devuelve
+    True si el usuario tiene el nivel en ALGUNA carpeta, y el endpoint tiene
+    que combinarlo con el chequeo por carpeta—. Esta capa no lo hacía, así que
+    quien podía aprobar en una carpeta podía leer y decidir sobre el grafo
+    semántico de documentos que ni siquiera puede abrir. El resto de la API
+    (documents, validations) ya combinaba las dos cosas; esto la alinea.
+    """
+    chequeo = {
+        "view": can_view_folder,
+        "create": can_create_in_folder,
+        "approve": can_approve_in_folder,
+    }[nivel]
+    if not chequeo(session, user_id, workspace_id, doc.folder_id):
+        raise HTTPException(
+            status_code=403,
+            detail="No tiene acceso a los documentos de esta carpeta",
+        )
+
+
+def _documento_de_la_relacion(
+    session: Session, relation: DocumentRelation, workspace_id: str
+) -> Document:
+    """El documento dueño de la relación, para evaluar su carpeta."""
+    return _get_document_or_404(session, relation.document_id, workspace_id)
 
 
 def _get_relation_or_404(session: Session, relation_id: str, workspace_id: str) -> DocumentRelation:
@@ -358,6 +395,7 @@ def get_workspace_relations(
 def get_document_relations(
     document_id: str,
     include_all: bool = False,
+    user_id: str = Depends(get_current_user_id),
     session: Session = Depends(get_db),
     ctx: WorkspaceSessionContext = Depends(get_workspace_context),
 ):
@@ -368,6 +406,9 @@ def get_document_relations(
     """
     workspace_id = resolve_tenant_workspace_id(ctx)
     doc = _get_document_or_404(session, document_id, workspace_id)
+    # Las relaciones traen `evidence_text`: fragmentos del contenido del
+    # documento. Sin esto, la carpeta restringida se leía por acá.
+    _assert_acceso_a_carpeta(session, doc, user_id, workspace_id, "view")
 
     query = session.query(DocumentRelation).filter_by(document_id=doc.id)
     if not include_all:
@@ -444,6 +485,9 @@ def suggest_document_relations(
 
     if not has_permission(session, user_id, workspace_id, "documents.create"):
         raise HTTPException(status_code=403, detail="No tiene permisos para generar sugerencias")
+    # Además del permiso global: la carpeta. Sin esto se disparaba el pipeline
+    # (costoso, con LLM) sobre documentos que el usuario no puede ver.
+    _assert_acceso_a_carpeta(session, doc, user_id, workspace_id, "create")
 
     version = (
         session.query(DocumentVersion)
@@ -486,6 +530,10 @@ def confirm_relation(
 
     if not has_permission(session, user_id, workspace_id, "documents.approve"):
         raise HTTPException(status_code=403, detail="No tiene permisos para confirmar relaciones")
+    _assert_acceso_a_carpeta(
+        session, _documento_de_la_relacion(session, relation, workspace_id),
+        user_id, workspace_id, "approve",
+    )
 
     try:
         RelationService().confirm(session, relation, user_id)
@@ -523,6 +571,10 @@ def reject_relation(
 
     if not has_permission(session, user_id, workspace_id, "documents.approve"):
         raise HTTPException(status_code=403, detail="No tiene permisos para rechazar relaciones")
+    _assert_acceso_a_carpeta(
+        session, _documento_de_la_relacion(session, relation, workspace_id),
+        user_id, workspace_id, "approve",
+    )
 
     try:
         RelationService().reject(session, relation, user_id)
@@ -560,6 +612,10 @@ def edit_relation(
 
     if not has_permission(session, user_id, workspace_id, "documents.create"):
         raise HTTPException(status_code=403, detail="No tiene permisos para editar relaciones")
+    _assert_acceso_a_carpeta(
+        session, _documento_de_la_relacion(session, relation, workspace_id),
+        user_id, workspace_id, "create",
+    )
 
     try:
         RelationService().edit(
@@ -665,8 +721,15 @@ def merge_knowledge_object(
     source = _get_knowledge_object_or_404(session, ko_id, workspace_id)
     into = _get_knowledge_object_or_404(session, request.into_id, workspace_id)
 
-    if not has_permission(session, user_id, workspace_id, "documents.approve"):
-        raise HTTPException(status_code=403, detail="No tiene permisos para unir entidades")
+    # Los knowledge objects son del WORKSPACE, no de una carpeta: no hay carpeta
+    # contra la cual evaluar. Unir dos entidades reescribe el grafo que ven
+    # todos, así que se pide el mismo permiso que la bandeja de relaciones
+    # (`GET /relations`), que es de administración.
+    if not has_permission(session, user_id, workspace_id, "workspaces.edit"):
+        raise HTTPException(
+            status_code=403,
+            detail="Se requiere ser administrador del workspace para unir entidades",
+        )
 
     try:
         RelationService().merge_knowledge_objects(session, source=source, into=into)
@@ -685,10 +748,12 @@ def merge_knowledge_object(
 @router.get("/documents/{document_id}/impact")
 def get_document_impact(
     document_id: str,
+    user_id: str = Depends(get_current_user_id),
     session: Session = Depends(get_db),
     ctx: WorkspaceSessionContext = Depends(get_workspace_context),
 ):
     """Documentos y entidades afectadas si cambia este documento (red confirmada)."""
     workspace_id = resolve_tenant_workspace_id(ctx)
     doc = _get_document_or_404(session, document_id, workspace_id)
+    _assert_acceso_a_carpeta(session, doc, user_id, workspace_id, "view")
     return RelationService().impact(session, doc)

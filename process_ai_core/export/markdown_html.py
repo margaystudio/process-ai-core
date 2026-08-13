@@ -58,7 +58,16 @@ def markdown_to_html(md: str) -> str:
     """
     import markdown as markdown_lib
 
-    return markdown_lib.markdown(strip_latex_artifacts(md or ""), extensions=MARKDOWN_EXTENSIONS)
+    from process_ai_core.html_sanitize import sanitize_document_html
+
+    html = markdown_lib.markdown(
+        strip_latex_artifacts(md or ""), extensions=MARKDOWN_EXTENSIONS
+    )
+    # `markdown` deja pasar el HTML crudo que venga embebido en el markdown, y
+    # ese markdown sale de la generación por IA sobre evidencia del usuario. Sin
+    # este saneo, un `<img onerror=…>` escondido en una transcripción termina
+    # persistido en `content_html` y ejecutándose en la pantalla del aprobador.
+    return sanitize_document_html(html)
 
 
 def render_frozen_html(md: str | None) -> str | None:
