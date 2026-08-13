@@ -28,16 +28,25 @@ const BARE_PREFIXES = ['/login', '/invitations', '/auth']
 export default function ChromeShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const router = useRouter()
-  const { workspaces, selectedWorkspaceId, activeTenantId, setActiveTenantId, currentUser, modules } =
-    useWorkspace()
+  const {
+    workspaces,
+    selectedWorkspaceId,
+    activeTenantId,
+    setActiveTenantId,
+    currentUser,
+    modules,
+    loading: workspaceLoading,
+  } = useWorkspace()
   const user = useUser()
   // Hook: debe llamarse siempre, antes del early return de abajo (páginas "bare").
-  const { canManage: canAdminister } = useCanManageWorkspace()
+  const { canManage: canAdminister, loading: canAdministerLoading } = useCanManageWorkspace()
 
   const isBare = BARE_PREFIXES.some((p) => pathname?.startsWith(p))
   if (isBare) return <>{children}</>
 
-  const displayName = currentUser?.name ?? user?.name ?? user?.email ?? 'Usuario'
+  // Mientras WorkspaceContext resuelve /users/me, el topbar muestra un skeleton en el
+  // bloque de usuario en vez de un nombre provisorio ("Usuario") que después cambia.
+  const displayName = currentUser?.name ?? user?.name ?? user?.email ?? ''
   const email = user?.email ?? currentUser?.email ?? ''
 
   const handleSignOut = async () => {
@@ -58,6 +67,19 @@ export default function ChromeShell({ children }: { children: React.ReactNode })
   const settingsPath = selectedWorkspaceId
     ? `/workspace/${selectedWorkspaceId}/settings`
     : '/workspace'
+
+  /**
+   * Un ítem gateado por `documents.edit`/`workspaces.manage_users` (canAdminister) no se
+   * omite sin más mientras el permiso resuelve: eso es lo que hacía que la sidebar se
+   * "poblara de a uno" al cargar. Mientras `canAdministerLoading`, ocupa su lugar con un
+   * skeleton (mismo alto que el ítem real); resuelto, aparece o desaparece de una.
+   */
+  const gated = (item: NavGroup['items'][number]) =>
+    canAdministerLoading
+      ? [{ label: item.label, loading: true }]
+      : canAdminister
+      ? [item]
+      : []
 
   // Cliente activo de ESTE módulo (tenant, no confundir con el switcher de módulos):
   // vive en cookie propia (active_tenant_id / X-Active-Tenant-Id), no en la URL.
@@ -99,17 +121,13 @@ export default function ChromeShell({ children }: { children: React.ReactNode })
           active: active('/documents/new'),
           onClick: go('/documents/new'),
         },
-        ...(canAdminister
-          ? [
-              {
-                label: 'Importar documentación',
-                icon: <Upload />,
-                href: '/import',
-                active: active('/import'),
-                onClick: go('/import'),
-              },
-            ]
-          : []),
+        ...gated({
+          label: 'Importar documentación',
+          icon: <Upload />,
+          href: '/import',
+          active: active('/import'),
+          onClick: go('/import'),
+        }),
       ],
     },
     {
@@ -127,39 +145,27 @@ export default function ChromeShell({ children }: { children: React.ReactNode })
     {
       label: 'Administración',
       items: [
-        ...(canAdminister
-          ? [
-              {
-                label: 'Carpetas',
-                icon: <Folder />,
-                href: '/folders',
-                active: active('/folders'),
-                onClick: go('/folders'),
-              },
-            ]
-          : []),
-        ...(canAdminister
-          ? [
-              {
-                label: 'Tipos de documento',
-                icon: <List />,
-                href: '/document-types',
-                active: active('/document-types'),
-                onClick: go('/document-types'),
-              },
-            ]
-          : []),
-        ...(canAdminister
-          ? [
-              {
-                label: 'Relaciones',
-                icon: <Network />,
-                href: '/relations',
-                active: active('/relations'),
-                onClick: go('/relations'),
-              },
-            ]
-          : []),
+        ...gated({
+          label: 'Carpetas',
+          icon: <Folder />,
+          href: '/folders',
+          active: active('/folders'),
+          onClick: go('/folders'),
+        }),
+        ...gated({
+          label: 'Tipos de documento',
+          icon: <List />,
+          href: '/document-types',
+          active: active('/document-types'),
+          onClick: go('/document-types'),
+        }),
+        ...gated({
+          label: 'Relaciones',
+          icon: <Network />,
+          href: '/relations',
+          active: active('/relations'),
+          onClick: go('/relations'),
+        }),
         {
           label: 'Usuarios y roles',
           icon: <Users />,
@@ -192,7 +198,11 @@ export default function ChromeShell({ children }: { children: React.ReactNode })
       modules={modulosParaSwitcher(modules)}
       tenant={tenant}
       tenants={tenants}
-      user={{ displayName, email, avatarUrl: user?.avatarUrl ?? undefined }}
+      // Sin sesión resuelta todavía, no hay `user` que pintar: el topbar muestra un
+      // skeleton en su lugar (`userLoading`) en vez de un nombre provisorio.
+      user={workspaceLoading ? undefined : { displayName, email, avatarUrl: user?.avatarUrl ?? undefined }}
+      userLoading={workspaceLoading}
+      tenantsLoading={workspaceLoading}
       hubUrl={hubUrl()}
       nav={nav}
       onLogout={handleSignOut}

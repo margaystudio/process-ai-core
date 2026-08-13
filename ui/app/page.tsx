@@ -9,6 +9,7 @@ import { createClient } from '@/lib/supabase/client'
 import { redirectToHubLogin } from '@/lib/hub-login'
 import { clearLocalAuthState } from '@/lib/clear-auth-state'
 import { Card, CardBody, Badge, Button } from '@/shared/ui/components'
+import { PageListSkeleton } from '@/components/layout/ListSkeleton'
 
 export default function Home() {
   const router = useRouter()
@@ -83,18 +84,11 @@ export default function Home() {
     )
   }
 
-  return (
-    <div className="flex min-h-[70vh] items-center justify-center p-6">
-      <div className="text-center">
-        <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-[3px] border-ink-200 border-t-accent" />
-        <p className="text-sm text-ink-600">
-          {userValidation.isValid === null
-            ? 'Cargando tu perfil...'
-            : permissionsLoading
-            ? 'Determinando tus permisos...'
-            : 'Redirigiendo...'}
-        </p>
-      </div>
-    </div>
-  )
+  // '/' nunca es un destino final: siempre redirige según permisos (ver efecto arriba).
+  // Antes esto era un spinner a pantalla completa — con el shell ya armado (ChromeShell
+  // pinta topbar/sidebar al instante, con sus propios skeletons donde falte dato), lo que
+  // corresponde acá es el skeleton del contenido, no un spinner: el destino más frecuente
+  // es la Biblioteca, así que se usa su misma forma para que la transición no "cambie de
+  // idioma visual" a mitad de la carga.
+  return <PageListSkeleton />
 }

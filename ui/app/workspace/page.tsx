@@ -12,6 +12,7 @@ import WorkspaceProfileBanner from '@/components/workspace/WorkspaceProfileBanne
 import { usePdfViewer } from '@/hooks/usePdfViewer'
 import ArtifactViewerModal from '@/components/processes/ArtifactViewerModal'
 import BibliotecaFolderTree from '@/components/biblioteca/BibliotecaFolderTree'
+import { RowSkeleton } from '@/components/layout/ListSkeleton'
 import { StatusBadge, VersionPill, ESTADO_LABEL, Chip } from '@/shared/ui/components'
 import type { DocumentEstado } from '@/shared/ui/components'
 
@@ -252,21 +253,6 @@ function RowMenu({
           ))}
         </div>
       ))}
-    </div>
-  )
-}
-
-// ---- Skeleton de fila ----
-function RowSkeleton() {
-  return (
-    <div className="flex items-center gap-[15px] rounded-[13px] border border-line bg-surface px-[18px] py-3.5">
-      <div className="h-10 w-10 flex-shrink-0 animate-pulse rounded-[10px] bg-ink-100" />
-      <div className="flex-1 space-y-2">
-        <div className="h-4 w-1/2 animate-pulse rounded bg-ink-100" />
-        <div className="h-3 w-1/3 animate-pulse rounded bg-ink-100" />
-      </div>
-      <div className="h-7 w-20 animate-pulse rounded-pill bg-ink-100" />
-      <div className="h-[34px] w-16 animate-pulse rounded-[9px] bg-ink-100" />
     </div>
   )
 }

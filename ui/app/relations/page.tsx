@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { AlertCircle, Check, GitMerge, Inbox, Loader2 } from 'lucide-react'
+import { AlertCircle, Check, GitMerge, Inbox } from 'lucide-react'
 
 import {
   KNOWLEDGE_OBJECT_TYPE_OPTIONS,
@@ -29,7 +29,7 @@ import {
   type RelationType,
   type WorkspaceRelationItem,
 } from '@/lib/api'
-import { Button, Dialog } from '@/shared/ui/components'
+import { Button, Dialog, Skeleton, Spinner } from '@/shared/ui/components'
 
 const PAGE_SIZE = 25
 
@@ -220,7 +220,7 @@ export default function RelationsInboxPage() {
   if (workspaceLoading || canAdministerLoading) {
     return (
       <main className="mx-auto max-w-6xl px-8 py-12">
-        <div className="h-40 animate-pulse rounded-lg bg-ink-100" aria-busy="true" />
+        <Skeleton className="h-40 rounded-lg" />
       </main>
     )
   }
@@ -252,7 +252,7 @@ export default function RelationsInboxPage() {
         {canApprove && selectedOnPage.length > 0 && (
           <Button onClick={confirmSelected} disabled={busyAction !== null}>
             {busyAction === 'confirm-selected' ? (
-              <Loader2 className="animate-spin" aria-hidden="true" />
+              <Spinner size="sm" aria-hidden="true" />
             ) : (
               <Check aria-hidden="true" />
             )}
@@ -477,7 +477,7 @@ export default function RelationsInboxPage() {
                 disabled={targetSearchLoading}
               >
                 {targetSearchLoading ? (
-                  <Loader2 className="animate-spin" aria-hidden="true" />
+                  <Spinner size="sm" aria-hidden="true" />
                 ) : (
                   'Buscar'
                 )}

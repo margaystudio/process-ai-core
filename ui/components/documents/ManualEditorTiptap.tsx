@@ -12,6 +12,7 @@ import TableRow from '@tiptap/extension-table-row'
 import TableHeader from '@tiptap/extension-table-header'
 import TableCell from '@tiptap/extension-table-cell'
 import { uploadEditorImage } from '@/lib/api'
+import { Spinner } from '@/shared/ui/components'
 
 export interface ManualEditorTiptapRef {
   getHtml: () => string
@@ -344,12 +345,7 @@ export default function ManualEditorTiptap({
             disabled={saving}
             className="px-4 py-2 bg-action text-white rounded-lg hover:bg-action-hover disabled:opacity-50 disabled:cursor-not-allowed font-medium inline-flex items-center gap-2"
           >
-            {saving && (
-              <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" aria-hidden="true">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-              </svg>
-            )}
+            {saving && <Spinner size="sm" className="text-white" />}
             {saving ? 'Guardando...' : 'Guardar borrador'}
           </button>
         </div>

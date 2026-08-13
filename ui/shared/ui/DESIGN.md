@@ -39,6 +39,27 @@ Dueño: el agente **margay-frontend**.
 `<Input>/<Field>`. Iconos: `lucide-react`. Si falta un componente, se agrega a
 `components/*` con `cva` + tokens — nunca inline en la pantalla.
 
+## Carga: Skeleton vs. Spinner
+Dos primitivos, sin superposición — extensiones locales de este módulo (como
+Dialog/Tabs), candidatas a subir a margay-ui:
+
+- **`<Skeleton className="...">`** — TODA carga de contenido o de página: el shell al
+  entrar, una lista, un preview de PDF, un formulario. Un bloque que pulsa
+  (`animate-pulse`, `bg-ink-100`) en el lugar exacto donde va el dato real; la forma la
+  da `className` (alto/ancho/radio), no una variante. Nunca pantalla en blanco.
+- **`<Spinner size="xs|sm|md|lg">`** — SOLO una acción puntual dentro de un control: un
+  botón guardando, una fila procesando un import, una búsqueda en curso. `Loader2` de
+  lucide + `animate-spin`. Nunca a pantalla completa, nunca para carga de página.
+- **Retirado:** el spinner del logo del margay girando (`LoadingOverlay` +
+  `margay-spiner.png`) y el zoológico de ~20 `animate-spin` ad-hoc (medialunas
+  `border-b-2`, círculos `border-t-accent`, `Loader2` sueltos de distinto tamaño) que
+  había antes de este estándar — todos migrados a uno de los dos primitivos de arriba.
+- **Chrome de entrada:** `<Sidebar>` acepta `NavItem.loading` (renderiza el ítem como
+  skeleton en su lugar exacto en vez de omitirlo hasta que el permiso resuelva —
+  evita que la sidebar se "pueble de a uno") y `<Topbar>`/`<PlatformShell>` aceptan
+  `userLoading` / `tenantsLoading` (skeleton en el bloque de usuario y en el selector de
+  cliente mientras la sesión resuelve, en vez de un nombre provisorio tipo "Usuario").
+
 ## Reglas (do / don't)
 - ✅ tokens (`text-ink-600`, `bg-green`) — ❌ hex sueltos (`text-[#6A6E70]`).
 - ✅ componentes base — ❌ un Button/Input casero por módulo.
@@ -278,6 +299,23 @@ Ver `README.md` (modo interino: copiar a `ui/shared/ui/`; futuro: paquete `@marg
 cambio toca el modelo de plataforma (rutas, datos, permisos), se coordina con **margay-architect**.
 
 ## Changelog
+- **0.16.0 · Estándar de carga: `Skeleton` + `Spinner`, y el chrome deja de "poblarse de
+  a uno".** Dos primitivos nuevos (`components/Skeleton.tsx`, `components/Spinner.tsx`)
+  reemplazan el zoológico de ~20 `animate-spin` ad-hoc del módulo (medialunas, círculos,
+  `Loader2` sueltos) y retiran el spinner del logo del margay girando (`LoadingOverlay`
+  + `margay-spiner.png`, sin reemplazo directo: el overlay bloqueante de
+  `LoadingContext` pasa a usar `<Spinner size="lg">`).
+  - **`<Skeleton>`** — bloque `animate-pulse`/`bg-ink-100`, forma por `className`. Para
+    TODA carga de contenido/página.
+  - **`<Spinner size="xs|sm|md|lg">`** — `Loader2` + `animate-spin`, tamaños fijos. Solo
+    para una acción puntual dentro de un control.
+  - **`Sidebar` → `NavItem.loading`**: un ítem gateado por permiso que todavía no
+    resolvió ocupa su lugar con un skeleton en vez de aparecer recién cuando el permiso
+    confirma — eso era lo que hacía que la sidebar se poblara ítem por ítem al entrar.
+  - **`Topbar`/`PlatformShell` → `userLoading` / `tenantsLoading`**: el bloque de
+    usuario y el selector de cliente muestran skeleton mientras la sesión resuelve, en
+    vez de un placeholder tipo "Usuario" que después cambia (flash de dato incompleto).
+  - Sin cambios de comportamiento para un consumidor que no pase las props nuevas.
 - **0.15.0 · La sidebar acepta links y submenús.** `NavItem.href` (pestaña nueva con
   ⌘/Ctrl+clic o botón del medio, que con un `<button>` era imposible) y
   `NavItem.children` (dos niveles). Sale también del tablero, cuyo menú es un árbol —el

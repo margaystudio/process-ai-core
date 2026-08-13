@@ -6,7 +6,7 @@ import {
   evidenceIconPath,
   formatFileSize,
 } from "./data";
-import { Spinner } from "./Spinner";
+import { Spinner } from "@/shared/ui/components";
 import { WizardIcon } from "./WizardIcon";
 
 /**
@@ -46,7 +46,7 @@ export function EvidenceCard({
 
           {evidence.processingStatus === "processing" ? (
             <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-warning">
-              <Spinner size={12} className="text-warning" />
+              <Spinner size="xs" className="text-warning" />
               Procesando…
             </span>
           ) : evidence.processingStatus === "error" ? (

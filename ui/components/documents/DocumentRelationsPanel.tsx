@@ -6,7 +6,6 @@ import {
   Check,
   GitMerge,
   Link2,
-  Loader2,
   Network,
   Plus,
   Sparkles,
@@ -36,7 +35,7 @@ import {
   type RelationType,
 } from '@/lib/api'
 import { useAsync } from '@/hooks/useAsync'
-import { Button, Dialog } from '@/shared/ui/components'
+import { Button, Dialog, Spinner } from '@/shared/ui/components'
 
 interface DocumentRelationsPanelProps {
   documentId: string
@@ -264,7 +263,7 @@ export function DocumentRelationsPanel({
               disabled={busyAction !== null}
             >
               {busyAction === 'suggest' ? (
-                <Loader2 className="animate-spin" aria-hidden="true" />
+                <Spinner size="sm" aria-hidden="true" />
               ) : (
                 <Sparkles aria-hidden="true" />
               )}
@@ -308,7 +307,7 @@ export function DocumentRelationsPanel({
                 disabled={busyAction !== null}
               >
                 {busyAction === 'confirm-all' ? (
-                  <Loader2 className="animate-spin" aria-hidden="true" />
+                  <Spinner size="sm" aria-hidden="true" />
                 ) : (
                   <Check aria-hidden="true" />
                 )}
@@ -482,7 +481,7 @@ export function DocumentRelationsPanel({
                 onClick={() => loadTargetOptions(editTargetType, targetQuery)}
                 disabled={targetSearchLoading}
               >
-                {targetSearchLoading ? <Loader2 className="animate-spin" aria-hidden="true" /> : 'Buscar'}
+                {targetSearchLoading ? <Spinner size="sm" aria-hidden="true" /> : 'Buscar'}
               </Button>
             </div>
           </div>

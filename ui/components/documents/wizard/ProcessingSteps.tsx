@@ -1,7 +1,7 @@
 "use client";
 
 import { WizardIcon } from "./WizardIcon";
-import { Spinner } from "./Spinner";
+import { Spinner } from "@/shared/ui/components";
 
 /**
  * Pipeline vertical de procesamiento reutilizable.
@@ -39,7 +39,7 @@ export function ProcessingSteps({
                   strokeWidth={2.8}
                 />
               )}
-              {active && <Spinner size={15} className="text-warning" />}
+              {active && <Spinner size="sm" className="text-warning" />}
             </span>
             <span
               className={

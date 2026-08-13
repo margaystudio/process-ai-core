@@ -46,6 +46,8 @@ export function PlatformShell({
   onLogout,
   onProfile,
   onTenantChange,
+  userLoading,
+  tenantsLoading,
   company,
   logoSrc,
   children,
@@ -81,6 +83,14 @@ export function PlatformShell({
    * (misma regla que el chevron de `account.onSwitch`: sin handler no hay control muerto).
    */
   onTenantChange?: (tenant: TenantRef) => void;
+  /**
+   * `user` todavía no resolvió: el bloque de usuario del topbar ocupa su lugar exacto
+   * con un skeleton en vez de dejar un hueco o pintar un valor provisorio. Se ignora si
+   * `user` ya llegó.
+   */
+  userLoading?: boolean;
+  /** Mismo criterio que `userLoading`, para el selector de cliente. */
+  tenantsLoading?: boolean;
   company?: string;
   logoSrc?: string;
   children: React.ReactNode;
@@ -161,6 +171,8 @@ export function PlatformShell({
           tenants={tenantsTopbar}
           activeTenantId={tenant?.id}
           onTenantChange={cambiarTenant}
+          userLoading={userLoading}
+          tenantsLoading={tenantsLoading}
           lockup={
             <ModuleSwitcher
               module={module}

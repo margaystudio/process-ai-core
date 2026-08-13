@@ -10,7 +10,7 @@ import {
   X,
   AlertCircle,
 } from 'lucide-react'
-import { Button } from '@/shared/ui/components'
+import { Button, Skeleton } from '@/shared/ui/components'
 import { useLoading } from '@/contexts/LoadingContext'
 import { useUserId } from '@/hooks/useUserId'
 import {
@@ -48,12 +48,7 @@ function typeLabel(raw: string | undefined): string {
 // ── Skeleton del PDF ──────────────────────────────────────────────────────────
 
 function PdfSkeleton() {
-  return (
-    <div className="flex h-[600px] flex-col items-center justify-center gap-3 rounded-[14px] border border-line bg-ink-50">
-      <div className="h-8 w-8 animate-spin rounded-full border-[3px] border-ink-200 border-t-indigo" />
-      <p className="text-[13px] text-ink-400">Cargando documento…</p>
-    </div>
-  )
+  return <Skeleton className="h-[600px] rounded-[14px]" />
 }
 
 // ── Modal "Pedir cambios" ─────────────────────────────────────────────────────

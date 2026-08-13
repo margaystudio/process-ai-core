@@ -6,6 +6,7 @@ import { useParams } from 'next/navigation'
 import { getRun, getArtifactUrl, downloadArtifact } from '@/lib/api'
 import { useLoading } from '@/contexts/LoadingContext'
 import ArtifactViewerModal from '@/components/processes/ArtifactViewerModal'
+import { Skeleton } from '@/shared/ui/components'
 
 export default function RecipeResultPage() {
   const params = useParams()
@@ -79,10 +80,20 @@ export default function RecipeResultPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Cargando receta...</p>
+      <div className="min-h-screen bg-ink-50 py-8 px-4 sm:px-6 lg:px-8">
+        <div className="max-w-4xl mx-auto">
+          <div className="bg-white shadow rounded-lg p-6">
+            <div className="mb-6 space-y-2">
+              <Skeleton className="h-8 w-64" />
+              <Skeleton className="h-4 w-40" />
+              <Skeleton className="h-4 w-24" />
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <Skeleton className="h-20 rounded-lg" />
+              <Skeleton className="h-20 rounded-lg" />
+              <Skeleton className="h-20 rounded-lg" />
+            </div>
+          </div>
         </div>
       </div>
     )

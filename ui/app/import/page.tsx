@@ -5,7 +5,6 @@ import {
   AlertTriangle,
   Check,
   FileText,
-  Loader2,
   Send,
   ShieldCheck,
   Upload,
@@ -29,6 +28,7 @@ import {
   formatFileSize,
   getFileExtension,
 } from '@/lib/fileUploadValidation'
+import { Spinner } from '@/shared/ui/components'
 import { cn } from '@/shared/ui/cn'
 
 type ImportStatus =
@@ -495,7 +495,7 @@ export default function ImportPage() {
                       itemTone(item.status)
                     )}
                   >
-                    {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                    {busy ? <Spinner size="xs" /> : null}
                     {item.status === 'approved' ? <Check className="h-3 w-3" /> : null}
                     {STATUS_LABELS[item.status]}
                   </span>
@@ -556,7 +556,7 @@ export default function ImportPage() {
 
       {pendingAsync.status === 'loading' && folderId ? (
         <div className="mt-4 flex items-center gap-2 text-[12px] text-ink-400">
-          <Loader2 className="h-4 w-4 animate-spin" />
+          <Spinner size="sm" />
           Buscando importaciones pendientes…
         </div>
       ) : null}

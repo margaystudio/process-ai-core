@@ -6,6 +6,7 @@
 import * as React from "react";
 import { LogOut, ChevronDown, Check, Building2, Menu } from "lucide-react";
 import { ModuleEmblem, type ModuleKey } from "./ModuleEmblem";
+import { Skeleton } from "./Skeleton";
 import { cn } from "../cn";
 
 export interface TopbarUser {
@@ -33,6 +34,8 @@ export function Topbar({
   tenants,
   activeTenantId,
   onTenantChange,
+  userLoading,
+  tenantsLoading,
 }: {
   module: ModuleKey;
   /** Nombre del módulo. Obligatorio salvo que pases `lockup`. */
@@ -53,6 +56,15 @@ export function Topbar({
   tenants?: TopbarTenant[];
   activeTenantId?: string;
   onTenantChange?: (id: string) => void;
+  /**
+   * `user` todavía no resolvió (sesión en vuelo). Sin esto, el bloque de usuario
+   * simplemente no aparece hasta tener el dato — con esto, ocupa su lugar exacto con un
+   * skeleton en vez de dejar el topbar con un hueco (o, peor, un valor provisorio tipo
+   * "Usuario"). Se ignora si `user` ya llegó.
+   */
+  userLoading?: boolean;
+  /** Mismo criterio que `userLoading`, para el selector de organización. */
+  tenantsLoading?: boolean;
 }) {
   const avatar = !user ? null : user.avatarUrl ? (
     // eslint-disable-next-line @next/next/no-img-element
@@ -68,7 +80,7 @@ export function Topbar({
     </span>
   );
 
-  const userBlock = user && (
+  const userBlock = user ? (
     <>
       {/* En mobile se oculta el texto (queda solo el avatar) para no desbordar. */}
       <div className="hidden text-right leading-tight sm:block">
@@ -77,7 +89,15 @@ export function Topbar({
       </div>
       {avatar}
     </>
-  );
+  ) : userLoading ? (
+    <>
+      <div className="hidden flex-col items-end gap-1.5 sm:flex" aria-hidden="true">
+        <Skeleton className="h-3.5 w-24" />
+        <Skeleton className="h-3 w-32" />
+      </div>
+      <Skeleton className="h-[34px] w-[34px] rounded-full" />
+    </>
+  ) : null;
 
   return (
     <header className="print:hidden flex h-[60px] items-center justify-between gap-2 border-b border-ink-200 bg-white px-4 sm:px-6">
@@ -100,21 +120,28 @@ export function Topbar({
             <span className="truncate text-h3 font-bold text-ink-900">{title}</span>
           </>
         )}
-        {tenants && tenants.length > 0 && (
+        {(tenants && tenants.length > 0) || tenantsLoading ? (
           <>
             <span className="mx-1 hidden h-5 w-px bg-ink-200 sm:block" aria-hidden="true" />
             <div className="hidden sm:block">
-              <TenantSwitcher
-                tenants={tenants}
-                activeTenantId={activeTenantId}
-                onTenantChange={onTenantChange}
-              />
+              {tenants && tenants.length > 0 ? (
+                <TenantSwitcher
+                  tenants={tenants}
+                  activeTenantId={activeTenantId}
+                  onTenantChange={onTenantChange}
+                />
+              ) : (
+                <div className="flex items-center gap-1.5 rounded-md px-2 py-1.5" aria-hidden="true">
+                  <Skeleton className="h-4 w-4" />
+                  <Skeleton className="h-3.5 w-24" />
+                </div>
+              )}
             </div>
           </>
-        )}
+        ) : null}
       </div>
       <div className="flex shrink-0 items-center gap-2 sm:gap-4">
-        {onProfile && userBlock ? (
+        {onProfile && user && userBlock ? (
           <button
             type="button"
             onClick={onProfile}

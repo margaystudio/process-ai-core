@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { fetchArtifactBlobUrl, getDocumentRuns } from '@/lib/api'
+import { Skeleton } from '@/shared/ui/components'
 
 interface DocumentPreviewProps {
   documentId: string
@@ -57,12 +58,7 @@ export default function DocumentPreview({ documentId }: DocumentPreviewProps) {
       <h3 className="text-h3 text-ink-900 mb-4">Preview del Documento</h3>
 
       {loading ? (
-        <div className="h-96 flex items-center justify-center bg-ink-50 rounded">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent mx-auto mb-2"></div>
-            <p className="text-sm text-ink-600">Cargando PDF...</p>
-          </div>
-        </div>
+        <Skeleton className="h-96 w-full" />
       ) : error ? (
         <div className="h-96 flex items-center justify-center bg-ink-50 rounded">
           <p className="text-sm text-ink-500">{error}</p>

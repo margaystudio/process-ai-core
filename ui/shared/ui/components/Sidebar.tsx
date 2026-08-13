@@ -7,6 +7,7 @@
 import * as React from "react";
 import { ChevronDown, ExternalLink, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { cn } from "../cn";
+import { Skeleton } from "./Skeleton";
 
 export interface NavItem {
   label: string;
@@ -27,6 +28,13 @@ export interface NavItem {
    * niveles y no más: un árbol más profundo en 224px deja de leerse.
    */
   children?: NavItem[];
+  /**
+   * El ítem depende de un dato que todavía no resolvió (típicamente un permiso): en vez
+   * de omitirlo hasta saberlo —causa de la sidebar "poblándose de a uno" a medida que
+   * cada gate resuelve— ocupa su lugar exacto con un skeleton, mismo alto y spacing que
+   * el ítem real. `label`/`icon`/`onClick` se ignoran mientras `loading` es `true`.
+   */
+  loading?: boolean;
 }
 export interface NavGroup {
   label: string;
@@ -47,6 +55,27 @@ function Hoja({
   collapsed: boolean;
   esHijo?: boolean;
 }) {
+  if (item.loading) {
+    return (
+      <div
+        className={cn(
+          "flex items-center py-2",
+          esHijo ? "text-[12.5px]" : "text-[13px]",
+          collapsed ? "justify-center gap-0 px-0" : "gap-2.5 px-2.5"
+        )}
+        aria-hidden="true"
+      >
+        <Skeleton
+          className={cn(
+            "shrink-0 bg-white/10",
+            esHijo ? "h-[15px] w-[15px]" : "h-[18px] w-[18px]"
+          )}
+        />
+        {!collapsed && <Skeleton className="h-3 w-20 bg-white/10" />}
+      </div>
+    );
+  }
+
   const clases = cn(
     "relative flex items-center rounded-md py-2 text-left font-semibold transition-colors hover:bg-sidebar-hover hover:text-white",
     esHijo ? "text-[12.5px]" : "text-[13px]",

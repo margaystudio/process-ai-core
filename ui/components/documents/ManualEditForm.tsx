@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { X } from 'lucide-react'
 import { getCurrentDocumentVersion } from '@/lib/api'
+import { Skeleton } from '@/shared/ui/components'
 
 interface ManualEditFormProps {
   documentId: string
@@ -51,11 +52,9 @@ export default function ManualEditForm({
 
   if (loading) {
     return (
-      <div className="bg-white border-2 border-accent rounded-lg p-6">
-        <div className="text-center py-8">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent mx-auto mb-2"></div>
-          <p className="text-sm text-ink-600">Cargando contenido...</p>
-        </div>
+      <div className="bg-white border-2 border-accent rounded-lg p-6 space-y-3">
+        <Skeleton className="h-4 w-1/3" />
+        <Skeleton className="h-48 w-full" />
       </div>
     )
   }
