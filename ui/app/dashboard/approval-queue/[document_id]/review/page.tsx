@@ -325,7 +325,7 @@ export default function DocumentReviewPage() {
   // ── Estados de carga / error sin documento ────────────────────────────────
   if (loading) {
     return (
-      <div data-module="process" className="mx-auto max-w-[920px] px-8 pb-[60px] pt-7">
+      <div data-module="arrayan" className="mx-auto max-w-[920px] px-8 pb-[60px] pt-7">
         {/* Back ghost */}
         <div className="mb-4 h-5 w-36 animate-pulse rounded bg-ink-100" />
         {/* Title ghost */}
@@ -340,7 +340,7 @@ export default function DocumentReviewPage() {
 
   if (error && !doc) {
     return (
-      <div data-module="process" className="mx-auto max-w-[920px] px-8 pb-[60px] pt-7">
+      <div data-module="arrayan" className="mx-auto max-w-[920px] px-8 pb-[60px] pt-7">
         <div className="rounded-lg border border-danger-bd bg-danger-bg p-5">
           <p className="mb-3 text-sm text-danger">{error}</p>
           <Button
@@ -358,7 +358,7 @@ export default function DocumentReviewPage() {
   if (!doc) return null
 
   return (
-    <div data-module="process" className="mx-auto max-w-[920px] px-8 pb-[60px] pt-7">
+    <div data-module="arrayan" className="mx-auto max-w-[920px] px-8 pb-[60px] pt-7">
       {/* Back link */}
       <button
         onClick={() => router.push('/dashboard/approval-queue')}

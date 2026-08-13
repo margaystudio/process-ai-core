@@ -541,6 +541,10 @@ export interface CurrentUserResponse {
   platform_roles: string[]
   tenant_roles: string[]
   workspaces: WorkspaceResponse[]
+  // TODO(arquitectura): el backend todavía no reexpone esto — ver lib/modules.ts.
+  // Apps del control plane a las que el usuario tiene acceso (key, name, entry_url),
+  // para el switcher de módulos del chrome (`<PlatformShell>`/`<ModuleSwitcher>`).
+  modules?: Array<{ key: string; name: string; entry_url: string }>
 }
 
 let _currentUserCache: { data: CurrentUserResponse; ts: number } | null = null
@@ -578,6 +582,9 @@ export async function getCurrentUser(options?: { force?: boolean }): Promise<Cur
       platform_roles: data.platform_roles ?? [],
       tenant_roles: data.tenant_roles ?? [],
       workspaces: (data.workspaces ?? []).map(normalizeWorkspaceResponse),
+      // TODO(arquitectura): siempre undefined hasta que el backend lo agregue — ver
+      // el TODO en la interfaz de arriba y lib/modules.ts.
+      modules: data.modules,
     }
     _currentUserCache = { data: result, ts: Date.now() }
     return result

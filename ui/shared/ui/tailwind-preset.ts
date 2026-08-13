@@ -49,31 +49,28 @@ const preset: Partial<Config> = {
           hover:   "var(--sidebar-item-hover)",
           border:  "var(--sidebar-border)",
         },
-        /* ---- Tokens de borde (del prototipo Process AI) ---- */
+        /* ---- Extensiones locales de Process AI (ver tokens.css) ---- */
         line: {
           DEFAULT: "var(--line)",
           soft:    "var(--line-soft)",
           softer:  "var(--line-softer)",
           input:   "var(--line-input)",
         },
-        /* ---- Superficies ---- */
         surface: {
           DEFAULT: "var(--surface)",
           app:     "var(--surface-app)",
           hover:   "var(--surface-hover)",
           track:   "var(--surface-track)",
         },
-        /* ---- Indigo / IA / acento process ---- */
         indigo: {
           DEFAULT: "var(--indigo)",
           light:   "var(--indigo-light)",
           tint:    "var(--indigo-tint)",
           border:  "var(--indigo-border)",
         },
-        /* ---- Complementarios ---- */
         teal:   { DEFAULT: "var(--teal)" },
         violet: { DEFAULT: "var(--violet)" },
-        /* ---- Amber: alias semántico de warning para el prototipo ---- */
+        /* Amber: alias semántico de warning para el prototipo */
         amber: {
           DEFAULT: "var(--warning)",
           bg:      "var(--warning-bg)",

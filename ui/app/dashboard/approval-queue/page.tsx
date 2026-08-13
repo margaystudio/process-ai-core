@@ -115,7 +115,7 @@ export default function ApprovalQueuePage() {
   // ── Guard: permisos ───────────────────────────────────────────────────────
   if (!permLoading && !canApproveDocuments) {
     return (
-      <div data-module="process" className="mx-auto max-w-[820px] px-8 pb-[60px] pt-7">
+      <div data-module="arrayan" className="mx-auto max-w-[820px] px-8 pb-[60px] pt-7">
         <div className="rounded-lg border border-danger-bd bg-danger-bg p-5">
           <p className="text-sm text-danger">
             No tenés permisos para ver esta página.
@@ -128,7 +128,7 @@ export default function ApprovalQueuePage() {
   // ── Guard: sin workspace ──────────────────────────────────────────────────
   if (!selectedWorkspaceId) {
     return (
-      <div data-module="process" className="mx-auto max-w-[820px] px-8 pb-[60px] pt-7">
+      <div data-module="arrayan" className="mx-auto max-w-[820px] px-8 pb-[60px] pt-7">
         <div className="rounded-lg border border-warning-bd bg-warning-bg p-5">
           <p className="text-sm text-warning">
             Seleccioná un espacio de trabajo para ver la bandeja de aprobación.
@@ -139,7 +139,7 @@ export default function ApprovalQueuePage() {
   }
 
   return (
-    <div data-module="process" className="mx-auto max-w-[820px] px-8 pb-[60px] pt-7">
+    <div data-module="arrayan" className="mx-auto max-w-[820px] px-8 pb-[60px] pt-7">
       {/* Header */}
       <div className="mb-1.5 text-xs font-bold uppercase tracking-[.08em] text-ink-400">
         Bandeja de aprobación

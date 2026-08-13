@@ -13,29 +13,22 @@ import {
   MessageCircle,
   Network,
 } from 'lucide-react'
-import { AppShell, Topbar, Sidebar, type NavGroup, type TopbarTenant } from '@/shared/ui/components'
+import { PlatformShell, type NavGroup } from '@/shared/ui/components'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
 import { useUser } from '@/hooks/useUser'
 import { useCanManageWorkspace } from '@/hooks/useHasPermission'
 import { createClient } from '@/lib/supabase/client'
 import { redirectToHubLogin } from '@/lib/hub-login'
 import { clearLocalAuthState } from '@/lib/clear-auth-state'
+import { MODULO_ACTUAL, hubUrl, modulosParaSwitcher } from '@/lib/modules'
 
 // Páginas fuera del shell del módulo (sin sidebar). El login es del hub (SSO).
 const BARE_PREFIXES = ['/login', '/invitations', '/auth']
 
-function initialsOf(name: string): string {
-  const clean = name.trim()
-  if (!clean || clean === 'Usuario') return 'U'
-  const parts = clean.split(/\s+/)
-  if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`.toUpperCase()
-  return clean.slice(0, 2).toUpperCase()
-}
-
 export default function ChromeShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const router = useRouter()
-  const { workspaces, selectedWorkspaceId, activeTenantId, setActiveTenantId, currentUser } =
+  const { workspaces, selectedWorkspaceId, activeTenantId, setActiveTenantId, currentUser, modules } =
     useWorkspace()
   const user = useUser()
   // Hook: debe llamarse siempre, antes del early return de abajo (páginas "bare").
@@ -66,25 +59,31 @@ export default function ChromeShell({ children }: { children: React.ReactNode })
     ? `/workspace/${selectedWorkspaceId}/settings`
     : '/workspace'
 
-  // Switcher de organización (tenant) en el topbar, como el hub.
-  const tenants: TopbarTenant[] = workspaces
+  // Cliente activo de ESTE módulo (tenant, no confundir con el switcher de módulos):
+  // vive en cookie propia (active_tenant_id / X-Active-Tenant-Id), no en la URL.
+  const tenants = workspaces
     .filter((ws) => ws.tenant_id)
-    .map((ws) => ({ id: ws.tenant_id as string, name: ws.name }))
+    .map((ws) => ({ id: ws.tenant_id as string, name: ws.name, slug: ws.slug }))
+  const tenant = tenants.find((t) => t.id === activeTenantId)
 
-  // Secciones del sidebar — estructura del prototipo
-  const groups: NavGroup[] = [
+  // Secciones del sidebar — estructura del prototipo. `href` (además de `onClick`)
+  // habilita abrir un ítem en pestaña nueva con ⌘/Ctrl+clic o el botón del medio
+  // (margay-ui 0.15.0); el clic normal lo sigue resolviendo la navegación client-side.
+  const nav: NavGroup[] = [
     {
       label: 'Biblioteca',
       items: [
         {
           label: 'Biblioteca',
           icon: <FileText />,
+          href: '/workspace',
           active: active('/workspace', true),
           onClick: go('/workspace'),
         },
         {
           label: 'Por aprobar',
           icon: <CheckSquare />,
+          href: '/dashboard/approval-queue',
           active: active('/dashboard/approval-queue'),
           onClick: go('/dashboard/approval-queue'),
         },
@@ -96,6 +95,7 @@ export default function ChromeShell({ children }: { children: React.ReactNode })
         {
           label: 'Nuevo documento',
           icon: <Plus />,
+          href: '/documents/new',
           active: active('/documents/new'),
           onClick: go('/documents/new'),
         },
@@ -104,6 +104,7 @@ export default function ChromeShell({ children }: { children: React.ReactNode })
               {
                 label: 'Importar documentación',
                 icon: <Upload />,
+                href: '/import',
                 active: active('/import'),
                 onClick: go('/import'),
               },
@@ -117,6 +118,7 @@ export default function ChromeShell({ children }: { children: React.ReactNode })
         {
           label: 'Panel de control',
           icon: <BarChart2 />,
+          href: '/dashboard/view',
           active: active('/dashboard/view'),
           onClick: go('/dashboard/view'),
         },
@@ -130,6 +132,7 @@ export default function ChromeShell({ children }: { children: React.ReactNode })
               {
                 label: 'Carpetas',
                 icon: <Folder />,
+                href: '/folders',
                 active: active('/folders'),
                 onClick: go('/folders'),
               },
@@ -140,6 +143,7 @@ export default function ChromeShell({ children }: { children: React.ReactNode })
               {
                 label: 'Tipos de documento',
                 icon: <List />,
+                href: '/document-types',
                 active: active('/document-types'),
                 onClick: go('/document-types'),
               },
@@ -150,6 +154,7 @@ export default function ChromeShell({ children }: { children: React.ReactNode })
               {
                 label: 'Relaciones',
                 icon: <Network />,
+                href: '/relations',
                 active: active('/relations'),
                 onClick: go('/relations'),
               },
@@ -158,6 +163,7 @@ export default function ChromeShell({ children }: { children: React.ReactNode })
         {
           label: 'Usuarios y roles',
           icon: <Users />,
+          href: settingsPath,
           active: Boolean(pathname?.includes('/settings')),
           onClick: go(settingsPath),
         },
@@ -172,6 +178,7 @@ export default function ChromeShell({ children }: { children: React.ReactNode })
         {
           label: 'Tyto',
           icon: <MessageCircle />,
+          href: '/tyto',
           active: active('/tyto'),
           onClick: go('/tyto'),
         },
@@ -180,22 +187,20 @@ export default function ChromeShell({ children }: { children: React.ReactNode })
   ]
 
   return (
-    <AppShell
-      module="process"
-      topbar={
-        <Topbar
-          module="process"
-          title="Process AI"
-          user={{ name: displayName, email, initials: initialsOf(displayName) }}
-          onLogout={handleSignOut}
-          tenants={tenants}
-          activeTenantId={activeTenantId ?? undefined}
-          onTenantChange={(id) => void setActiveTenantId(id)}
-        />
-      }
-      sidebar={<Sidebar groups={groups} />}
+    <PlatformShell
+      module={MODULO_ACTUAL}
+      modules={modulosParaSwitcher(modules)}
+      tenant={tenant}
+      tenants={tenants}
+      user={{ displayName, email, avatarUrl: user?.avatarUrl ?? undefined }}
+      hubUrl={hubUrl()}
+      nav={nav}
+      onLogout={handleSignOut}
+      // El cliente activo de este módulo vive en cookie/contexto, no en la URL: sin
+      // este handler el shell no ofrecería selector de cliente.
+      onTenantChange={(t) => void setActiveTenantId(t.id)}
     >
       {children}
-    </AppShell>
+    </PlatformShell>
   )
 }

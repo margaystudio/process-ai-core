@@ -180,6 +180,13 @@ def get_current_user_me(
         "platform_roles": ctx.platform_roles,
         "tenant_roles": ctx.tenant_roles,
         "workspaces": workspaces,
+        # Para el ModuleSwitcher del chrome (margay-ui ≥0.11): las apps del
+        # tenant activo según el control plane. Acá no se decide acceso — se
+        # REEXPONE lo que dijo workspace (mismo criterio que margay-crm).
+        "modules": [
+            {"key": a.key, "name": a.name, "entry_url": a.entry_url or ""}
+            for a in ctx.applications
+        ],
     }
 
 

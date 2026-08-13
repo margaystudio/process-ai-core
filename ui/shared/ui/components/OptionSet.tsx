@@ -22,10 +22,16 @@ export function OptionSet({
   columns?: number;
   className?: string;
 }) {
+  // Responsive: 1 columna en mobile, `columns` (o una por opción) desde sm.
+  // El nº de columnas va por CSS var para no romper el escaneo de clases de Tailwind.
+  const cols = columns ?? options.length;
   return (
     <div
-      className={cn("grid gap-2.5", className)}
-      style={{ gridTemplateColumns: `repeat(${columns ?? options.length}, minmax(0,1fr))` }}
+      className={cn(
+        "grid grid-cols-1 gap-2.5 sm:[grid-template-columns:repeat(var(--option-cols),minmax(0,1fr))]",
+        className
+      )}
+      style={{ ["--option-cols" as string]: String(cols) }}
       role="radiogroup"
     >
       {options.map((o) => (

@@ -395,7 +395,7 @@ export default function DocumentTypesPage() {
   }
 
   return (
-    <div className="flex min-h-full items-stretch" data-module="process">
+    <div className="flex min-h-full items-stretch" data-module="arrayan">
       {/* Sidebar */}
       <aside className="w-[300px] flex-shrink-0 border-r border-line bg-surface p-5">
         <div className="mb-1 text-xs font-bold uppercase tracking-[.08em] text-ink-400">

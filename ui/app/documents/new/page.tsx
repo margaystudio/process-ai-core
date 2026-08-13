@@ -16,7 +16,7 @@ import NuevoDocumentoWizard from "@/components/documents/wizard/NuevoDocumentoWi
  */
 export default function NewDocumentPage() {
   return (
-    <div data-module="process" className="h-full">
+    <div data-module="arrayan" className="h-full">
       <NuevoDocumentoWizard />
     </div>
   );

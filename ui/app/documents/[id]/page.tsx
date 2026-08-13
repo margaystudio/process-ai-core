@@ -528,7 +528,7 @@ export default function DocumentDetailPage() {
 
   if (error && !document) {
     return (
-      <div className="mx-auto max-w-5xl px-8 py-12" data-module="process">
+      <div className="mx-auto max-w-5xl px-8 py-12" data-module="arrayan">
         <div className="rounded-lg border border-danger-bd bg-danger-bg p-5">
           <p className="text-sm text-danger mb-3">Error: {error}</p>
           <button
@@ -547,7 +547,7 @@ export default function DocumentDetailPage() {
   // Sin permiso de edición (solo lectura): únicamente puede ver documentos aprobados.
   if (!editPermLoading && !hasDocumentEditPermission && document.status !== 'approved') {
     return (
-      <div className="mx-auto max-w-5xl px-8 py-12" data-module="process">
+      <div className="mx-auto max-w-5xl px-8 py-12" data-module="arrayan">
         <div className="rounded-lg border border-danger-bd bg-danger-bg p-5">
           <p className="text-sm text-danger mb-3">
             No tenés permisos para ver este documento. Solo podés consultar documentos aprobados.
@@ -574,7 +574,7 @@ export default function DocumentDetailPage() {
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div className="mx-auto max-w-5xl px-8 pb-16 pt-7" data-module="process">
+    <div className="mx-auto max-w-5xl px-8 pb-16 pt-7" data-module="arrayan">
 
       {/* Banner: borrador guardado */}
       {savedDraftBanner && (
