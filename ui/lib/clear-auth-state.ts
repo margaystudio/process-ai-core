@@ -1,4 +1,5 @@
 import { ACTIVE_TENANT_STORAGE_KEY, clearAccessTokenCache } from '@/lib/api-auth'
+import { invalidateCurrentUserCache, invalidateMyCapabilitiesCache } from '@/lib/api'
 
 const PROD_COOKIE_DOMAIN = '.margaystudio.io'
 
@@ -56,6 +57,10 @@ export function clearSupabaseAuthCookies(): void {
 export function clearLocalAuthState(): void {
   clearAccessTokenCache()
   clearSupabaseAuthCookies()
+  // Sin esto, un usuario/tenant nuevo que loguea en la misma pestaña podría ver
+  // hasta 5s de datos de usuario/permisos cacheados de la sesión anterior.
+  invalidateCurrentUserCache()
+  invalidateMyCapabilitiesCache()
   if (typeof localStorage === 'undefined') return
   localStorage.removeItem('local_user_id')
   localStorage.removeItem('userId')

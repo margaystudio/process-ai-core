@@ -22,6 +22,7 @@ const ManualEditorTiptap = dynamic(
   }
 );
 import { usePdfViewer } from "@/hooks/usePdfViewer";
+import { sanitizeDocumentHtml } from "@/lib/sanitizeHtml";
 import ArtifactViewerModal from "@/components/processes/ArtifactViewerModal";
 import { type Evidence, type EvidenceTipo } from "./data";
 import { EvidenceCardCompact } from "./EvidenceCard";
@@ -115,6 +116,15 @@ export function Step2Revision({
 
   /** Métricas reales del borrador, derivadas del HTML cargado. */
   const draftStats = useMemo(() => parseDraftStats(html), [html]);
+
+  /**
+   * HTML saneado para el render de solo-lectura (`dangerouslySetInnerHTML`
+   * más abajo). `html` es contenido persistido y editable por usuarios del
+   * workspace o generado por IA — nunca se pinta sin pasar por DOMPurify,
+   * aunque haya salido del editor Tiptap (Tiptap sanea la edición, no la
+   * lectura).
+   */
+  const safeHtml = useMemo(() => sanitizeDocumentHtml(html), [html]);
 
   const editorRef = useRef<ManualEditorTiptapRef | null>(null);
   const { openVersionPreviewPdf, modalProps } = usePdfViewer();
@@ -404,7 +414,7 @@ export function Step2Revision({
               {!editing ? (
                 <article
                   className="wizard-draft-html text-sm leading-7 text-ink-700"
-                  dangerouslySetInnerHTML={{ __html: html }}
+                  dangerouslySetInnerHTML={{ __html: safeHtml }}
                 />
               ) : (
                 <ManualEditorTiptap

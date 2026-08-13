@@ -788,6 +788,25 @@ def update_folder_endpoint(
         if "metadata" in provided:
             previous_values["metadata"] = _folder_metadata(existing)
 
+        # Cortar la herencia por este endpoint (el de datos de la carpeta) dejaba
+        # la carpeta ABIERTA a todo el workspace: sin filas en folder_permissions,
+        # "lista vacía" significa sin restricción. El PUT de permisos ya
+        # materializaba el ancestro para evitarlo; acá no, y era la ventana por
+        # la que una carpeta pasaba de restringida a abierta sin que nadie lo
+        # pidiera. Se hace lo mismo: conservar el acceso efectivo que tenía.
+        if request.inherits_permissions is False and getattr(
+            folder, "inherits_permissions", True
+        ):
+            heredados, _ = resolve_folder_permissions_source(session, folder)
+            for rid in heredados:
+                session.add(
+                    FolderPermission(
+                        id=str(uuid.uuid4()),
+                        folder_id=folder.id,
+                        operational_role_id=rid,
+                    )
+                )
+
         folder = update_folder(
             session=session,
             folder_id=folder_id,

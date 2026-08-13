@@ -19,9 +19,13 @@ dependencies = [
     "pyjwt>=2.8.0",
     "cryptography>=41.0.0",
     "httpx>=0.27.0",
-    "python-jose[cryptography]>=3.3.0",
     "email-validator>=2.0.0",
     "markdown>=3.5.0",
+    # Saneo del HTML de documentos (ver process_ai_core/html_sanitize.py). Es
+    # `nh3` (bindings de ammonia, Rust) y no un filtro propio: los bypasses de
+    # un sanitizador viven en los detalles del parser de HTML, no en la lista
+    # de tags, y eso no se escribe a mano.
+    "nh3>=0.2.18",
     # WeasyPrint NO es una dependencia cualquiera: es el único motor de salida y
     # su versión es parte del contrato del artefacto de auditoría. El PDF de una
     # versión aprobada tiene su SHA-256 registrado en document_versions; si un

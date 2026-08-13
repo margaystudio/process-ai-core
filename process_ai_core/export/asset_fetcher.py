@@ -31,8 +31,9 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass, field
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from urllib.parse import unquote, urlparse
+from urllib.request import url2pathname
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +80,74 @@ class AssetResolutionError(RuntimeError):
     """Un asset referenciado por el documento no se pudo resolver."""
 
 
+class RecursoExternoBloqueado(RuntimeError):
+    """El documento apuntaba a un recurso fuera de lo permitido y se bloqueó."""
+
+
+def _ruta_local_permitida(url: str) -> bool:
+    """
+    True si el `file://` cae DENTRO del directorio de trabajo del módulo.
+
+    Es el único `file://` legítimo, y cubre los dos casos reales: el logo del
+    cliente que el servidor materializa en cache (`_branding.py`) y los assets
+    del run cuando el render usa el directorio del run como `base_url`
+    (`export_pdf`). Los dos cuelgan de `output_dir`.
+
+    `resolve()` antes de comparar: sin eso, `output/../../etc/passwd` pasaría.
+    """
+    from process_ai_core.config import get_settings
+
+    try:
+        raiz = Path(get_settings().output_dir).resolve()
+        destino = Path(url2pathname(unquote(urlparse(url).path))).resolve()
+    except (OSError, ValueError):
+        return False
+    return destino == raiz or raiz in destino.parents
+
+
+def safe_url_fetcher(url: str, timeout: int = 10, ssl_context=None) -> dict:
+    """
+    `url_fetcher` restrictivo: allow-list de lo que el render puede resolver.
+
+    POR QUÉ EXISTE
+    --------------
+    El HTML del documento lo escribe el usuario (editor manual, o generación a
+    partir de evidencia suya) y WeasyPrint resuelve TODO lo que encuentre:
+    `<img src>`, `url()` de CSS, `<image>` de SVG. Con el fetcher por defecto
+    eso incluye `http(s)://` y `file://` arbitrarios, es decir:
+
+      - **SSRF**: `<img src="http://169.254.169.254/...">` hace que el servidor
+        pida el metadata de la nube, o barra puertos de la red interna. La
+        respuesta no se ve, pero los tiempos y los errores filtran igual.
+      - **Lectura de archivos locales**: `<img src="file:///...">` embebe un
+        archivo del servidor en el PDF, que después el mismo usuario descarga.
+
+    Se dispara sin interacción de nadie más: alcanza con guardar el documento y
+    pedir el preview (o aprobarlo, que congela el PDF).
+
+    QUÉ PERMITE
+    -----------
+    - `data:` — inerte, no sale a ningún lado (lo usa el QR de la portada).
+    - `file://` **bajo `output_dir`** — logo del cliente y assets del run.
+    Todo lo demás se bloquea. Bloquear significa que la imagen no se dibuja:
+    WeasyPrint se traga el error del fetcher y sigue. Se loguea a nivel warning
+    porque un documento que apunta afuera es, como mínimo, algo para mirar.
+    """
+    from weasyprint import default_url_fetcher
+
+    if url.startswith("data:"):
+        return default_url_fetcher(url, timeout=timeout, ssl_context=ssl_context)
+
+    if url.startswith("file://"):
+        if _ruta_local_permitida(url):
+            return default_url_fetcher(url, timeout=timeout, ssl_context=ssl_context)
+        logger.warning("Render de PDF: bloqueado file:// fuera del directorio de trabajo: %s", url)
+        raise RecursoExternoBloqueado(f"ruta local no permitida: {url}")
+
+    logger.warning("Render de PDF: bloqueado recurso externo: %s", url)
+    raise RecursoExternoBloqueado(f"recurso externo no permitido: {url}")
+
+
 @dataclass
 class StorageAssetFetcher:
     """
@@ -103,12 +172,12 @@ class StorageAssetFetcher:
 
     def __call__(self, url: str, timeout: int = 10, ssl_context=None) -> dict:
         if not url.startswith(ASSET_BASE_URL):
-            # Recurso externo (file:// del logo, data:, http de otro dominio):
-            # se delega al fetcher por defecto. No se registra porque no es un
-            # asset del documento.
-            from weasyprint import default_url_fetcher
-
-            return default_url_fetcher(url, timeout=timeout, ssl_context=ssl_context)
+            # No es un asset del documento (logo, data: del QR). Pasa por la
+            # allow-list, NO por el fetcher por defecto: delegar en él era un
+            # SSRF y una lectura de archivos locales. Ver `safe_url_fetcher`.
+            # No se registra en `failures` porque no es un asset del documento
+            # y no debe abortar el freeze.
+            return safe_url_fetcher(url, timeout=timeout, ssl_context=ssl_context)
 
         rel = unquote(urlparse(url).path).lstrip("/")
         try:

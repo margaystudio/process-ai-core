@@ -1,7 +1,13 @@
 'use client'
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, ReactNode } from 'react'
-import { getCurrentUser, invalidateCurrentUserCache, CurrentUserResponse, WorkspaceResponse } from '@/lib/api'
+import {
+  getCurrentUser,
+  invalidateCurrentUserCache,
+  invalidateMyCapabilitiesCache,
+  CurrentUserResponse,
+  WorkspaceResponse,
+} from '@/lib/api'
 import { getActiveTenantId, setActiveTenantId as persistActiveTenantId } from '@/lib/api-auth'
 
 interface WorkspaceContextType {
@@ -65,6 +71,11 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     try {
       setLoading(true)
       invalidateCurrentUserCache()
+      // Las capabilities (permisos + mapa de carpetas) son por tenant activo: si no
+      // se invalidan acá, un cambio de tenant puede servir hasta 5s de datos del
+      // tenant anterior desde la cache de `getMyCapabilities` (fuga de estado en el
+      // cliente; el backend igual autoriza cada request por su cuenta).
+      invalidateMyCapabilitiesCache()
       const data = await getCurrentUser({ force: true })
       applyCurrentUser(data)
     } catch (err) {

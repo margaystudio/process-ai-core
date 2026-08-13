@@ -28,6 +28,7 @@ from process_ai_core.config import get_settings
 from process_ai_core.db.models import Workspace, WorkspaceMembership, User
 from process_ai_core.db.models import UserOperationalRole
 from ..dependencies import get_current_user_id
+from process_ai_core.image_validation import es_imagen_valida
 from process_ai_core.db.permissions import (
     get_membership_base_access,
     is_workspace_admin,
@@ -56,13 +57,28 @@ router = APIRouter(
 
 logger = logging.getLogger(__name__)
 
-ALLOWED_BRANDING_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".svg"}
+# Sin `.svg` a propósito. Un SVG es un documento XML que puede traer <script>
+# adentro, y este icono se sirve SIN autenticación (es el favicon) desde el
+# origen de la API: alcanzaba con subir un logo y abrir su URL para ejecutar JS
+# en ese origen. Además el mismo archivo se embebe en el PDF, donde un SVG con
+# referencias externas reabre el problema del fetcher. Los formatos ráster no
+# tienen esa capacidad.
+ALLOWED_BRANDING_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 _BRANDING_MEDIA_TYPES = {
     ".png": "image/png",
     ".jpg": "image/jpeg",
     ".jpeg": "image/jpeg",
     ".webp": "image/webp",
-    ".svg": "image/svg+xml",
+}
+
+
+#: Cabeceras del icono público. `nosniff` evita que el navegador reinterprete
+#: como HTML un archivo servido como imagen, y la CSP lo deja inerte aunque
+#: alguien logre servir markup por acá (cubre los SVG subidos antes de que se
+#: sacara `.svg` de la allow-list).
+_CABECERAS_ICONO = {
+    "X-Content-Type-Options": "nosniff",
+    "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
 }
 
 
@@ -258,13 +274,19 @@ def get_workspace_members(
                 r.workspace_membership_id, []
             ).append(r.operational_role_id)
 
+    # El email es además el usuario de login: listárselo a cualquier miembro
+    # entrega el padrón de cuentas del workspace. Quien administra lo necesita
+    # (identifica a la persona al asignar roles); el resto se arregla con el
+    # nombre. Mismo criterio que `folders._nombre_visible`.
+    puede_ver_emails = is_workspace_admin(session, user_id, workspace_id)
+
     out = []
     for m in memberships:
         user = users_by_id.get(m.user_id)
         out.append({
             "membership_id": m.id,
             "user_id": m.user_id,
-            "email": user.email if user else "",
+            "email": (user.email if user else "") if puede_ver_emails else "",
             "name": user.name if user else "",
             # Acceso base derivado del rol macro del tenant ('admin'|'member'|'external').
             # La clave sigue siendo "role" para no romper el contrato con la UI.
@@ -507,6 +529,14 @@ async def upload_workspace_branding_icon(
         raise HTTPException(status_code=400, detail="El archivo está vacío")
     if len(contents) > MAX_BRANDING_ICON_SIZE_BYTES:
         raise HTTPException(status_code=400, detail="El icono no puede superar 2 MB")
+    # La extensión y el content_type los elige quien sube: se verifica el
+    # contenido. Este archivo se sirve después a los navegadores y lo parsea el
+    # render del PDF.
+    if not es_imagen_valida(contents, ext):
+        raise HTTPException(
+            status_code=400,
+            detail="El archivo no es una imagen válida (PNG, JPG o WEBP)",
+        )
 
     # A object storage, no a disco local: el freeze del PDF corre en cualquier
     # instancia de Cloud Run y el filesystem es efímero. Guardarlo local hacía
@@ -618,12 +648,14 @@ def get_workspace_branding_icon(workspace_id: str, filename: str):
         # Compatibilidad: iconos subidos antes de mover el branding a storage.
         legacy = Path(get_settings().output_dir) / "workspace-branding" / workspace_id / filename
         if legacy.exists():
-            return FileResponse(path=str(legacy), filename=filename)
+            return FileResponse(
+                path=str(legacy), filename=filename, headers=_CABECERAS_ICONO
+            )
         raise HTTPException(status_code=404, detail="Icono no encontrado")
 
     return Response(
         content=contents,
         media_type=_branding_icon_media_type(filename),
-        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+        headers=_CABECERAS_ICONO | {"Content-Disposition": f'inline; filename="{filename}"'},
     )
 

@@ -6,6 +6,85 @@ Monorepo: se versiona **por componente** con tags prefijados — `api-vX.Y.Z` y 
 
 ## Unreleased
 
+## api-v0.8.0 · ui-v0.8.0 — 2026-08-13
+
+Release de **seguridad**: cierra todos los hallazgos de una auditoría adversarial
+de 6 frentes (autorización, superficie de endpoints, inyección, JWT/secrets,
+frontend/XSS y dependencias), verificados en código uno por uno. Suma el
+monitoreo de producción, que no existía.
+
+> **Deploy a prod:** correr `alembic upgrade head` (migración `0026`, que solo
+> cambia un DEFAULT de columna — no toca datos).
+
+### Security
+
+**Bloqueantes**
+- **XSS almacenado → robo de sesión del aprobador.** El cuerpo del documento se
+  guardaba sin sanear y el preview lo pintaba con `dangerouslySetInnerHTML`
+  fuera del editor: quien editaba podía dejar `<img onerror=…>` y quedarse con
+  el JWT de quien revisaba. Ahora se sanea en las dos puntas —DOMPurify con
+  allow-list al pintar, `nh3` al persistir— incluido el HTML crudo que
+  `markdown` deja pasar (ese markdown lo genera la IA desde evidencia del
+  usuario). Se suma CSP restrictiva, `nosniff`, `X-Frame-Options` y
+  `Referrer-Policy`.
+- **SSRF y lectura de archivos locales por el motor de PDF.** El resolvedor de
+  imágenes delegaba en el fetcher por defecto de WeasyPrint, que baja `http(s)`
+  y `file://` arbitrarios, y el HTML del documento lo escribe el usuario: un
+  `<img src="http://169.254.169.254/…">` alcanzaba para pegarle a la metadata
+  de la nube, y un `file:///…` para embeber un archivo del servidor en el PDF
+  que después se descarga. Ahora hay allow-list (assets propios, `data:`, y
+  `file://` bajo el directorio de trabajo con `resolve()` para que `..` no
+  escape) y el camino de generación ya no puede correr sin fetcher restrictivo.
+- **Next.js 14.0.4 → 14.2.35**: CVE-2025-29927 (bypass de middleware) y ~30
+  advisories. Acá el middleware solo autentica y la API revalida por request,
+  así que el impacto real era menor — pero el bump es trivial.
+
+**Altas**
+- **El permiso por carpeta no se aplicaba en la capa semántica**: `relations`,
+  `impact`, `suggest`, `confirm`, `reject` y `edit` miraban el tenant o un
+  permiso global "laxo", nunca la carpeta. Se leía el `evidence_text`
+  —fragmentos del contenido— y se decidía sobre el grafo de documentos que el
+  usuario no puede abrir. El merge de entidades pasa a exigir administración,
+  igual que su endpoint hermano.
+- **XSS por el ícono de branding**: se aceptaba `.svg` validando solo la
+  extensión y se servía inline y sin auth desde el origen de la API. Fuera de
+  la allow-list, y se sirve con `nosniff` + CSP `sandbox` (que además cubre los
+  ya subidos).
+
+**Medias y hardening**
+- El estado de aprobación de un documento ya no se edita a mano: `approved`,
+  `rejected` y `pending_validation` son del flujo de revisión. El PUT solo
+  archiva y desarchiva (la UI ofrecía "Aprobado" en un desplegable).
+- `POST /api/v1/catalog` eliminado: escribía una tabla global con solo estar
+  autenticado, y su `prompt_text` entra a los prompts de generación de todos
+  los tenants. Los GET pasan a exigir sesión y acceso al módulo.
+- `POST` de suscripción eliminado: el admin del propio tenant se asignaba plan
+  y `status=active` sin verificación de pago.
+- **Prompt injection en generación**: la evidencia del usuario (transcripciones,
+  OCR) viaja delimitada como dato y el system prompt lleva la regla
+  inquebrantable, como en Tyto.
+- Vinculación de cuenta por email solo con `email_verified`.
+- `base_access` pasa a default `external` (migración `0026`): la lógica era
+  fail-closed y el default de la columna decía lo contrario.
+- `python-jose` eliminada (0 usos; arrastraba `ecdsa` con una CVE sin fix).
+- El emisor del JWT se valida **si viene** (exigirlo apagaría el login de
+  cualquier token sin ese claim); el fallback HS256 queda vedado en prod; el
+  500 de auth ya no devuelve el mensaje interno.
+- Los emails del padrón del workspace solo los ve quien administra.
+- Las imágenes se validan por **contenido** (firma real) y no por extensión, y
+  la del editor tiene tope de 10 MB, que no tenía.
+- Cortar la herencia de permisos desde el PUT de la carpeta ya no la deja
+  abierta a todo el workspace.
+- Frontend: la cache de capabilities se invalida al cambiar de tenant y en
+  logout; el allow-list del proxy de doc-assets rechaza dot-segments.
+- Lockfiles de Python con hashes de integridad (versión fija ≠ integridad),
+  verificado construyendo la imagen.
+
+### Added
+- **Monitoreo de producción** (no existía ninguno): uptime check sobre
+  `/health` cada 5 min, alerta de caída y alerta de 5xx, ambas por email.
+
+
 ## api-v0.7.0 · ui-v0.7.0 — 2026-08-13
 
 Release del **rediseño de permisos a dos capas**, la adopción de **margay-ui 0.15.1**

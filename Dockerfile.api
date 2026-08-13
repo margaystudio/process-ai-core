@@ -17,8 +17,13 @@ WORKDIR /app
 # difícil de defender.
 #
 # Regenerar el lock (ver también requirements.lock):
-#   uv pip compile pyproject.toml --universal --python-version 3.12 -o requirements.lock
-#   uv pip compile pyproject.toml --extra dev --universal --python-version 3.12 -o requirements-dev.lock
+#   uv pip compile pyproject.toml --universal --python-version 3.12 --generate-hashes -o requirements.lock
+#   uv pip compile pyproject.toml --extra dev --universal --python-version 3.12 --generate-hashes -o requirements-dev.lock
+#
+# `--generate-hashes` no es cosmético: sin hashes, `pip install -r` acepta
+# cualquier artefacto que el índice devuelva para esa versión. Con hashes, un
+# paquete alterado en el registro o en un mirror falla la instalación en vez
+# de entrar a la imagen. Versión fija ≠ integridad.
 #
 # El orden de las capas importa: las dependencias van ANTES que el código, así
 # un cambio en process_ai_core/ no invalida la capa de deps (que es la cara).

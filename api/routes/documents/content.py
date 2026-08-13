@@ -23,6 +23,8 @@ from process_ai_core.db.helpers import (
 from process_ai_core.config import get_settings
 
 from process_ai_core.export.markdown_html import render_frozen_html
+from process_ai_core.html_sanitize import sanitize_document_html
+from process_ai_core.image_validation import es_imagen_valida
 
 from api.routes._branding import get_workspace_pdf_branding
 from api.routes._document_context import build_document_context
@@ -49,6 +51,9 @@ from ._helpers import (
 )
 
 logger = logging.getLogger(__name__)
+
+#: Tope de la imagen del editor. No tenía ninguno.
+MAX_EDITOR_IMAGE_BYTES = 10 * 1024 * 1024
 
 router = APIRouter()
 
@@ -315,7 +320,13 @@ def save_editable_content(
         # tiene; persistir eso metería una credencial con vencimiento adentro del
         # contenido de la versión, que además es entrada congelada del artefacto
         # de auditoría. Ver `strip_image_url_tokens`.
-        draft.content_html = strip_image_url_tokens(content_html)
+        # Saneo antes de persistir: este endpoint acepta HTML de cualquier
+        # cliente, no solo del editor (que filtra al escribir, pero no es el
+        # único camino). Lo guardado se le muestra al aprobador, así que un
+        # `<img onerror=…>` acá sería XSS contra justo quien tiene el permiso
+        # que un atacante querría. La UI además sanea al pintar; esto deja el
+        # dato limpio en la base para todos los consumidores.
+        draft.content_html = sanitize_document_html(strip_image_url_tokens(content_html))
         draft.content_type = "manual_edit"
         draft_id = draft.id
         draft_version_number = draft.version_number
@@ -380,6 +391,19 @@ async def upload_editor_image(
     key = f"{workspace_prefix(doc_workspace_id)}/editor-uploads/{document_id}/{name}"
     try:
         contents = await file.read()
+        if not contents:
+            raise HTTPException(status_code=400, detail="El archivo está vacío")
+        if len(contents) > MAX_EDITOR_IMAGE_BYTES:
+            raise HTTPException(
+                status_code=400, detail="La imagen no puede superar 10 MB"
+            )
+        # Contenido real, no la extensión: esta imagen se sirve de vuelta a
+        # otros usuarios del workspace y la parsea el render del PDF.
+        if not es_imagen_valida(contents, ext):
+            raise HTTPException(
+                status_code=400,
+                detail="El archivo no es una imagen válida (PNG, JPG, GIF o WEBP)",
+            )
         get_storage().put(key, contents, content_type=file.content_type or "image/png")
     except Exception as e:
         logger.exception("Error guardando imagen del editor")

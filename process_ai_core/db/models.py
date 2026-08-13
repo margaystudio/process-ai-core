@@ -448,7 +448,13 @@ class WorkspaceMembership(Base):
     workspace_id: Mapped[str] = mapped_column(String(36), ForeignKey("workspaces.id"), index=True)
 
     # Acceso base derivado del rol macro del tenant: 'admin' | 'member' | 'external'
-    base_access: Mapped[str] = mapped_column(String(20), default="member", server_default="member")
+    # Default 'external' (solo lectura) y no 'member': si una fila se crea sin
+    # pasar por el sync —un INSERT crudo, un backfill, un escritor futuro que
+    # omita la columna— el resultado tiene que ser el acceso MÁS restrictivo,
+    # no permiso de edición. Es el mismo criterio que `_resolve_base_access`.
+    base_access: Mapped[str] = mapped_column(
+        String(20), default="external", server_default="external"
+    )
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 

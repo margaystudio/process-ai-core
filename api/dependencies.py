@@ -46,6 +46,33 @@ def _get_supabase_jwks_url() -> str:
     )
 
 
+def _expected_issuer() -> str | None:
+    """Emisor esperado: el Auth de ESTE proyecto Supabase.
+
+    None si no hay `SUPABASE_URL` (entornos donde el JWKS se configura a mano).
+    No se inventa un default — apuntar al emisor de otro entorno es justo lo que
+    `_get_supabase_jwks_url` evita.
+    """
+    base = os.getenv("SUPABASE_URL", "").strip().rstrip("/")
+    return f"{base}/auth/v1" if base else None
+
+
+def _assert_issuer_valido(payload: dict) -> None:
+    """Rechaza un token cuyo `iss` no sea el de este proyecto.
+
+    Se valida SI VIENE, y no se exige. Es defensa en profundidad: la firma ya
+    ata el token al proyecto (JWKS distinto ⇒ no valida), así que el aporte real
+    es cerrar el caso de una clave compartida entre proyectos. Volverlo
+    obligatorio sería otra cosa: cualquier token legítimo sin ese claim dejaría
+    de autenticar, y eso es apagar el login por un endurecimiento menor.
+    """
+    esperado = _expected_issuer()
+    emisor = payload.get("iss")
+    if esperado and emisor and emisor.rstrip("/") != esperado:
+        logger.warning("JWT con emisor inesperado: %s", emisor)
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+
 def _get_jwks_client() -> PyJWKClient:
     """Lazy singleton — no network call until first JWT validation."""
     global _jwks_client
@@ -67,13 +94,15 @@ def _decode_and_verify_supabase_jwt(token: str) -> dict:
     try:
         client = _get_jwks_client()
         signing_key = client.get_signing_key_from_jwt(token)
-        return jwt.decode(
+        payload = jwt.decode(
             token,
             signing_key.key,
             algorithms=["ES256", "RS256"],
             audience="authenticated",
             options={"require": ["sub", "exp"]},
         )
+        _assert_issuer_valido(payload)
+        return payload
     except jwt.ExpiredSignatureError:
         logger.warning("JWT expired")
         raise HTTPException(status_code=401, detail="Token expired")
@@ -94,16 +123,30 @@ def _decode_and_verify_supabase_jwt(token: str) -> dict:
         raise HTTPException(status_code=401, detail="Invalid token")
 
     # ── Intento 2: HS256 con SUPABASE_JWT_SECRET (proyectos con firma simétrica) ─
+    #
+    # Solo fuera de producción. Ese secreto simétrico es una llave maestra: con
+    # él se firma un JWT con cualquier `sub` y se suplanta a cualquiera. Prod
+    # usa firma asimétrica (JWKS) y no lo configura, así que este camino ya era
+    # inerte ahí; el guard hace que no se pueda "activar" por una env var
+    # puesta de más.
     jwt_secret = os.getenv("SUPABASE_JWT_SECRET", "").strip()
+    if jwt_secret and os.getenv("ENVIRONMENT", "local").lower() in ("prod", "production"):
+        logger.error(
+            "SUPABASE_JWT_SECRET está configurado en producción y se IGNORA: "
+            "prod valida por JWKS. Sacalo de la config."
+        )
+        jwt_secret = ""
     if jwt_secret:
         try:
-            return jwt.decode(
+            payload = jwt.decode(
                 token,
                 jwt_secret,
                 algorithms=["HS256"],
                 audience="authenticated",
                 options={"require": ["sub", "exp"]},
             )
+            _assert_issuer_valido(payload)
+            return payload
         except jwt.ExpiredSignatureError:
             logger.warning("JWT expired (HS256)")
             raise HTTPException(status_code=401, detail="Token expired")
@@ -225,8 +268,23 @@ def get_current_user_id(
         local_user = get_user_by_external_id(session, supabase_user_id)
 
         if not local_user:
+            # Vinculación por email: SOLO con el email verificado por Supabase.
+            #
+            # Sin esa condición, quien pueda registrarse con el email de otro
+            # (si el proyecto no exige confirmación) hereda su usuario local
+            # con solo presentar un JWT válido: el `sub` es nuevo, no matchea
+            # por external_id, y este camino se lo entrega. El claim
+            # `email_verified` es lo que distingue "este es su email" de
+            # "escribió su email en un formulario".
+            #
+            # El puente correcto de identidad es `sync_workspace_access`, que
+            # crea/vincula contra lo que dice el control plane. Esto queda como
+            # red para usuarios locales previos a esa sincronización.
             supabase_email = decoded.get("email")
-            if supabase_email:
+            email_verificado = bool(
+                decoded.get("email_verified") or decoded.get("email_confirmed_at")
+            )
+            if supabase_email and email_verificado:
                 logger.debug("Local user lookup by external_id failed; trying email match")
                 from process_ai_core.db.helpers import get_user_by_email
 
@@ -236,6 +294,12 @@ def get_current_user_id(
                     local_user.auth_provider = "supabase"
                     session.commit()
                     logger.debug("Linked local user id=%s to auth provider", local_user.id)
+            elif supabase_email:
+                logger.warning(
+                    "No se vincula por email sin verificar (sub=%s): el usuario "
+                    "local, si existe, queda intacto.",
+                    supabase_user_id,
+                )
 
         if local_user:
             logger.debug("Authenticated local user id=%s", local_user.id)
@@ -256,9 +320,12 @@ def get_current_user_id(
         raise
     except Exception as e:
         logger.exception("Error obteniendo usuario: %s", type(e).__name__)
+        # Sin el detalle de la excepción: el mensaje interno (nombres de
+        # tabla, rutas, fragmentos de query) se le estaba entregando al
+        # cliente. Queda en el log, que es donde sirve.
         raise HTTPException(
             status_code=500,
-            detail=f"Error obteniendo usuario: {str(e)}",
+            detail="Error obteniendo usuario",
         )
 
 
