@@ -43,15 +43,22 @@
   --danger:  #CB4242; --danger-bg:  #FBEBEA; --danger-bd:  #F1C6C3; --danger-press: #F6D9D6;
   --info:    #5664A6; --info-bg:    #ECEFFA; --info-bd:    #CBD3EF;
 
-  /* ---- Acentos de módulo ---- */
-  --acc-green:      #7CC39C;  /* Hub */
-  --acc-periwinkle: #ADB9DF;  /* Process AI */
-  --acc-coral:      #F4A282;  /* Order Management */
-  --acc-violet:     #9C79B4;  /* GPU Ops */
-  --acc-peach:      #F6CEA8;  /* Insights */
-  --accent:      var(--acc-green);
+  /* ---- Acentos de módulo ----
+     Siete tonos que recorren el círculo cromático con separación pareja
+     (28–55° entre vecinos) y esquivan el verde de marca, que queda
+     exclusivo de Margay: ningún módulo lo usa. */
+  --acc-ombu:     #1F7A85;  /* teal    186° */
+  --acc-arrayan:  #4A5CB8;  /* índigo  230° */
+  --acc-gpu:      #7E4FA8;  /* violeta 272° */
+  --acc-timbo:    #A8437B;  /* magenta 327° */
+  --acc-ceibo:    #AD2E38;  /* carmín  355° */
+  --acc-pindo:    #E07B22;  /* naranja  28° */
+  --acc-data:     #77841F;  /* oliva    68° */
+
+  /* Por defecto: sin módulo activo, el acento es el verde de marca */
+  --accent:      var(--green);
   --accent-ink:  var(--green-700);
-  --accent-tint: var(--action-tint);
+  --accent-tint: rgba(124, 195, 156, .30);
 
   /* ---- Radios ---- */
   --r-sm: 6px; --r-md: 8px; --r-lg: 12px; --r-xl: 16px;
@@ -62,55 +69,90 @@
   --sh-md: 0 6px 18px rgba(20,28,33,.09), 0 2px 6px rgba(20,28,33,.05);
   --sh-lg: 0 22px 50px rgba(20,28,33,.20), 0 8px 18px rgba(20,28,33,.10);
 
-  /* ---- Sidebar (shell oscuro) ---- */
-  --sidebar-bg:         var(--ink-900);
-  --sidebar-surface:    var(--ink-800);
+  /* ---- Sidebar (shell oscuro) ----
+     Los dos fondos también son white-label: una app que se rebrandea setea
+     `--tenant-sidebar-bg` / `--tenant-sidebar-surface` en `:root`. Acá la
+     indirección no haría falta (mismo elemento: un style inline ganaría igual),
+     pero se declara para que el contrato de white-label sea UNO solo y no dos
+     mecanismos distintos según el token. */
+  --sidebar-bg:         var(--tenant-sidebar-bg, var(--ink-900));
+  --sidebar-surface:    var(--tenant-sidebar-surface, var(--ink-800));
   --sidebar-fg:         var(--ink-50);
   --sidebar-muted:      var(--ink-400);
   --sidebar-item-hover: rgba(255,255,255,.07);
   --sidebar-border:     rgba(255,255,255,.08);
 
-  /* ---- Tokens de borde (del prototipo Process AI) ---- */
+  /* ---- Extensiones locales de Process AI (no viven en la fuente margay-ui) ----
+     Vienen del prototipo original del módulo. Se preservan acá porque las usan
+     pantallas ya construidas (bordes finos, superficies, tono indigo de IA,
+     sombras "de producto" y radio pill) que no tienen un token equivalente
+     todavía en el sistema compartido. Si margay-ui llega a cubrir alguno de
+     estos casos con un token propio, migrar el uso y retirar el de acá. */
   --line:        #E5E8EA;
   --line-soft:   #EDEFF1;
   --line-softer: #F4F5F6;
   --line-input:  #D2D6D8;
 
-  /* ---- Superficies (del prototipo Process AI) ---- */
   --surface:       #FFFFFF;
   --surface-app:   #F7F8F9;
   --surface-hover: #FAFBFB;
   --surface-track: #EDEFF1;
 
-  /* ---- Tono indigo / IA / acento process ---- */
   --indigo:        #48569C;
   --indigo-light:  #ADB9DF;
   --indigo-tint:   rgba(173,185,223,0.16);
   --indigo-border: #D2CFE6;
 
-  /* ---- Tono teal (importación / sistemas) ---- */
-  --teal: #2E8B8B;
-
-  /* ---- Tono violet (personas / roles) ---- */
+  --teal:   #2E8B8B;
   --violet: #8B5CC2;
 
-  /* ---- Sombras del prototipo ---- */
   --sh-card:   0 1px 3px rgba(20,28,33,.05);
   --sh-raised: 0 4px 16px rgba(20,28,33,.06);
   --sh-modal:  0 24px 60px rgba(20,28,33,.28);
   --sh-menu:   0 12px 32px rgba(20,28,33,.18);
   --sh-drawer: -12px 0 40px rgba(20,28,33,.2);
 
-  /* ---- Radio pill ---- */
   --r-pill: 999px;
 }
 
-/* Acento por módulo: poné data-module en un contenedor y --accent cambia solo */
-[data-module="hub"]      { --accent: var(--acc-green);      --accent-ink:#2E6E4D; --accent-tint: rgba(124,195,156,.20); }
-[data-module="process"]  { --accent: var(--acc-periwinkle); --accent-ink:#48569C; --accent-tint: rgba(173,185,223,.26); }
-[data-module="oms"]      { --accent: var(--acc-coral);      --accent-ink:#C66A48; --accent-tint: rgba(244,162,130,.24); }
-[data-module="gpu"]      { --accent: var(--acc-violet);     --accent-ink:#7C5896; --accent-tint: rgba(156,121,180,.24); }
-[data-module="insights"] { --accent: var(--acc-peach);      --accent-ink:#B5854A; --accent-tint: rgba(246,206,168,.30); }
+/* Acento por módulo: poné data-module en un contenedor y --accent cambia solo.
+   --accent      → dot, favicon, barra activa, borde de selección
+   --accent-ink  → el glifo sobre el tile (contraste AA)
+   --accent-tint → fondo del tile
+
+   El tinte va al 30%: por debajo de ~20% los siete tonos colapsan contra el
+   blanco y dejan de distinguirse entre sí, por bien espaciados que estén en
+   el círculo. No lo bajes.
+
+   WHITE-LABEL: los tres salen de `var(--tenant-*, <el del módulo>)`, así una app
+   que se rebrandea por cliente los pisa seteando `--tenant-accent`,
+   `--tenant-accent-ink` y `--tenant-accent-tint` en `:root` (en runtime, cuando
+   resuelve el tenant). La indirección es necesaria: `--accent` se define en el
+   nodo `[data-module]`, que está MÁS CERCA que `:root`, así que sin esto el valor
+   del módulo le gana a cualquier override heredado — incluso a un style inline en
+   `<html>`. Un módulo que no se rebrandea no setea nada y no cambia en nada. */
+[data-module="ombu"]    { --accent: var(--tenant-accent, var(--acc-ombu));    --accent-ink: var(--tenant-accent-ink, #14555E); --accent-tint: var(--tenant-accent-tint, rgba(31,122,133,.30)); }
+[data-module="arrayan"] { --accent: var(--tenant-accent, var(--acc-arrayan)); --accent-ink: var(--tenant-accent-ink, #3A4894); --accent-tint: var(--tenant-accent-tint, rgba(74,92,184,.30)); }
+[data-module="gpu"]     { --accent: var(--tenant-accent, var(--acc-gpu));     --accent-ink: var(--tenant-accent-ink, #653F87); --accent-tint: var(--tenant-accent-tint, rgba(126,79,168,.30)); }
+[data-module="timbo"]   { --accent: var(--tenant-accent, var(--acc-timbo));   --accent-ink: var(--tenant-accent-ink, #883561); --accent-tint: var(--tenant-accent-tint, rgba(168,67,123,.30)); }
+[data-module="ceibo"]   { --accent: var(--tenant-accent, var(--acc-ceibo));   --accent-ink: var(--tenant-accent-ink, #8B242C); --accent-tint: var(--tenant-accent-tint, rgba(173,46,56,.30)); }
+[data-module="pindo"]   { --accent: var(--tenant-accent, var(--acc-pindo));   --accent-ink: var(--tenant-accent-ink, #B25E17); --accent-tint: var(--tenant-accent-tint, rgba(224,123,34,.30)); }
+[data-module="data"]    { --accent: var(--tenant-accent, var(--acc-data));    --accent-ink: var(--tenant-accent-ink, #596317); --accent-tint: var(--tenant-accent-tint, rgba(119,132,31,.30)); }
+
+/* Alias de compatibilidad — retiralos cuando no queden usos.
+   Mapeo: process→arrayan · oms→pindo · insights→ceibo ·
+          commercial→timbo · dashboards→ombu
+   `hub` no es un módulo (es nivel plataforma): queda en verde de marca, que es
+   además el valor por defecto de :root. ModuleEmblem NO tiene alias: una clave
+   vieja no compila.
+   Process AI Core migró data-module="process" → "arrayan" en este sync; el alias
+   queda igual por si algún markup viejo (email, PDF cacheado) todavía lo referencia. */
+[data-module="process"]    { --accent: var(--acc-arrayan); --accent-ink: #3A4894; --accent-tint: rgba(74,92,184,.30); }
+[data-module="oms"]        { --accent: var(--acc-pindo);   --accent-ink: #B25E17; --accent-tint: rgba(224,123,34,.30); }
+[data-module="insights"]   { --accent: var(--acc-ceibo);   --accent-ink: #8B242C; --accent-tint: rgba(173,46,56,.30); }
+[data-module="commercial"] { --accent: var(--acc-timbo);   --accent-ink: #883561; --accent-tint: rgba(168,67,123,.30); }
+[data-module="dashboards"] { --accent: var(--acc-ombu);    --accent-ink: #14555E; --accent-tint: rgba(31,122,133,.30); }
+[data-module="hub"]        { --accent: var(--green);       --accent-ink: var(--green-700); --accent-tint: rgba(124,195,156,.30); }
 
 /* CSS puro (sin @apply / sin @layer) para que tokens.css sea importable vía
    @import sin requerir @tailwind base en el contexto de PostCSS. */
@@ -122,5 +164,13 @@ body {
   -moz-osx-font-smoothing: grayscale;
   font-feature-settings: "cv01";
 }
+/* Impresión: en pantalla el shell es alto fijo con scroll interno; al imprimir eso
+   recortaría todo a una hoja. Se suelta acá —y no en cada módulo— porque el layout es
+   del shell. Topbar y sidebar se ocultan solos (`print:hidden`). */
+@media print {
+  [data-shell-root] { height: auto !important; display: block !important; }
+  [data-shell-main] { overflow: visible !important; }
+}
+
 ::selection { background: var(--action-tint); }
 *:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--action-ring); }

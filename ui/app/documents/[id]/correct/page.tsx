@@ -17,6 +17,7 @@ import AIPatchForm from '@/components/documents/AIPatchForm'
 import ManualEditPanel from '@/components/documents/ManualEditPanel'
 import RegenerateForm from '@/components/documents/RegenerateForm'
 import DocumentPreview from '@/components/documents/DocumentPreview'
+import { Skeleton } from '@/shared/ui/components'
 import { formatDate } from '@/utils/dateFormat'
 
 type CorrectionOption = 'ai-patch' | 'manual-edit' | 'regenerate' | null
@@ -97,10 +98,21 @@ export default function CorrectDocumentPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-accent mx-auto mb-4"></div>
-          <p className="text-ink-600">Cargando documento...</p>
+      <div className="p-8">
+        <div className="mx-auto max-w-7xl">
+          <div className="mb-6 space-y-3">
+            <Skeleton className="h-4 w-16" />
+            <Skeleton className="h-7 w-64" />
+            <Skeleton className="h-4 w-48" />
+          </div>
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3 lg:col-span-2">
+              <Skeleton className="h-40 rounded-lg" />
+              <Skeleton className="h-40 rounded-lg" />
+              <Skeleton className="h-40 rounded-lg" />
+            </div>
+            <Skeleton className="h-96 rounded-lg" />
+          </div>
         </div>
       </div>
     )

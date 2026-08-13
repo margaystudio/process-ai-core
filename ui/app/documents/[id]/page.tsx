@@ -35,8 +35,8 @@ import ArtifactViewerModal from '@/components/processes/ArtifactViewerModal'
 import { FileItemData } from '@/components/processes/FileItem'
 import { formatDateTime } from '@/utils/dateFormat'
 import { useCanApproveDocuments, useCanRejectDocuments, useHasPermission } from '@/hooks/useHasPermission'
+import { useFolderAccess } from '@/hooks/useFolderAccess'
 import { useUserId } from '@/hooks/useUserId'
-import { useUserRole } from '@/hooks/useUserRole'
 import { getDocumentActions } from '@/lib/documentActions'
 
 // Sub-componentes
@@ -77,10 +77,10 @@ export default function DocumentDetailPage() {
   const userId = useUserId()
   const { hasPermission: hasApprovePermission } = useCanApproveDocuments()
   const { hasPermission: hasRejectPermission } = useCanRejectDocuments()
-  const { hasPermission: hasDocumentEditPermission } = useHasPermission('documents.edit')
+  const { hasPermission: hasDocumentEditPermission, loading: editPermLoading } = useHasPermission('documents.edit')
   const { hasPermission: hasDocumentCreatePermission } = useHasPermission('documents.create')
   const { hasPermission: hasDocumentDeletePermission } = useHasPermission('documents.delete')
-  const { role: userRoleName } = useUserRole()
+  const { canApprove: canApproveInFolder, canCreate: canCreateInFolder } = useFolderAccess()
 
   // Datos
   const [document, setDocument] = useState<Document | null>(null)
@@ -210,6 +210,10 @@ export default function DocumentDetailPage() {
     canRejectPermission: hasRejectPermission ?? false,
     canEditPermission: hasDocumentEditPermission ?? false,
     canDeletePermission: hasDocumentDeletePermission ?? false,
+    folderAccess: {
+      canApprove: canApproveInFolder(document?.folder_id),
+      canCreate: canCreateInFolder(document?.folder_id),
+    },
   })
 
   // ── Versión relevante para la previsualización ─────────────────────────────
@@ -524,7 +528,7 @@ export default function DocumentDetailPage() {
 
   if (error && !document) {
     return (
-      <div className="mx-auto max-w-5xl px-8 py-12" data-module="process">
+      <div className="mx-auto max-w-5xl px-8 py-12" data-module="arrayan">
         <div className="rounded-lg border border-danger-bd bg-danger-bg p-5">
           <p className="text-sm text-danger mb-3">Error: {error}</p>
           <button
@@ -540,10 +544,10 @@ export default function DocumentDetailPage() {
 
   if (!document) return null
 
-  // Viewer: solo puede ver documentos aprobados
-  if (userRoleName === 'viewer' && document.status !== 'approved') {
+  // Sin permiso de edición (solo lectura): únicamente puede ver documentos aprobados.
+  if (!editPermLoading && !hasDocumentEditPermission && document.status !== 'approved') {
     return (
-      <div className="mx-auto max-w-5xl px-8 py-12" data-module="process">
+      <div className="mx-auto max-w-5xl px-8 py-12" data-module="arrayan">
         <div className="rounded-lg border border-danger-bd bg-danger-bg p-5">
           <p className="text-sm text-danger mb-3">
             No tenés permisos para ver este documento. Solo podés consultar documentos aprobados.
@@ -570,7 +574,7 @@ export default function DocumentDetailPage() {
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div className="mx-auto max-w-5xl px-8 pb-16 pt-7" data-module="process">
+    <div className="mx-auto max-w-5xl px-8 pb-16 pt-7" data-module="arrayan">
 
       {/* Banner: borrador guardado */}
       {savedDraftBanner && (

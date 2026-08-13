@@ -189,7 +189,7 @@ export default function TytoPage() {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col" data-module="process">
+    <div className="flex h-full min-h-0 flex-col" data-module="arrayan">
       <header className="flex flex-shrink-0 items-center gap-3.5 border-b border-line px-6 py-5">
         <TytoHeaderAvatar />
         <div className="min-w-0 flex-1">

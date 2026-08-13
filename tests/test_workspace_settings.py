@@ -7,7 +7,7 @@ from fastapi import HTTPException
 
 from api.routes import workspaces as workspaces_route
 from process_ai_core.db.database import get_db_session
-from process_ai_core.db.models import Role, User, Workspace, WorkspaceMembership
+from process_ai_core.db.models import User, Workspace, WorkspaceMembership
 from api.models.requests import WorkspaceSettingsUpdateRequest
 
 
@@ -15,15 +15,6 @@ from api.models.requests import WorkspaceSettingsUpdateRequest
 def session():
     with get_db_session() as s:
         yield s
-
-
-def _seed_owner_role(session) -> Role:
-    role = session.query(Role).filter_by(name="owner", is_system=True).first()
-    if not role:
-        role = Role(name="owner", is_system=True, description="Owner")
-        session.add(role)
-        session.flush()
-    return role
 
 
 def _create_workspace_with_owner(session):
@@ -44,12 +35,11 @@ def _create_workspace_with_owner(session):
     session.add(workspace)
     session.flush()
 
-    owner_role = _seed_owner_role(session)
     session.add(
         WorkspaceMembership(
             user_id=user.id,
             workspace_id=workspace.id,
-            role_id=owner_role.id,
+            base_access="admin",
         )
     )
     session.flush()
@@ -105,12 +95,6 @@ def test_owner_can_update_workspace_settings(session):
 
 def test_admin_can_update_workspace_settings(session):
     workspace, owner = _create_workspace_with_owner(session)
-    admin_role = session.query(Role).filter_by(name="admin", is_system=True).first()
-    if not admin_role:
-        admin_role = Role(name="admin", is_system=True, description="Admin")
-        session.add(admin_role)
-        session.flush()
-
     unique = str(uuid.uuid4())[:8]
     admin = User(id=f"admin-{unique}", email=f"admin-{unique}@test.com", name="Admin")
     session.add(admin)
@@ -118,7 +102,7 @@ def test_admin_can_update_workspace_settings(session):
         WorkspaceMembership(
             user_id=admin.id,
             workspace_id=workspace.id,
-            role_id=admin_role.id,
+            base_access="admin",
         )
     )
     session.flush()

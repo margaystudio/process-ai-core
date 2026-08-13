@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useRef } from "react";
 import { useWorkspaceMembers } from "@/hooks/useWorkspaceMembers";
+import { useOperationalRoles } from "@/hooks/useOperationalRoles";
+import type { OperationalRoleResponse, WorkspaceMember } from "@/lib/api";
 import { WizardIcon } from "./WizardIcon";
 
 export interface Step3State {
@@ -14,13 +16,25 @@ export interface Step3State {
   comment: string;
 }
 
-const APPROVER_ROLES = new Set(["owner", "admin", "approver"]);
+/**
+ * ¿Puede este miembro aprobar? Admin del workspace tiene acceso total; el
+ * resto depende de si alguno de sus roles operativos asignados tiene
+ * `access_level: 'aprobacion'` (los niveles son acumulativos, así que
+ * 'aprobacion' ya incluye 'edicion'/'lectura' — ver `OperationalRoleAccessLevel`).
+ */
+function canApprove(member: WorkspaceMember, approvalRoleIds: Set<string>): boolean {
+  if (member.role === "admin") return true;
+  return member.operational_role_ids.some((id) => approvalRoleIds.has(id));
+}
 
-const ROLE_LABELS: Record<string, string> = {
-  owner: "Dueño",
-  admin: "Administrador",
-  approver: "Aprobador",
-};
+/** Label a mostrar bajo el nombre: el admin es "Administrador"; el resto, el rol operativo que lo habilita a aprobar. */
+function approverRoleLabel(member: WorkspaceMember, roles: OperationalRoleResponse[]): string {
+  if (member.role === "admin") return "Administrador";
+  const approvalRole = roles.find(
+    (r) => r.access_level === "aprobacion" && member.operational_role_ids.includes(r.id)
+  );
+  return approvalRole?.name ?? "Aprobador";
+}
 
 function getInitials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -61,11 +75,21 @@ export function Step3EnviarAprobacion({
   onCommentChange: (comment: string) => void;
 }) {
   // Aprobadores cacheados/prefetcheados (useWorkspaceMembers): sin fetch en cada entrada al paso.
-  const { members, loading: loadingApprovers } = useWorkspaceMembers();
+  const { members, loading: loadingMembers } = useWorkspaceMembers();
+  const { roles: operationalRoles, loading: loadingRoles } = useOperationalRoles();
+  const loadingApprovers = loadingMembers || loadingRoles;
+
+  const approvalRoleIds = useMemo(
+    () =>
+      new Set(
+        operationalRoles.filter((r) => r.access_level === "aprobacion").map((r) => r.id)
+      ),
+    [operationalRoles],
+  );
 
   const eligibleMembers = useMemo(
-    () => members.filter((m) => APPROVER_ROLES.has(m.role.toLowerCase())),
-    [members],
+    () => members.filter((m) => canApprove(m, approvalRoleIds)),
+    [members, approvalRoleIds],
   );
 
   // Pre-seleccionar todos los elegibles una vez que cargaron (default: sugerencia a todos).
@@ -207,7 +231,7 @@ export function Step3EnviarAprobacion({
                           {displayName}
                         </span>
                         <span className="block text-[11.5px] text-ink-400">
-                          {ROLE_LABELS[m.role] ?? m.role}
+                          {approverRoleLabel(m, operationalRoles)}
                         </span>
                       </span>
                     </button>

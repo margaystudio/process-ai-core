@@ -6,14 +6,13 @@ import { useRouter } from 'next/navigation'
 import { Search, Plus, Upload, ChevronDown, X } from 'lucide-react'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
 import { listDocuments, getDocumentTypes, Document, Folder, CatalogOption } from '@/lib/api'
-import { useUserRole } from '@/hooks/useUserRole'
-import { useCanEditWorkspace } from '@/hooks/useHasPermission'
+import { useCanEditWorkspace, useCanManageWorkspace, useHasPermission } from '@/hooks/useHasPermission'
 import { useWorkspaceProfileIncomplete } from '@/hooks/useWorkspaceProfileIncomplete'
-import { canAdministerWorkspace } from '@/lib/adminGating'
 import WorkspaceProfileBanner from '@/components/workspace/WorkspaceProfileBanner'
 import { usePdfViewer } from '@/hooks/usePdfViewer'
 import ArtifactViewerModal from '@/components/processes/ArtifactViewerModal'
 import BibliotecaFolderTree from '@/components/biblioteca/BibliotecaFolderTree'
+import { RowSkeleton } from '@/components/layout/ListSkeleton'
 import { StatusBadge, VersionPill, ESTADO_LABEL, Chip } from '@/shared/ui/components'
 import type { DocumentEstado } from '@/shared/ui/components'
 
@@ -258,21 +257,6 @@ function RowMenu({
   )
 }
 
-// ---- Skeleton de fila ----
-function RowSkeleton() {
-  return (
-    <div className="flex items-center gap-[15px] rounded-[13px] border border-line bg-surface px-[18px] py-3.5">
-      <div className="h-10 w-10 flex-shrink-0 animate-pulse rounded-[10px] bg-ink-100" />
-      <div className="flex-1 space-y-2">
-        <div className="h-4 w-1/2 animate-pulse rounded bg-ink-100" />
-        <div className="h-3 w-1/3 animate-pulse rounded bg-ink-100" />
-      </div>
-      <div className="h-7 w-20 animate-pulse rounded-pill bg-ink-100" />
-      <div className="h-[34px] w-16 animate-pulse rounded-[9px] bg-ink-100" />
-    </div>
-  )
-}
-
 // ---- Empty state ----
 function EmptyState({ canCreate }: { canCreate: boolean }) {
   return (
@@ -394,15 +378,18 @@ const DocumentRow = memo(function DocumentRow({
 })
 
 export default function WorkspacePage() {
-  const { selectedWorkspaceId, selectedWorkspace, activeTenantId, platformRoles } = useWorkspace()
-  const { role, loading: roleLoading } = useUserRole()
-  const workspaceRole = selectedWorkspace?.role ?? role
-  const canAdminister = canAdministerWorkspace({ platformRoles, workspaceRole })
+  const { selectedWorkspaceId, selectedWorkspace, activeTenantId } = useWorkspace()
+  const { canManage: canAdminister, loading: canAdministerLoading } = useCanManageWorkspace()
   const { incomplete: profileIncomplete, loading: profileCheckLoading } =
-    useWorkspaceProfileIncomplete(selectedWorkspace, workspaceRole, platformRoles)
+    useWorkspaceProfileIncomplete(selectedWorkspace, canAdminister, canAdministerLoading)
 
   const router = useRouter()
   const { hasPermission: canCreateDocuments } = useCanEditWorkspace()
+  // Sin permiso de edición = solo lectura: esta pantalla (Biblioteca, con
+  // acciones de crear/editar) no es para ellos — se los redirige a la vista
+  // de solo lectura dedicada.
+  const { hasPermission: canEditDocuments, loading: editPermLoading } = useHasPermission('documents.edit')
+  const isReadOnly = !editPermLoading && !canEditDocuments
   const { modalProps } = usePdfViewer()
 
   const [documents, setDocuments] = useState<Document[]>([])
@@ -427,12 +414,12 @@ export default function WorkspacePage() {
   // Opciones de tipo documental
   const [tipoOptions, setTipoOptions] = useState<CatalogOption[]>([])
 
-  // Redirigir viewers
+  // Redirigir a usuarios de solo lectura (sin documents.edit)
   useEffect(() => {
-    if (!roleLoading && role === 'viewer') {
+    if (isReadOnly) {
       router.replace('/dashboard/view')
     }
-  }, [role, roleLoading, router])
+  }, [isReadOnly, router])
 
   // Al cambiar de tenant, limpiar selección de carpeta
   useEffect(() => {
@@ -459,9 +446,9 @@ export default function WorkspacePage() {
   }, [selectedWorkspaceId, activeTenantId])
 
   useEffect(() => {
-    if (role === 'viewer') return
+    if (isReadOnly) return
     loadDocuments()
-  }, [loadDocuments, role])
+  }, [loadDocuments, isReadOnly])
 
   // Cargar opciones de tipo documental
   useEffect(() => {
@@ -512,8 +499,8 @@ export default function WorkspacePage() {
     bor: filtered.filter((d) => toEstado(d.status) === 'Borrador').length,
   }), [filtered])
 
-  // Early return para viewers
-  if (!roleLoading && role === 'viewer') return null
+  // Early return para usuarios de solo lectura (ya redirigidos arriba)
+  if (isReadOnly) return null
 
   // ---- Sin workspace seleccionado ----
   if (!selectedWorkspaceId) {

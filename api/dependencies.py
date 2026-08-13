@@ -12,9 +12,7 @@ from fastapi import HTTPException, Header, Depends
 from sqlalchemy.orm import Session
 
 from process_ai_core.db.database import get_db_engine, get_db_session
-from process_ai_core.db.models import User, Role, WorkspaceMembership
 from process_ai_core.db.helpers import get_user_by_external_id
-from process_ai_core.db.permissions import has_permission
 
 import os
 import logging
@@ -244,11 +242,16 @@ def get_current_user_id(
             remember_user_id(supabase_user_id, local_user.id)
             return local_user.id
 
-            logger.warning("Authenticated subject not found in local database")
-            raise HTTPException(
-                status_code=404,
-                detail=f"User not found in local database. Supabase ID: {supabase_user_id}",
-            )
+        # Sin usuario local: antes este raise era inalcanzable (estaba detrás
+        # del return) y la función devolvía None, que se filtraba como user_id
+        # a los checks de permisos. JWT válido pero sin User local = el sync
+        # contra workspace todavía no corrió o falló: 401 para que el cliente
+        # reintente con sesión fresca.
+        logger.warning("Authenticated subject not found in local database")
+        raise HTTPException(
+            status_code=401,
+            detail="User not found in local database",
+        )
     except HTTPException:
         raise
     except Exception as e:
@@ -259,138 +262,10 @@ def get_current_user_id(
         )
 
 
-def get_current_user(
-    user_id: str = Depends(get_current_user_id),
-    session: Session = Depends(get_db),
-) -> User:
-    """
-    Obtiene el objeto User completo del usuario actual.
-    
-    Args:
-        user_id: ID del usuario (de get_current_user_id)
-        session: Sesión de base de datos
-    
-    Returns:
-        Objeto User
-    """
-    user = session.query(User).filter_by(id=user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    return user
-
-
-def is_superadmin(
-    user_id: str,
-    session: Session,
-) -> bool:
-    """
-    Verifica si un usuario es superadmin.
-    
-    Un superadmin es un usuario que tiene el rol "superadmin" en algún workspace
-    o que tiene un permiso especial del sistema.
-    """
-    # Buscar rol superadmin
-    superadmin_role = session.query(Role).filter_by(name="superadmin", is_system=True).first()
-    if not superadmin_role:
-        return False
-    
-    # Verificar si el usuario tiene este rol en algún workspace
-    # Para superadmin, podríamos usar un workspace especial o verificar directamente
-    # Por ahora, verificamos si tiene el rol en cualquier workspace
-    membership = session.query(WorkspaceMembership).filter_by(
-        user_id=user_id,
-        role_id=superadmin_role.id,
-    ).first()
-    
-    return membership is not None
-
-
-def require_superadmin(
-    user_id: str = Depends(get_current_user_id),
-    session: Session = Depends(get_db),
-) -> str:
-    """
-    Dependencia que requiere que el usuario sea superadmin.
-    
-    Raises:
-        HTTPException: Si el usuario no es superadmin
-    """
-    if not is_superadmin(user_id, session):
-        raise HTTPException(
-            status_code=403,
-            detail="Superadmin access required"
-        )
-    return user_id
-
-
-def require_permission(
-    permission_name: str,
-    workspace_id: str,
-    user_id: str = Depends(get_current_user_id),
-    session: Session = Depends(get_db),
-) -> str:
-    """
-    Dependencia que requiere que el usuario tenga un permiso específico en un workspace.
-    
-    Args:
-        permission_name: Nombre del permiso (ej: "workspaces.create")
-        workspace_id: ID del workspace
-        user_id: ID del usuario (de get_current_user_id)
-        session: Sesión de base de datos
-    
-    Returns:
-        ID del usuario si tiene el permiso
-    
-    Raises:
-        HTTPException: Si el usuario no tiene el permiso
-    """
-    if not has_permission(session, user_id, workspace_id, permission_name):
-        raise HTTPException(
-            status_code=403,
-            detail=f"Permission '{permission_name}' required"
-        )
-    return user_id
-
-
-def require_role(
-    role_name: str,
-    workspace_id: str,
-    user_id: str = Depends(get_current_user_id),
-    session: Session = Depends(get_db),
-) -> str:
-    """
-    Dependencia que requiere que el usuario tenga un rol específico en un workspace.
-    
-    Args:
-        role_name: Nombre del rol (ej: "owner", "admin")
-        workspace_id: ID del workspace
-        user_id: ID del usuario (de get_current_user_id)
-        session: Sesión de base de datos
-    
-    Returns:
-        ID del usuario si tiene el rol
-    
-    Raises:
-        HTTPException: Si el usuario no tiene el rol
-    """
-    membership = session.query(WorkspaceMembership).filter_by(
-        user_id=user_id,
-        workspace_id=workspace_id,
-    ).first()
-    
-    if not membership:
-        raise HTTPException(
-            status_code=403,
-            detail="User is not a member of this workspace"
-        )
-    
-    role = session.query(Role).filter_by(id=membership.role_id).first() if membership.role_id else None
-    if not role or role.name != role_name:
-        raise HTTPException(
-            status_code=403,
-            detail=f"Role '{role_name}' required"
-        )
-    
-    return user_id
+# get_current_user / is_superadmin / require_superadmin / require_permission /
+# require_role: eliminados. Eran dependencias sin ningún call-site (las dos
+# últimas además con firma inusable como Depends), y el chequeo de superadmin
+# canónico vive en process_ai_core.db.permissions (_is_superadmin, con el
+# claim de plataforma que este módulo no conocía).
 
 

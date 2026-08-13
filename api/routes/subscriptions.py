@@ -16,6 +16,8 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
 from ..dependencies import get_db, get_current_user_id
+from ..request_identity import capture_request_identity
+from ..workspace_client import require_process_ai_access, sync_workspace_access
 from process_ai_core.db.helpers import (
     list_subscription_plans,
     get_subscription_plan,
@@ -25,15 +27,22 @@ from process_ai_core.db.helpers import (
     check_workspace_limit,
 )
 from process_ai_core.db.models import Workspace, SubscriptionPlan
-from process_ai_core.db.permissions import get_user_role
+from process_ai_core.db.permissions import get_membership_base_access
 
-router = APIRouter(prefix="/api/v1", tags=["subscriptions"])
+router = APIRouter(
+    prefix="/api/v1",
+    tags=["subscriptions"],
+    dependencies=[
+        Depends(sync_workspace_access),
+        Depends(capture_request_identity),
+        Depends(require_process_ai_access),
+    ],
+)
 
 
 def _require_workspace_member(session: Session, user_id: str, workspace_id: str) -> None:
     """Lanza 403 si el usuario no es miembro del workspace (mismo patrón que folders)."""
-    role = get_user_role(session, user_id, workspace_id)
-    if not role:
+    if get_membership_base_access(session, user_id, workspace_id) is None:
         raise HTTPException(
             status_code=403,
             detail="No es miembro de este workspace",

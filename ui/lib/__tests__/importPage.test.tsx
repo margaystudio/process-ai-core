@@ -16,6 +16,13 @@ import {
 vi.mock('@/lib/api', () => ({
   approveDocumentValidation: vi.fn(),
   getDocumentVersions: vi.fn(),
+  getMyCapabilities: vi.fn().mockResolvedValue({
+    can_manage_workspace: true,
+    can_manage_branding: true,
+    is_superadmin: false,
+    permissions: [],
+    folders: {},
+  }),
   importDocuments: vi.fn(),
   listDocuments: vi.fn(),
   listFolders: vi.fn(),
@@ -26,6 +33,7 @@ vi.mock('@/contexts/WorkspaceContext', () => ({
   useWorkspace: () => ({
     selectedWorkspace: { id: 'workspace-1', role: 'admin' },
     selectedWorkspaceId: 'workspace-1',
+    activeTenantId: 'tenant-1',
     platformRoles: [],
     currentUser: { id: 'user-1', email: 'admin@example.com', name: 'Admin' },
   }),
@@ -160,7 +168,7 @@ describe('ImportPage', () => {
 
   it('muestra los mensajes de gobernanza del prototipo', async () => {
     render(<ImportPage />)
-    expect(screen.getByText('Importado no significa aprobado.')).toBeInTheDocument()
+    expect(await screen.findByText('Importado no significa aprobado.')).toBeInTheDocument()
     expect(
       screen.getByText('Tyto no usará estos documentos hasta que sean aprobados.')
     ).toBeInTheDocument()

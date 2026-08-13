@@ -5,6 +5,7 @@ import { useRouter, useParams } from 'next/navigation'
 import {
   listOperationalRoles,
   createOperationalRole,
+  updateOperationalRole,
   deleteOperationalRole,
   getWorkspaceMembers,
   assignOperationalRolesToMembership,
@@ -12,6 +13,7 @@ import {
   getFolderPermissions,
   updateFolderPermissions,
   OperationalRoleResponse,
+  OperationalRoleAccessLevel,
   WorkspaceMember,
   Folder,
   FolderPermissionsResponse,
@@ -21,9 +23,7 @@ import {
 } from '@/lib/api'
 import { useLoading } from '@/contexts/LoadingContext'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
-import { useCanEditWorkspace, useCanManageUsers } from '@/hooks/useHasPermission'
-import { useUserRole } from '@/hooks/useUserRole'
-import { canAdministerWorkspace } from '@/lib/adminGating'
+import { useCanManageUsers, useCanManageBranding, useCanManageWorkspace } from '@/hooks/useHasPermission'
 import { extractBrandingColors } from '@/lib/extractBrandingColors'
 import GeneralSettingsTab from '@/components/workspace/GeneralSettingsTab'
 import UsersSettingsTab from '@/components/workspace/UsersSettingsTab'
@@ -42,7 +42,7 @@ export default function WorkspaceSettingsPage() {
   const router = useRouter()
   const params = useParams()
   const { withLoading } = useLoading()
-  const { selectedWorkspaceId, workspaces, platformRoles, refreshWorkspaces, activeTenantId } =
+  const { selectedWorkspaceId, workspaces, refreshWorkspaces, activeTenantId } =
     useWorkspace()
   const paramWorkspaceId = params?.id as string | undefined
   const workspaceId = selectedWorkspaceId || paramWorkspaceId || null
@@ -65,24 +65,14 @@ export default function WorkspaceSettingsPage() {
     setFolderPermissionsModal(null)
   }, [workspaceId, activeTenantId])
 
-  const { hasPermission: canEditWorkspace, loading: loadingEditPerm } = useCanEditWorkspace()
   const { hasPermission: canManageUsers, loading: loadingManagePerm } = useCanManageUsers()
-  const { role, loading: loadingRole } = useUserRole()
+  // Único gate de administración: capabilities.can_manage_workspace ya resuelve
+  // el bypass de superadmin y el acceso base 'admin' del workspace — no hay más
+  // roles de sistema (owner/creator/admin) que distinguir acá.
+  const { canManage: hasAccess, loading: loadingAccess } = useCanManageWorkspace()
+  const { canManage: canManageBranding, loading: loadingBrandingPerm } = useCanManageBranding()
+  const canEditGeneralSettings = hasAccess
   const currentWorkspace = workspaces.find((ws) => ws.id === workspaceId) || null
-  const workspaceRole = currentWorkspace?.role ?? role
-  // Históricamente creator solo accede a branding, salvo que tenga workspace.edit.
-  const generalAccessRole = workspaceRole === 'creator' ? null : workspaceRole
-
-  const hasAccess = canAdministerWorkspace({
-    platformRoles,
-    workspaceRole: generalAccessRole,
-    canEditWorkspace,
-  })
-  const canManageBranding = workspaceRole === 'owner' || workspaceRole === 'creator'
-  const canEditGeneralSettings = canAdministerWorkspace({
-    platformRoles,
-    workspaceRole,
-  })
   const hubUrl = process.env.NEXT_PUBLIC_HUB_URL
 
   const [activeTab, setActiveTab] = useState<ActiveTab>('general')
@@ -109,6 +99,7 @@ export default function WorkspaceSettingsPage() {
   const [members, setMembers] = useState<WorkspaceMember[]>([])
   const [newRoleName, setNewRoleName] = useState('')
   const [newRoleDescription, setNewRoleDescription] = useState('')
+  const [newRoleAccessLevel, setNewRoleAccessLevel] = useState<OperationalRoleAccessLevel>('edicion')
   const [editingMemberId, setEditingMemberId] = useState<string | null>(null)
   const [memberRoleIds, setMemberRoleIds] = useState<string[]>([])
 
@@ -161,11 +152,11 @@ export default function WorkspaceSettingsPage() {
   ])
 
   useEffect(() => {
-    if (loadingEditPerm || loadingRole) return
+    if (loadingAccess || loadingBrandingPerm) return
     if (!hasAccess && canManageBranding) {
       setActiveTab('branding')
     }
-  }, [hasAccess, canManageBranding, loadingEditPerm, loadingRole])
+  }, [hasAccess, canManageBranding, loadingAccess, loadingBrandingPerm])
 
   const loadOperationalRolesAndMembers = async () => {
     if (!workspaceId) return
@@ -189,9 +180,11 @@ export default function WorkspaceSettingsPage() {
         await createOperationalRole(workspaceId, {
           name: newRoleName.trim(),
           description: newRoleDescription.trim() || undefined,
+          access_level: newRoleAccessLevel,
         })
         setNewRoleName('')
         setNewRoleDescription('')
+        setNewRoleAccessLevel('edicion')
         await loadOperationalRolesAndMembers()
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Error al crear rol')
@@ -205,6 +198,15 @@ export default function WorkspaceSettingsPage() {
       await loadOperationalRolesAndMembers()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al eliminar')
+    }
+  }
+
+  const handleUpdateRoleAccessLevel = async (roleId: string, accessLevel: OperationalRoleAccessLevel) => {
+    try {
+      await updateOperationalRole(roleId, { access_level: accessLevel })
+      await loadOperationalRolesAndMembers()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error al actualizar el nivel de acceso')
     }
   }
 
@@ -348,7 +350,7 @@ export default function WorkspaceSettingsPage() {
 
   const hasAnyAccess = hasAccess || canManageBranding
 
-  if (!loadingEditPerm && !loadingRole && !hasAnyAccess) {
+  if (!loadingAccess && !loadingBrandingPerm && !hasAnyAccess) {
     return (
       <div className="min-h-screen bg-ink-50 py-8 px-4 sm:px-6 lg:px-8">
         <div className="max-w-7xl mx-auto">
@@ -423,8 +425,9 @@ export default function WorkspaceSettingsPage() {
               />
             )}
 
-            {activeTab === 'users' && hasAccess && (
+            {activeTab === 'users' && hasAccess && workspaceId && (
               <UsersSettingsTab
+                workspaceId={workspaceId}
                 members={members}
                 operationalRoles={operationalRoles}
                 canManageUsers={canManageUsers}
@@ -443,10 +446,13 @@ export default function WorkspaceSettingsPage() {
                 operationalRoles={operationalRoles}
                 newRoleName={newRoleName}
                 newRoleDescription={newRoleDescription}
+                newRoleAccessLevel={newRoleAccessLevel}
                 onNewRoleNameChange={setNewRoleName}
                 onNewRoleDescriptionChange={setNewRoleDescription}
+                onNewRoleAccessLevelChange={setNewRoleAccessLevel}
                 onCreateRole={handleCreateRole}
                 onDeleteRole={handleDeleteRole}
+                onUpdateRoleAccessLevel={handleUpdateRoleAccessLevel}
                 onGoToUsers={() => setActiveTab('users')}
               />
             )}

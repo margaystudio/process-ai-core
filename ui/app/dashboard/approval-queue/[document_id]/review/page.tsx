@@ -10,13 +10,14 @@ import {
   X,
   AlertCircle,
 } from 'lucide-react'
-import { Button } from '@/shared/ui/components'
+import { Button, Skeleton } from '@/shared/ui/components'
 import { useLoading } from '@/contexts/LoadingContext'
 import { useUserId } from '@/hooks/useUserId'
 import {
   useCanApproveDocuments,
   useCanRejectDocuments,
 } from '@/hooks/useHasPermission'
+import { useFolderAccess } from '@/hooks/useFolderAccess'
 import { getDocumentActions } from '@/lib/documentActions'
 import { defaultValidityDate } from '@/lib/validity'
 import {
@@ -47,12 +48,7 @@ function typeLabel(raw: string | undefined): string {
 // ── Skeleton del PDF ──────────────────────────────────────────────────────────
 
 function PdfSkeleton() {
-  return (
-    <div className="flex h-[600px] flex-col items-center justify-center gap-3 rounded-[14px] border border-line bg-ink-50">
-      <div className="h-8 w-8 animate-spin rounded-full border-[3px] border-ink-200 border-t-indigo" />
-      <p className="text-[13px] text-ink-400">Cargando documento…</p>
-    </div>
-  )
+  return <Skeleton className="h-[600px] rounded-[14px]" />
 }
 
 // ── Modal "Pedir cambios" ─────────────────────────────────────────────────────
@@ -167,6 +163,7 @@ export default function DocumentReviewPage() {
   const userId = useUserId()
   const { hasPermission: canApprovePermission } = useCanApproveDocuments()
   const { hasPermission: canRejectPermission } = useCanRejectDocuments()
+  const { canApprove: canApproveInFolder } = useFolderAccess()
 
   const [doc, setDoc] = useState<Document | null>(null)
   const [versions, setVersions] = useState<DocumentVersion[]>([])
@@ -267,6 +264,7 @@ export default function DocumentReviewPage() {
     canRejectPermission,
     canEditPermission: false,
     canDeletePermission: false,
+    folderAccess: { canApprove: canApproveInFolder(doc?.folder_id) },
   })
 
   // ¿Es el creador de la versión en revisión? (muestra aviso en vez de botones)
@@ -322,7 +320,7 @@ export default function DocumentReviewPage() {
   // ── Estados de carga / error sin documento ────────────────────────────────
   if (loading) {
     return (
-      <div data-module="process" className="mx-auto max-w-[920px] px-8 pb-[60px] pt-7">
+      <div data-module="arrayan" className="mx-auto max-w-[920px] px-8 pb-[60px] pt-7">
         {/* Back ghost */}
         <div className="mb-4 h-5 w-36 animate-pulse rounded bg-ink-100" />
         {/* Title ghost */}
@@ -337,7 +335,7 @@ export default function DocumentReviewPage() {
 
   if (error && !doc) {
     return (
-      <div data-module="process" className="mx-auto max-w-[920px] px-8 pb-[60px] pt-7">
+      <div data-module="arrayan" className="mx-auto max-w-[920px] px-8 pb-[60px] pt-7">
         <div className="rounded-lg border border-danger-bd bg-danger-bg p-5">
           <p className="mb-3 text-sm text-danger">{error}</p>
           <Button
@@ -355,7 +353,7 @@ export default function DocumentReviewPage() {
   if (!doc) return null
 
   return (
-    <div data-module="process" className="mx-auto max-w-[920px] px-8 pb-[60px] pt-7">
+    <div data-module="arrayan" className="mx-auto max-w-[920px] px-8 pb-[60px] pt-7">
       {/* Back link */}
       <button
         onClick={() => router.push('/dashboard/approval-queue')}

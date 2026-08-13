@@ -89,7 +89,6 @@ def reset_database():
         if missing_static:
             print(f"⚠️  Advertencia: Faltan tablas estáticas: {', '.join(missing_static)}")
             print("   Se recomienda ejecutar los scripts de seed primero:")
-            print("   - python tools/seed_permissions.py")
             print("   - python tools/seed_subscription_plans.py")
             print("   - python tools/seed_catalogs.py")
             print()
@@ -174,7 +173,6 @@ def reset_database():
         print()
         print("📋 Próximos pasos recomendados:")
         print("   1. Verificar que los datos estáticos estén completos:")
-        print("      - python tools/seed_permissions.py")
         print("      - python tools/seed_subscription_plans.py")
         print("      - python tools/seed_catalogs.py")
         print()

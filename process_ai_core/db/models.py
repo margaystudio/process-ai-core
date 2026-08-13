@@ -415,101 +415,46 @@ class UserDirectory(Base):
     synced_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
-class Role(Base):
-    """
-    Rol del sistema (ej: "approver", "creator", "viewer").
-    
-    Los roles tienen permisos asociados y pueden ser específicos de un tipo de workspace.
-    """
-    __tablename__ = "roles"
-
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
-    name: Mapped[str] = mapped_column(String(50), unique=True, index=True)  # "owner", "admin", "approver", "creator", "viewer"
-    description: Mapped[str] = mapped_column(String(500), default="")
-    
-    # Tipo de workspace donde aplica (null = global)
-    workspace_type: Mapped[str | None] = mapped_column(String(20), nullable=True)  # "organization" | "user" | "community" | null
-    
-    # Si es un rol del sistema (no se puede eliminar)
-    is_system: Mapped[bool] = mapped_column(default=False)
-    
-    # Metadata adicional
-    metadata_json: Mapped[str] = mapped_column(Text, default="{}")
-    
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    
-    # Relaciones
-    permissions: Mapped[list["Permission"]] = relationship(
-        "Permission",
-        secondary=lambda: RolePermission.__table__,
-        back_populates="roles",
-    )
-    workspace_memberships: Mapped[list["WorkspaceMembership"]] = relationship(back_populates="role_obj")
-
-
-class Permission(Base):
-    """
-    Permiso del sistema (ej: "documents.approve", "documents.create").
-    
-    Los permisos se agrupan por categoría y se asignan a roles.
-    """
-    __tablename__ = "permissions"
-
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
-    name: Mapped[str] = mapped_column(String(100), unique=True, index=True)  # "documents.approve", "documents.create", etc.
-    description: Mapped[str] = mapped_column(String(500), default="")
-    category: Mapped[str] = mapped_column(String(50), index=True)  # "documents", "workspaces", "users"
-    
-    # Metadata adicional
-    metadata_json: Mapped[str] = mapped_column(Text, default="{}")
-    
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    
-    # Relaciones
-    roles: Mapped[list["Role"]] = relationship(
-        "Role",
-        secondary=lambda: RolePermission.__table__,
-        back_populates="permissions",
-    )
-
-
-class RolePermission(Base):
-    """
-    Tabla de relación muchos-a-muchos entre Role y Permission.
-    """
-    __tablename__ = "role_permissions"
-
-    role_id: Mapped[str] = mapped_column(String(36), ForeignKey("roles.id"), primary_key=True)
-    permission_id: Mapped[str] = mapped_column(String(36), ForeignKey("permissions.id"), primary_key=True)
-    
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+# Los modelos Role / Permission / RolePermission se ELIMINARON (junto con sus
+# tablas, migración 0025). Eran el RBAC de los roles de sistema; el modelo
+# vigente es workspace_memberships.base_access + operational_roles.access_level
+# (ver process_ai_core/db/permissions.py).
 
 
 class WorkspaceMembership(Base):
     """
     Relación muchos-a-muchos entre User y Workspace.
-    
-    Permite que un usuario pertenezca a múltiples workspaces con diferentes roles.
-    Ahora usa role_id (FK a Role) en lugar de role (string).
+
+    El acceso base viene del rol macro del tenant en margay-workspace y lo
+    escribe ÚNICAMENTE sync_membership_from_context en cada request:
+
+      - 'admin'    ← tenant_admin / platform superadmin: gestión total del
+                     workspace y bypass del permiso por carpeta.
+      - 'member'   ← tenant_member: puede crear/editar (nivel "edición") en las
+                     carpetas sin restricción; en las restringidas manda su rol
+                     operativo.
+      - 'external' ← tenant_external_client: tope de SOLO LECTURA, tenga los
+                     roles operativos que tenga.
+
+    Qué puede hacer más allá de la base lo definen los roles operativos del
+    cliente (OperationalRole.access_level × carpetas). Los roles de sistema
+    (owner/admin/approver/creator/viewer) y sus columnas (role_id/role) se
+    eliminaron (migración 0025).
     """
     __tablename__ = "workspace_memberships"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), index=True)
     workspace_id: Mapped[str] = mapped_column(String(36), ForeignKey("workspaces.id"), index=True)
-    
-    # Rol del usuario en el workspace (ahora es FK a Role)
-    role_id: Mapped[str] = mapped_column(String(36), ForeignKey("roles.id"), index=True)
-    
-    # Mantener role como string para compatibilidad durante migración (se eliminará después)
-    role: Mapped[str | None] = mapped_column(String(20), nullable=True)  # DEPRECATED: usar role_id
+
+    # Acceso base derivado del rol macro del tenant: 'admin' | 'member' | 'external'
+    base_access: Mapped[str] = mapped_column(String(20), default="member", server_default="member")
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     # Relaciones
     user: Mapped["User"] = relationship(back_populates="workspace_memberships")
     workspace: Mapped["Workspace"] = relationship(back_populates="memberships")
-    role_obj: Mapped["Role"] = relationship("Role", foreign_keys=[role_id], back_populates="workspace_memberships")
     user_operational_roles: Mapped[list["UserOperationalRole"]] = relationship(
         "UserOperationalRole", back_populates="workspace_membership", cascade="all, delete-orphan"
     )
@@ -518,7 +463,16 @@ class WorkspaceMembership(Base):
 class OperationalRole(Base):
     """
     Rol operativo configurable por workspace (ej: Pistero, Cajero, Administración).
-    Define en qué parte de la estructura (carpetas) puede actuar el usuario.
+
+    Es EL rol del cliente: define qué puede hacer (access_level) y dónde
+    (folder_permissions). Un usuario puede tener varios; la evaluación es por
+    par (permiso, carpeta): alcanza con que ALGÚN rol del usuario tenga el
+    nivel necesario y acceso a esa carpeta.
+
+    access_level (acumulativos):
+      - 'lectura'    → ver y exportar
+      - 'edicion'    → + crear y editar documentos
+      - 'aprobacion' → + aprobar y rechazar
     """
     __tablename__ = "operational_roles"
 
@@ -527,6 +481,7 @@ class OperationalRole(Base):
     name: Mapped[str] = mapped_column(String(200))
     slug: Mapped[str] = mapped_column(String(100), index=True)
     description: Mapped[str] = mapped_column(Text, default="")
+    access_level: Mapped[str] = mapped_column(String(20), default="edicion", server_default="edicion")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

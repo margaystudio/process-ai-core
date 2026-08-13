@@ -62,23 +62,14 @@ export interface RunResponse {
   error?: string;
 }
 
-export interface WorkspaceCreateRequest {
-  name: string;
-  slug: string;
-  country?: string;
-  business_type?: string;
-  language_style?: string;
-  default_audience?: string;
-  context_text?: string;
-}
-
 export interface WorkspaceResponse {
   id: string;
   tenant_id?: string | null;
   name: string;
   slug: string;
   workspace_type: string;
-  role?: string | null;
+  /** Acceso base del usuario en este workspace. Ver `WorkspaceAccessRole`. */
+  role?: WorkspaceAccessRole | null;
   is_active?: boolean;
   country?: string | null;
   business_type?: string | null;
@@ -128,6 +119,14 @@ export interface Folder {
   parent_id?: string;
   sort_order: number;
   inherits_permissions?: boolean;
+  /**
+   * Restricción EFECTIVA de la carpeta, con la herencia ya resuelta por el
+   * backend: `true` = tiene lista de roles operativos (propia o heredada),
+   * `false` = abierta a todos los miembros del workspace (cada uno según su
+   * nivel de acceso). El backend siempre lo manda (GET /folders, GET
+   * /folders/{id}, create/update) — el default acá es solo defensivo.
+   */
+  permissions_restricted?: boolean;
   color?: string;
   icon?: string | null;
   default_document_type?: string | null;
@@ -184,12 +183,16 @@ export interface FolderGovernance {
   };
 }
 
+/** Cumulativos: 'edicion' incluye lo de 'lectura'; 'aprobacion' incluye lo de 'edicion'. */
+export type OperationalRoleAccessLevel = 'lectura' | 'edicion' | 'aprobacion';
+
 export interface OperationalRoleResponse {
   id: string;
   workspace_id: string;
   name: string;
   slug: string;
   description: string;
+  access_level: OperationalRoleAccessLevel;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -200,7 +203,7 @@ export interface WorkspaceMember {
   user_id: string;
   email: string;
   name: string;
-  role: string;
+  role: WorkspaceAccessRole;
   operational_role_ids: string[];
 }
 
@@ -524,62 +527,6 @@ export async function downloadArtifact(url: string, fallbackName: string): Promi
   }
 }
 
-/**
- * Crea un nuevo workspace (cliente/organización).
- */
-export async function createWorkspace(
-  request: WorkspaceCreateRequest,
-  userId?: string | null
-): Promise<WorkspaceResponse> {
-  const headers: HeadersInit = {
-    'Content-Type': 'application/json',
-  }
-
-  // Si Supabase no está configurado y tenemos userId, enviarlo en Authorization
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-  
-  if (!supabaseUrl || !supabaseKey) {
-    // Modo desarrollo sin Supabase: usar userId o generar uno temporal
-    let devUserId = userId
-    if (!devUserId) {
-      // Generar o obtener un userId temporal de localStorage
-      devUserId = localStorage.getItem('dev_user_id')
-      if (!devUserId) {
-        // Generar un UUID v4 temporal
-        devUserId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-          const r = Math.random() * 16 | 0
-          const v = c === 'x' ? r : (r & 0x3 | 0x8)
-          return v.toString(16)
-        })
-        localStorage.setItem('dev_user_id', devUserId)
-      }
-    }
-    headers['Authorization'] = `Bearer ${devUserId}`
-  } else if (supabaseUrl && supabaseKey) {
-    // Modo con Supabase: token vía el puente server-side (getAccessToken lee la
-    // cookie HttpOnly en el server; el getSession() del browser no la ve).
-    const { getAccessToken } = await import('@/lib/api-auth')
-    const token = await getAccessToken()
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`
-    }
-  }
-
-  const response = await authFetch(`${API_URL}/api/v1/workspaces`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(request),
-  });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
-    throw new Error(error.detail || `HTTP ${response.status}`);
-  }
-
-  return response.json();
-}
-
 export interface CurrentUserResponse {
   user: {
     id: string
@@ -594,6 +541,10 @@ export interface CurrentUserResponse {
   platform_roles: string[]
   tenant_roles: string[]
   workspaces: WorkspaceResponse[]
+  // TODO(arquitectura): el backend todavía no reexpone esto — ver lib/modules.ts.
+  // Apps del control plane a las que el usuario tiene acceso (key, name, entry_url),
+  // para el switcher de módulos del chrome (`<PlatformShell>`/`<ModuleSwitcher>`).
+  modules?: Array<{ key: string; name: string; entry_url: string }>
 }
 
 let _currentUserCache: { data: CurrentUserResponse; ts: number } | null = null
@@ -631,8 +582,100 @@ export async function getCurrentUser(options?: { force?: boolean }): Promise<Cur
       platform_roles: data.platform_roles ?? [],
       tenant_roles: data.tenant_roles ?? [],
       workspaces: (data.workspaces ?? []).map(normalizeWorkspaceResponse),
+      // TODO(arquitectura): siempre undefined hasta que el backend lo agregue — ver
+      // el TODO en la interfaz de arriba y lib/modules.ts.
+      modules: data.modules,
     }
     _currentUserCache = { data: result, ts: Date.now() }
+    return result
+  })
+}
+
+/** Acceso efectivo a una carpeta puntual (herencia + bypass ya resueltos por el backend). */
+export interface FolderCapabilities {
+  view: boolean;
+  create: boolean;
+  approve: boolean;
+}
+
+/**
+ * Acceso base del usuario en el workspace (derivado del rol del tenant en el
+ * hub). Ya NO son roles de sistema (owner/admin/approver/creator/viewer):
+ * - 'admin' → gestiona todo el workspace (equivale al "can_manage_workspace").
+ * - 'member' → nivel "edición" en carpetas sin restricción explícita.
+ * - 'external' → solo lectura siempre.
+ * Lo que puede hacer cada usuario en el día a día lo definen los PERMISOS
+ * efectivos (`permissions`) y el acceso por carpeta (`folders`), no este campo.
+ */
+export type WorkspaceAccessRole = 'admin' | 'member' | 'external';
+
+/**
+ * Capacidades efectivas del usuario actual en el tenant activo: la MISMA
+ * decisión que el backend va a aplicar al autorizar cada request (incluye el
+ * bypass de superadmin/admin y la herencia de permisos por carpeta).
+ * Reemplaza la matriz de permisos que antes vivía hardcodeada en el front.
+ */
+export interface MyCapabilities {
+  user_id: string;
+  workspace_id: string;
+  tenant_id: string;
+  platform_roles: string[];
+  tenant_roles: string[];
+  role: WorkspaceAccessRole | null;
+  is_superadmin: boolean;
+  /** Permisos efectivos (ej. 'documents.view', 'documents.create', …). */
+  permissions: string[];
+  operational_role_ids: string[];
+  can_manage_workspace: boolean;
+  can_manage_branding: boolean;
+  /** Acceso por carpeta, ya resuelto. Clave = folder_id. */
+  folders: Record<string, FolderCapabilities>;
+}
+
+let _myCapabilitiesCache: { data: MyCapabilities; ts: number } | null = null
+const MY_CAPABILITIES_CACHE_MS = 5000
+
+export function invalidateMyCapabilitiesCache(): void {
+  _myCapabilitiesCache = null
+}
+
+/**
+ * Capacidades efectivas del usuario en el tenant activo (GET /users/me/capabilities).
+ * Respeta active_tenant_id en localStorage (header X-Active-Tenant-Id), igual que getCurrentUser.
+ */
+export async function getMyCapabilities(options?: { force?: boolean }): Promise<MyCapabilities> {
+  if (options?.force) {
+    invalidateMyCapabilitiesCache()
+  } else if (_myCapabilitiesCache && Date.now() - _myCapabilitiesCache.ts < MY_CAPABILITIES_CACHE_MS) {
+    return _myCapabilitiesCache.data
+  }
+
+  return dedupeInFlight('users/me/capabilities', async () => {
+    const { getAuthHeaders } = await import('@/lib/api-auth')
+    const headers = await getAuthHeaders({})
+    const response = await authFetch(`${API_URL}/api/v1/users/me/capabilities`, { headers })
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Error desconocido' }))
+      throw new Error(error.detail || `HTTP ${response.status}`)
+    }
+
+    const data = await response.json()
+    const result: MyCapabilities = {
+      user_id: data.user_id,
+      workspace_id: data.workspace_id,
+      tenant_id: data.tenant_id,
+      platform_roles: data.platform_roles ?? [],
+      tenant_roles: data.tenant_roles ?? [],
+      role: data.role ?? null,
+      is_superadmin: Boolean(data.is_superadmin),
+      permissions: data.permissions ?? [],
+      operational_role_ids: data.operational_role_ids ?? [],
+      can_manage_workspace: Boolean(data.can_manage_workspace),
+      can_manage_branding: Boolean(data.can_manage_branding),
+      folders: data.folders ?? {},
+    }
+    _myCapabilitiesCache = { data: result, ts: Date.now() }
     return result
   })
 }
@@ -775,29 +818,6 @@ export async function updateMyProfile(
     phone_verified: res.phone_verified ?? false,
     phone_verified_at: res.phone_verified_at ?? null,
   };
-}
-
-/**
- * Agrega un usuario a un workspace con un rol específico.
- */
-export async function addUserToWorkspace(
-  userId: string,
-  workspaceId: string,
-  roleName: string
-): Promise<{ id: string; user_id: string; workspace_id: string; role: string; created_at: string }> {
-  const response = await authFetch(
-    `${API_URL}/api/v1/users/${userId}/workspaces/${workspaceId}/membership?role_name=${encodeURIComponent(roleName)}`,
-    {
-      method: 'POST',
-    }
-  );
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
-    throw new Error(error.detail || `HTTP ${response.status}`);
-  }
-
-  return response.json()
 }
 
 /**
@@ -1113,7 +1133,7 @@ export async function listOperationalRoles(workspaceId: string): Promise<Operati
  */
 export async function createOperationalRole(
   workspaceId: string,
-  body: { name: string; slug?: string; description?: string }
+  body: { name: string; slug?: string; description?: string; access_level?: OperationalRoleAccessLevel }
 ): Promise<OperationalRoleResponse> {
   const { getAccessToken } = await import('@/lib/api-auth');
   const token = await getAccessToken();
@@ -1136,7 +1156,7 @@ export async function createOperationalRole(
  */
 export async function updateOperationalRole(
   roleId: string,
-  body: { name?: string; description?: string; is_active?: boolean }
+  body: { name?: string; description?: string; is_active?: boolean; access_level?: OperationalRoleAccessLevel }
 ): Promise<OperationalRoleResponse> {
   const { getAccessToken } = await import('@/lib/api-auth');
   const token = await getAccessToken();
@@ -1181,6 +1201,72 @@ export async function getWorkspaceMembers(workspaceId: string): Promise<{ worksp
   const headers: HeadersInit = {};
   if (token) headers['Authorization'] = `Bearer ${token}`;
   const response = await authFetch(`${API_URL}/api/v1/workspaces/${workspaceId}/members`, { headers });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
+    throw new Error(error.detail || `HTTP ${response.status}`);
+  }
+  return response.json();
+}
+
+/** Rol operativo del usuario, tal como viene embebido en `MemberEffectiveAccess`. */
+export interface MemberEffectiveAccessRole {
+  id: string;
+  name: string;
+  slug: string;
+  access_level: OperationalRoleAccessLevel;
+  is_active: boolean;
+}
+
+/** Acceso efectivo a una carpeta puntual para el visor de acceso de un miembro. */
+export interface MemberEffectiveAccessFolder {
+  id: string;
+  name: string;
+  path: string;
+  parent_id: string | null;
+  view: boolean;
+  create: boolean;
+  approve: boolean;
+  /** `false` ⇒ carpeta sin restricción: entra cualquier miembro por su nivel base. */
+  restricted: boolean;
+  /** Carpeta (esta u ancestro) de la que viene la restricción/lista de roles. */
+  source_folder_id: string;
+  source_folder_name: string;
+  /** Roles operativos DEL USUARIO que le abren esta carpeta. Vacío = no entra. */
+  granted_by_role_ids: string[];
+}
+
+/**
+ * Acceso efectivo de un miembro del workspace: la vista "¿por qué Juan no
+ * puede aprobar esta carpeta?" para el admin. Viene de
+ * GET /workspaces/{workspace_id}/members/{membership_id}/effective-access
+ * (admin-only).
+ */
+export interface MemberEffectiveAccess {
+  membership_id: string;
+  user_id: string;
+  email: string;
+  name: string;
+  base_access: WorkspaceAccessRole;
+  is_admin: boolean;
+  permissions: string[];
+  operational_roles: MemberEffectiveAccessRole[];
+  /** Ordenadas por `path`. */
+  folders: MemberEffectiveAccessFolder[];
+}
+
+/**
+ * Acceso efectivo de un miembro (admin-only; 403 para no-admins).
+ */
+export async function getMemberEffectiveAccess(
+  workspaceId: string,
+  membershipId: string
+): Promise<MemberEffectiveAccess> {
+  const { getAuthHeaders } = await import('@/lib/api-auth');
+  const headers = await getAuthHeaders({});
+  const response = await authFetch(
+    `${API_URL}/api/v1/workspaces/${workspaceId}/members/${membershipId}/effective-access`,
+    { headers }
+  );
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
     throw new Error(error.detail || `HTTP ${response.status}`);

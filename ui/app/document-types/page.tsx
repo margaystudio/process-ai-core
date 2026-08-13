@@ -17,9 +17,8 @@ import {
   type DocumentTypeBehaviors,
 } from '@/lib/api'
 import { useAsync } from '@/hooks/useAsync'
-import { Switch, InheritancePill } from '@/shared/ui/components'
-import { useWorkspace } from '@/contexts/WorkspaceContext'
-import { canAdministerWorkspace } from '@/lib/adminGating'
+import { Switch, InheritancePill, Skeleton } from '@/shared/ui/components'
+import { useCanManageWorkspace } from '@/hooks/useHasPermission'
 
 // ---- Behaviors (allowlist de 5 keys) ----
 
@@ -118,10 +117,10 @@ function typeDisplayColor(type: DocumentType, index: number): string {
 function skeletonRows() {
   return [0, 1, 2, 3, 4].map((i) => (
     <div key={i} className="flex items-center gap-2.5 rounded-[10px] px-3 py-2.5">
-      <div className="h-8 w-8 animate-pulse rounded-lg bg-ink-100" />
+      <Skeleton className="h-8 w-8 rounded-lg" />
       <div className="min-w-0 flex-1 space-y-1.5">
-        <div className="h-3.5 w-2/3 animate-pulse rounded bg-ink-100" />
-        <div className="h-2.5 w-1/3 animate-pulse rounded bg-ink-100" />
+        <Skeleton className="h-3.5 w-2/3" />
+        <Skeleton className="h-2.5 w-1/3" />
       </div>
     </div>
   ))
@@ -292,11 +291,7 @@ function NewTypeForm({ onSave, onCancel }: NewTypeFormProps) {
 // ---- Page ----
 
 export default function DocumentTypesPage() {
-  const { selectedWorkspace, platformRoles } = useWorkspace()
-  const canAdminister = canAdministerWorkspace({
-    platformRoles,
-    workspaceRole: selectedWorkspace?.role,
-  })
+  const { canManage: canAdminister, loading: canAdministerLoading } = useCanManageWorkspace()
 
   const { status, data, error, reload } = useAsync(
     () => getDocumentTypes(true),
@@ -381,6 +376,21 @@ export default function DocumentTypesPage() {
   const isLoading = status === 'idle' || status === 'loading'
 
   // Bloqueo si el usuario no puede administrar
+  if (canAdministerLoading) {
+    return (
+      <div className="flex min-h-full items-stretch" data-module="arrayan">
+        <aside className="w-[300px] flex-shrink-0 space-y-1 border-r border-line bg-surface p-5">
+          <Skeleton className="h-3 w-24" />
+          <Skeleton className="mt-2 h-6 w-40" />
+          <div className="mt-4 flex flex-col gap-1">{skeletonRows()}</div>
+        </aside>
+        <div className="flex-1 p-8">
+          <Skeleton className="h-96 w-full rounded-lg" />
+        </div>
+      </div>
+    )
+  }
+
   if (!canAdminister) {
     return (
       <div className="flex min-h-full items-center justify-center p-8">
@@ -392,7 +402,7 @@ export default function DocumentTypesPage() {
   }
 
   return (
-    <div className="flex min-h-full items-stretch" data-module="process">
+    <div className="flex min-h-full items-stretch" data-module="arrayan">
       {/* Sidebar */}
       <aside className="w-[300px] flex-shrink-0 border-r border-line bg-surface p-5">
         <div className="mb-1 text-xs font-bold uppercase tracking-[.08em] text-ink-400">

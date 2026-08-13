@@ -1,10 +1,24 @@
 """
-Helpers para gestión de permisos y roles.
+Autorización de Process AI: dos capas, un solo objeto administrable.
 
-Este módulo proporciona funciones para:
-- Verificar permisos de usuarios
-- Crear roles y permisos predefinidos
-- Gestionar asignaciones de permisos a roles
+Modelo (fase 3 del rediseño de permisos — ver docs/ROLES_OPERATIVOS_Y_PERMISOS_POR_CARPETA.md):
+
+  1. **Acceso base** (`workspace_memberships.base_access`), derivado del rol
+     macro del tenant en margay-workspace y escrito solo por el sync:
+       - 'admin'    → gestión total + bypass del permiso por carpeta.
+       - 'member'   → nivel "edición" en carpetas sin restricción.
+       - 'external' → tope de SOLO LECTURA, tenga los roles que tenga.
+
+  2. **Roles operativos** (`operational_roles`), definidos por el cliente:
+     cada uno tiene un nivel de acceso (lectura/edicion/aprobacion) y un
+     conjunto de carpetas (folder_permissions, con herencia). La evaluación es
+     por par (permiso, carpeta): alcanza con que ALGÚN rol del usuario tenga
+     el nivel necesario Y acceso a esa carpeta.
+
+Los roles de sistema (owner/admin/approver/creator/viewer) y sus tablas
+(roles/permissions/role_permissions) se eliminaron. La API por NOMBRE de
+permiso ("documents.view", "documents.approve"…) se conserva: los niveles se
+expanden a esos nombres.
 """
 
 from __future__ import annotations
@@ -12,10 +26,141 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 from .models import (
-    Role, Permission, RolePermission, WorkspaceMembership, User,
+    WorkspaceMembership,
     Folder, OperationalRole, UserOperationalRole, FolderPermission,
 )
 from .helpers import get_folder_by_id
+
+
+# ── Niveles de acceso y su expansión a permisos ──────────────────────────────
+
+#: Orden creciente de privilegio. Los niveles son ACUMULATIVOS.
+ACCESS_LEVELS = ("lectura", "edicion", "aprobacion")
+
+_LEVEL_GRANTS: dict[str, frozenset[str]] = {
+    "lectura": frozenset({"documents.view", "documents.export", "workspaces.view"}),
+    "edicion": frozenset({"documents.create", "documents.edit"}),
+    "aprobacion": frozenset({"documents.approve", "documents.reject"}),
+}
+
+#: Catálogo completo (lo que recibe un admin/superadmin). Los nombres son los
+#: mismos del seed histórico para no romper ningún call-site ni la UI.
+ALL_PERMISSIONS = frozenset(
+    {
+        "documents.create", "documents.view", "documents.edit", "documents.delete",
+        "documents.approve", "documents.reject", "documents.export",
+        "workspaces.view", "workspaces.edit", "workspaces.manage_users",
+        "workspaces.manage_folders", "users.view", "users.manage",
+    }
+)
+
+#: Permisos que ningún nivel otorga: exclusivos del admin del workspace.
+ADMIN_ONLY_PERMISSIONS = ALL_PERMISSIONS - frozenset().union(*_LEVEL_GRANTS.values())
+
+#: Nivel base implícito de cada acceso (admin no está: es bypass total).
+_BASE_LEVEL = {"member": "edicion", "external": "lectura"}
+
+BASE_ACCESS_VALUES = ("admin", "member", "external")
+
+
+def permissions_for_level(level: str | None) -> frozenset[str]:
+    """Permisos efectivos de un nivel, acumulando los niveles inferiores."""
+    if level not in ACCESS_LEVELS:
+        return frozenset()
+    granted: set[str] = set()
+    for candidate in ACCESS_LEVELS:
+        granted |= _LEVEL_GRANTS[candidate]
+        if candidate == level:
+            break
+    return frozenset(granted)
+
+
+_LECTURA_SET = permissions_for_level("lectura")
+
+
+# ── Membership y superadmin ──────────────────────────────────────────────────
+
+def get_membership_base_access(
+    session: Session, user_id: str, workspace_id: str
+) -> str | None:
+    """'admin' | 'member' | 'external', o None si no es miembro del workspace."""
+    row = (
+        session.query(WorkspaceMembership.base_access)
+        .filter_by(user_id=user_id, workspace_id=workspace_id)
+        .first()
+    )
+    return row[0] if row else None
+
+
+def _is_superadmin(
+    session: Session,
+    user_id: str,
+    platform_is_superadmin: bool = False,
+) -> bool:
+    """
+    True si el usuario es superadmin de plataforma, POR CLAIM del contexto.
+
+    El fallback legacy (membership con rol 'superadmin' en el workspace
+    'sistema') se eliminó junto con las tablas de roles (migración 0025). El
+    superadmin no pierde acceso en los endpoints que no propagan el claim:
+    el sync le escribe base_access='admin' en cada workspace que visita, y
+    ese es el bypass que esos endpoints evalúan.
+    """
+    del session, user_id  # firma estable para los call-sites existentes
+    return platform_is_superadmin
+
+
+def is_workspace_admin(
+    session: Session,
+    user_id: str,
+    workspace_id: str,
+    platform_is_superadmin: bool = False,
+) -> bool:
+    """Admin del módulo en este workspace: superadmin o base_access='admin'."""
+    if _is_superadmin(session, user_id, platform_is_superadmin):
+        return True
+    return get_membership_base_access(session, user_id, workspace_id) == "admin"
+
+
+def _get_user_operational_levels(
+    session: Session, user_id: str, workspace_id: str
+) -> dict[str, str]:
+    """{operational_role_id: access_level} de los roles ACTIVOS del usuario."""
+    membership = session.query(WorkspaceMembership).filter_by(
+        user_id=user_id,
+        workspace_id=workspace_id,
+    ).first()
+    if not membership:
+        return {}
+    rows = (
+        session.query(OperationalRole.id, OperationalRole.access_level)
+        .join(
+            UserOperationalRole,
+            UserOperationalRole.operational_role_id == OperationalRole.id,
+        )
+        .filter(
+            UserOperationalRole.workspace_membership_id == membership.id,
+            OperationalRole.is_active.is_(True),
+        )
+        .all()
+    )
+    return {rid: level for rid, level in rows}
+
+
+def _effective_global_permissions(
+    base_access: str, levels: dict[str, str]
+) -> frozenset[str]:
+    """
+    Permisos efectivos SIN considerar carpetas: nivel base del acceso ∪ los
+    niveles de todos los roles del usuario. El cap de external se aplica al
+    final y gana siempre. Para 'admin' no se llama (bypass total).
+    """
+    effective: set[str] = set(permissions_for_level(_BASE_LEVEL.get(base_access)))
+    for level in levels.values():
+        effective |= permissions_for_level(level)
+    if base_access == "external":
+        effective &= _LECTURA_SET
+    return frozenset(effective)
 
 
 def has_permission(
@@ -26,297 +171,66 @@ def has_permission(
     platform_is_superadmin: bool = False,
 ) -> bool:
     """
-    Verifica si un usuario tiene un permiso específico en un workspace.
+    Verifica un permiso GLOBAL al workspace (sin carpeta).
 
-    Los superadmins tienen todos los permisos automáticamente.
-
-    Args:
-        session: Sesión de base de datos
-        user_id: ID del usuario
-        workspace_id: ID del workspace
-        permission_name: Nombre del permiso (ej: "documents.approve")
-        platform_is_superadmin: True si el claim platform_roles del contexto incluye
-            'superadmin'. Cuando se pasa True, el bypass es inmediato y no se consulta
-            la membership local. Preferir este parámetro sobre la membership local para
-            el superadmin de plataforma.
-
-    Returns:
-        True si el usuario tiene el permiso, False en caso contrario
+    Es deliberadamente laxo respecto de las carpetas: si el único derecho de
+    aprobar del usuario viene de un rol operativo con carpetas restringidas,
+    esto devuelve True y es can_approve_in_folder quien decide dónde. Los
+    endpoints siempre combinan ambos.
     """
-    # Superadmin de plataforma: bypass inmediato por claim del contexto
-    if platform_is_superadmin:
+    if _is_superadmin(session, user_id, platform_is_superadmin):
         return True
-
-    # Fallback legacy: superadmin por membership local (workspace 'sistema')
-    # Se mantiene para compatibilidad mientras se ejecuta el script de cleanup.
-    superadmin_role = session.query(Role).filter_by(name="superadmin", is_system=True).first()
-    if superadmin_role:
-        superadmin_membership = session.query(WorkspaceMembership).filter_by(
-            user_id=user_id,
-            role_id=superadmin_role.id,
-        ).first()
-        if superadmin_membership:
-            return True
-    
-    # Obtener membership en el workspace específico
-    membership = session.query(WorkspaceMembership).filter_by(
-        user_id=user_id,
-        workspace_id=workspace_id,
-    ).first()
-    
-    if not membership:
+    base = get_membership_base_access(session, user_id, workspace_id)
+    if base is None:
         return False
-    
-    # Obtener rol (usar role_id si existe, sino role como string para compatibilidad)
-    if membership.role_id:
-        role = session.query(Role).filter_by(id=membership.role_id).first()
-        if not role:
-            return False
-    else:
-        # Compatibilidad: buscar rol por nombre si role_id no existe
-        role = session.query(Role).filter_by(name=membership.role).first()
-        if not role:
-            return False
-    
-    # Verificar si el rol tiene el permiso
-    return any(p.name == permission_name for p in role.permissions)
-
-
-def get_user_permissions(
-    session: Session,
-    user_id: str,
-    workspace_id: str,
-) -> list[str]:
-    """
-    Obtiene todos los permisos de un usuario en un workspace.
-    
-    Args:
-        session: Sesión de base de datos
-        user_id: ID del usuario
-        workspace_id: ID del workspace
-    
-    Returns:
-        Lista de nombres de permisos
-    """
-    membership = session.query(WorkspaceMembership).filter_by(
-        user_id=user_id,
-        workspace_id=workspace_id,
-    ).first()
-    
-    if not membership:
-        return []
-    
-    # Obtener rol
-    if membership.role_id:
-        role = session.query(Role).filter_by(id=membership.role_id).first()
-    else:
-        # Compatibilidad: buscar rol por nombre
-        role = session.query(Role).filter_by(name=membership.role).first()
-    
-    if not role:
-        return []
-    
-    return [p.name for p in role.permissions]
-
-
-def get_user_role(
-    session: Session,
-    user_id: str,
-    workspace_id: str,
-) -> Role | None:
-    """
-    Obtiene el rol de un usuario en un workspace.
-    
-    Args:
-        session: Sesión de base de datos
-        user_id: ID del usuario
-        workspace_id: ID del workspace
-    
-    Returns:
-        Role o None si no tiene rol
-    """
-    membership = session.query(WorkspaceMembership).filter_by(
-        user_id=user_id,
-        workspace_id=workspace_id,
-    ).first()
-    
-    if not membership:
-        return None
-    
-    # Obtener rol
-    if membership.role_id:
-        return session.query(Role).filter_by(id=membership.role_id).first()
-    else:
-        # Compatibilidad: buscar rol por nombre
-        return session.query(Role).filter_by(name=membership.role).first()
-
-
-def can_approve_documents(
-    session: Session,
-    user_id: str,
-    workspace_id: str,
-) -> bool:
-    """
-    Verifica si un usuario puede aprobar documentos en un workspace.
-    
-    Args:
-        session: Sesión de base de datos
-        user_id: ID del usuario
-        workspace_id: ID del workspace
-    
-    Returns:
-        True si puede aprobar, False en caso contrario
-    """
-    return has_permission(session, user_id, workspace_id, "documents.approve")
-
-
-def can_create_documents(
-    session: Session,
-    user_id: str,
-    workspace_id: str,
-) -> bool:
-    """
-    Verifica si un usuario puede crear documentos en un workspace.
-    
-    Args:
-        session: Sesión de base de datos
-        user_id: ID del usuario
-        workspace_id: ID del workspace
-    
-    Returns:
-        True si puede crear, False en caso contrario
-    """
-    return has_permission(session, user_id, workspace_id, "documents.create")
-
-
-def create_role(
-    session: Session,
-    name: str,
-    description: str = "",
-    workspace_type: str | None = None,
-    is_system: bool = False,
-) -> Role:
-    """
-    Crea un nuevo rol.
-    
-    Args:
-        session: Sesión de base de datos
-        name: Nombre del rol
-        description: Descripción del rol
-        workspace_type: Tipo de workspace donde aplica
-        is_system: Si es un rol del sistema
-    
-    Returns:
-        Role creado
-    """
-    role = Role(
-        name=name,
-        description=description,
-        workspace_type=workspace_type,
-        is_system=is_system,
-    )
-    session.add(role)
-    return role
-
-
-def create_permission(
-    session: Session,
-    name: str,
-    description: str = "",
-    category: str = "",
-) -> Permission:
-    """
-    Crea un nuevo permiso.
-    
-    Args:
-        session: Sesión de base de datos
-        name: Nombre del permiso
-        description: Descripción del permiso
-        category: Categoría del permiso
-    
-    Returns:
-        Permission creado
-    """
-    permission = Permission(
-        name=name,
-        description=description,
-        category=category,
-    )
-    session.add(permission)
-    return permission
-
-
-def assign_permission_to_role(
-    session: Session,
-    role_id: str,
-    permission_id: str,
-) -> RolePermission:
-    """
-    Asigna un permiso a un rol.
-    
-    Args:
-        session: Sesión de base de datos
-        role_id: ID del rol
-        permission_id: ID del permiso
-    
-    Returns:
-        RolePermission creado
-    """
-    role_permission = RolePermission(
-        role_id=role_id,
-        permission_id=permission_id,
-    )
-    session.add(role_permission)
-    return role_permission
-
-
-# --- Roles operativos y permisos por carpeta ---
-
-
-def _is_superadmin(
-    session: Session,
-    user_id: str,
-    platform_is_superadmin: bool = False,
-) -> bool:
-    """
-    True si el usuario es superadmin.
-
-    Orden de verificación:
-      1. platform_is_superadmin=True → bypass inmediato por claim del contexto.
-      2. Membership local con rol 'superadmin' → fallback legacy (workspace 'sistema').
-         Se mantiene para compatibilidad hasta que se ejecute cleanup_workspace_sistema.py.
-    """
-    if platform_is_superadmin:
+    if base == "admin":
         return True
-    superadmin_role = session.query(Role).filter_by(name="superadmin", is_system=True).first()
-    if not superadmin_role:
+    if permission_name in ADMIN_ONLY_PERMISSIONS:
         return False
-    return session.query(WorkspaceMembership).filter_by(
-        user_id=user_id,
-        role_id=superadmin_role.id,
-    ).first() is not None
+    levels = _get_user_operational_levels(session, user_id, workspace_id)
+    return permission_name in _effective_global_permissions(base, levels)
 
 
-def _get_user_system_role_name(session: Session, user_id: str, workspace_id: str) -> str | None:
-    """Devuelve el nombre del rol de sistema del usuario en el workspace (owner, admin, approver, creator, viewer)."""
-    role = get_user_role(session, user_id, workspace_id)
-    return role.name if role else None
+# ── Permisos por carpeta ─────────────────────────────────────────────────────
 
 
-def _get_user_operational_role_ids(session: Session, user_id: str, workspace_id: str) -> set[str]:
-    """IDs de roles operativos asignados al usuario en el workspace."""
-    membership = session.query(WorkspaceMembership).filter_by(
-        user_id=user_id,
-        workspace_id=workspace_id,
-    ).first()
-    if not membership:
-        return set()
-    rows = (
-        session.query(UserOperationalRole.operational_role_id)
-        .filter_by(workspace_membership_id=membership.id)
-        .all()
-    )
-    return {r[0] for r in rows}
+def resolve_folder_permissions_source(
+    session: Session, folder: "Folder | None"
+) -> tuple[list[str], "Folder | None"]:
+    """
+    Resolución CANÓNICA de la herencia de permisos de una carpeta.
+
+    Devuelve (ids de roles operativos efectivos, carpeta que los define).
+    Sube por parent_id mientras inherits_permissions sea True; la primera
+    carpeta con herencia cortada define la lista. Lista vacía == sin
+    restricción (cualquier miembro con el permiso pasa), tanto para la raíz
+    heredando como para una carpeta con herencia cortada y cero filas. Ciclo
+    en la jerarquía → sin restricción.
+
+    Única implementación con acceso a DB: la usan los checks por-ítem de este
+    módulo y el GET/PUT de permisos de carpeta. PermissionContext replica esta
+    semántica en memoria, con tests de paridad en tests/test_permission_context.py.
+    """
+    if not folder:
+        return [], None
+    visited: set[str] = set()
+    current = folder
+    while current:
+        if current.id in visited:
+            return [], None
+        visited.add(current.id)
+        if not getattr(current, "inherits_permissions", True):
+            rows = (
+                session.query(FolderPermission.operational_role_id)
+                .filter_by(folder_id=current.id)
+                .all()
+            )
+            return [r[0] for r in rows], current
+        if current.parent_id:
+            current = get_folder_by_id(session, current.parent_id)
+        else:
+            return [], None
+    return [], None
 
 
 def _get_folder_allowed_operational_role_ids(session: Session, folder_id: str) -> set[str]:
@@ -325,42 +239,49 @@ def _get_folder_allowed_operational_role_ids(session: Session, folder_id: str) -
     Si inherits_permissions es True, sube al padre hasta encontrar permisos explícitos.
     Si la carpeta raíz hereda y no tiene permisos, se considera que no hay restricción (todos).
     """
-    folder = get_folder_by_id(session, folder_id)
-    if not folder:
-        return set()
-    visited: set[str] = set()
-    current = folder
-    while current:
-        if current.id in visited:
-            return set()
-        visited.add(current.id)
-        if not getattr(current, "inherits_permissions", True):
-            rows = (
-                session.query(FolderPermission.operational_role_id)
-                .filter_by(folder_id=current.id)
-                .all()
-            )
-            return {r[0] for r in rows}
-        if current.parent_id:
-            current = get_folder_by_id(session, current.parent_id)
-        else:
-            return set()
-    return set()
+    role_ids, _ = resolve_folder_permissions_source(
+        session, get_folder_by_id(session, folder_id)
+    )
+    return set(role_ids)
 
 
-def _has_folder_access_by_operational_roles(
-    session: Session, user_id: str, workspace_id: str, folder_id: str
+def _can_in_folder_db(
+    session: Session,
+    user_id: str,
+    workspace_id: str,
+    folder_id: str,
+    permission_name: str,
+    platform_is_superadmin: bool,
 ) -> bool:
     """
-    True si el usuario tiene acceso a la carpeta por roles operativos.
-    Si la carpeta no tiene restricciones (lista vacía o raíz heredando), True.
+    Evaluación por par (permiso, carpeta) — el cuerpo común de can_*_in_folder.
+
+      - superadmin / base 'admin' → True.
+      - external → solo permisos de lectura, siempre.
+      - Carpeta SIN restricción → nivel base del acceso ∪ niveles de todos
+        los roles del usuario.
+      - Carpeta restringida → algún rol del usuario tiene que estar en la
+        lista de la carpeta Y su nivel tiene que otorgar el permiso. El nivel
+        base NO abre carpetas restringidas.
     """
+    if _is_superadmin(session, user_id, platform_is_superadmin):
+        return True
+    base = get_membership_base_access(session, user_id, workspace_id)
+    if base is None:
+        return False
+    if base == "admin":
+        return True
+    if base == "external" and permission_name not in _LECTURA_SET:
+        return False
+
+    levels = _get_user_operational_levels(session, user_id, workspace_id)
     allowed = _get_folder_allowed_operational_role_ids(session, folder_id)
     if not allowed:
-        # Sin restricciones en la carpeta: cualquier miembro del workspace puede (por rol de sistema)
-        return True
-    user_roles = _get_user_operational_role_ids(session, user_id, workspace_id)
-    return bool(user_roles & allowed)
+        return permission_name in _effective_global_permissions(base, levels)
+    return any(
+        permission_name in permissions_for_level(levels[rid])
+        for rid in levels.keys() & allowed
+    )
 
 
 def can_view_folder(
@@ -370,20 +291,10 @@ def can_view_folder(
     folder_id: str,
     platform_is_superadmin: bool = False,
 ) -> bool:
-    """
-    Verifica si un usuario puede ver (acceder a) una carpeta.
-    superadmin/owner/admin: bypass. Luego: membership + acceso por rol operativo + permiso documents.view.
-    """
-    if _is_superadmin(session, user_id, platform_is_superadmin):
-        return True
-    role_name = _get_user_system_role_name(session, user_id, workspace_id)
-    if role_name in ("owner", "admin"):
-        return True
-    if not role_name:
-        return False
-    if not has_permission(session, user_id, workspace_id, "documents.view", platform_is_superadmin):
-        return False
-    return _has_folder_access_by_operational_roles(session, user_id, workspace_id, folder_id)
+    """¿Puede VER los documentos de la carpeta?"""
+    return _can_in_folder_db(
+        session, user_id, workspace_id, folder_id, "documents.view", platform_is_superadmin
+    )
 
 
 def can_create_in_folder(
@@ -393,20 +304,10 @@ def can_create_in_folder(
     folder_id: str,
     platform_is_superadmin: bool = False,
 ) -> bool:
-    """
-    Verifica si un usuario puede crear documentos en una carpeta.
-    superadmin/owner/admin: bypass. Luego: acceso por rol operativo + permiso documents.create.
-    """
-    if _is_superadmin(session, user_id, platform_is_superadmin):
-        return True
-    role_name = _get_user_system_role_name(session, user_id, workspace_id)
-    if role_name in ("owner", "admin"):
-        return True
-    if not role_name:
-        return False
-    if not has_permission(session, user_id, workspace_id, "documents.create", platform_is_superadmin):
-        return False
-    return _has_folder_access_by_operational_roles(session, user_id, workspace_id, folder_id)
+    """¿Puede CREAR/EDITAR documentos en la carpeta?"""
+    return _can_in_folder_db(
+        session, user_id, workspace_id, folder_id, "documents.create", platform_is_superadmin
+    )
 
 
 def can_approve_in_folder(
@@ -416,36 +317,26 @@ def can_approve_in_folder(
     folder_id: str,
     platform_is_superadmin: bool = False,
 ) -> bool:
-    """
-    Verifica si un usuario puede aprobar/rechazar documentos en una carpeta.
-    superadmin/owner/admin: bypass. Luego: acceso por rol operativo + permiso documents.approve.
-    """
-    if _is_superadmin(session, user_id, platform_is_superadmin):
-        return True
-    role_name = _get_user_system_role_name(session, user_id, workspace_id)
-    if role_name in ("owner", "admin"):
-        return True
-    if not role_name:
-        return False
-    if not has_permission(session, user_id, workspace_id, "documents.approve", platform_is_superadmin):
-        return False
-    return _has_folder_access_by_operational_roles(session, user_id, workspace_id, folder_id)
+    """¿Puede APROBAR/RECHAZAR documentos de la carpeta?"""
+    return _can_in_folder_db(
+        session, user_id, workspace_id, folder_id, "documents.approve", platform_is_superadmin
+    )
 
 
-# --- Contexto de permisos precargado (evaluación bulk sin N+1) ---
+# ── Contexto de permisos precargado (evaluación bulk sin N+1) ────────────────
 
 
 class PermissionContext:
     """
-    Precarga en un número constante de queries (~7) todo lo necesario para
+    Precarga en un número constante de queries (~6) todo lo necesario para
     evaluar can_view_folder / can_create_in_folder / can_approve_in_folder en
-    memoria sobre N carpetas/documentos, en lugar de ~12 queries por item.
+    memoria sobre N carpetas/documentos, en lugar de varias queries por item.
 
     Replica EXACTAMENTE la semántica de las funciones individuales de este
     módulo, que siguen siendo la fuente de verdad para chequeos de un solo
     item. Cualquier cambio de semántica debe hacerse primero en ellas y
-    replicarse aquí (los tests de paridad en
-    tests/test_permission_context.py lo verifican).
+    replicarse aquí (los tests de paridad en tests/test_permission_context.py
+    lo verifican).
 
     Casos borde replicados a propósito:
       - Carpeta inexistente o folder_id=None → sin restricciones (acceso si
@@ -468,61 +359,46 @@ class PermissionContext:
         self.user_id = user_id
         self.workspace_id = workspace_id
 
-        # 1) Superadmin: claim de plataforma o membership legacy (1 query).
-        #    Equivale a _is_superadmin: existe membership cuyo rol es
-        #    'superadmin' con is_system=True.
-        if platform_is_superadmin:
-            self.is_superadmin = True
-        else:
-            self.is_superadmin = (
-                session.query(WorkspaceMembership.id)
-                .join(Role, Role.id == WorkspaceMembership.role_id)
-                .filter(
-                    WorkspaceMembership.user_id == user_id,
-                    Role.name == "superadmin",
-                    Role.is_system.is_(True),
-                )
-                .first()
-                is not None
-            )
+        # 1) Superadmin: solo por claim de plataforma (el legacy por
+        #    membership se eliminó con las tablas de roles, migración 0025).
+        self.is_superadmin = platform_is_superadmin
 
-        # 2) Membership y rol de sistema en el workspace (1-2 queries).
+        # 2) Membership → acceso base (1 query).
         membership = (
             session.query(WorkspaceMembership)
             .filter_by(user_id=user_id, workspace_id=workspace_id)
             .first()
         )
-        role: Role | None = None
-        if membership:
-            if membership.role_id:
-                role = session.query(Role).filter_by(id=membership.role_id).first()
-            else:
-                # Compatibilidad: rol por nombre si role_id no existe
-                role = session.query(Role).filter_by(name=membership.role).first()
-        self.system_role_name: str | None = role.name if role else None
+        self.base_access: str | None = membership.base_access if membership else None
 
-        # 3) Permisos del rol (1 query).
-        if role is not None:
-            rows = (
-                session.query(Permission.name)
-                .join(RolePermission, RolePermission.permission_id == Permission.id)
-                .filter(RolePermission.role_id == role.id)
-                .all()
-            )
-            self.permission_names: set[str] = {r[0] for r in rows}
-        else:
-            self.permission_names = set()
-
-        # 4) Roles operativos del usuario (1 query).
+        # 3) Roles operativos del usuario con su nivel (1 query).
+        self.operational_levels: dict[str, str] = {}
         if membership:
             rows = (
-                session.query(UserOperationalRole.operational_role_id)
-                .filter_by(workspace_membership_id=membership.id)
+                session.query(OperationalRole.id, OperationalRole.access_level)
+                .join(
+                    UserOperationalRole,
+                    UserOperationalRole.operational_role_id == OperationalRole.id,
+                )
+                .filter(
+                    UserOperationalRole.workspace_membership_id == membership.id,
+                    OperationalRole.is_active.is_(True),
+                )
                 .all()
             )
-            self.operational_role_ids: set[str] = {r[0] for r in rows}
+            self.operational_levels = {rid: level for rid, level in rows}
+        self.operational_role_ids: set[str] = set(self.operational_levels)
+
+        # 4) Permisos globales efectivos (sin carpeta), para capabilities y
+        #    para el caso "carpeta sin restricción".
+        if self.is_superadmin or self.base_access == "admin":
+            self.permission_names: frozenset[str] = ALL_PERMISSIONS
+        elif self.base_access is None:
+            self.permission_names = frozenset()
         else:
-            self.operational_role_ids = set()
+            self.permission_names = _effective_global_permissions(
+                self.base_access, self.operational_levels
+            )
 
         # 5) Jerarquía de carpetas del workspace (1 query).
         folder_rows = (
@@ -530,7 +406,6 @@ class PermissionContext:
             .filter_by(workspace_id=workspace_id)
             .all()
         )
-        # id → (parent_id, inherits_permissions); default True como en el original
         self._folders: dict[str, tuple[str | None, bool]] = {
             fid: (parent_id, True if inherits is None else bool(inherits))
             for fid, parent_id, inherits in folder_rows
@@ -572,20 +447,31 @@ class PermissionContext:
         return set()
 
     def _can_in_folder(self, permission_name: str, folder_id: str | None) -> bool:
-        """Réplica en memoria del cuerpo común de can_*_in_folder / can_view_folder."""
+        """Réplica en memoria de _can_in_folder_db."""
         if self.is_superadmin:
             return True
-        if self.system_role_name in ("owner", "admin"):
-            return True
-        if not self.system_role_name:
+        if self.base_access is None:
             return False
-        if permission_name not in self.permission_names:
+        if self.base_access == "admin":
+            return True
+        if self.base_access == "external" and permission_name not in _LECTURA_SET:
             return False
         allowed = self._folder_allowed_role_ids(folder_id)
         if not allowed:
-            # Sin restricciones en la carpeta: cualquier miembro con el permiso
-            return True
-        return bool(self.operational_role_ids & allowed)
+            return permission_name in self.permission_names
+        return any(
+            permission_name in permissions_for_level(self.operational_levels[rid])
+            for rid in self.operational_levels.keys() & allowed
+        )
+
+    def allowed_operational_role_ids(self, folder_id: str | None) -> set[str]:
+        """Roles operativos con acceso a la carpeta (herencia resuelta).
+
+        set() == sin restricción. Es la vista pública de la resolución en
+        memoria; la usa el visor de acceso efectivo para explicar POR QUÉ un
+        usuario entra (o no) a cada carpeta.
+        """
+        return self._folder_allowed_role_ids(folder_id)
 
     def can_view_folder(self, folder_id: str | None) -> bool:
         return self._can_in_folder("documents.view", folder_id)
@@ -609,6 +495,3 @@ def build_permission_context(
     seguir usando can_view_folder / can_create_in_folder / can_approve_in_folder.
     """
     return PermissionContext(session, user_id, workspace_id, platform_is_superadmin)
-
-
-

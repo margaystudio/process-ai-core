@@ -5,7 +5,6 @@ import {
   AlertTriangle,
   Check,
   FileText,
-  Loader2,
   Send,
   ShieldCheck,
   Upload,
@@ -13,6 +12,7 @@ import {
 } from 'lucide-react'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
 import { useAsync } from '@/hooks/useAsync'
+import { useCanManageWorkspace } from '@/hooks/useHasPermission'
 import {
   approveDocumentValidation,
   getDocumentVersions,
@@ -22,13 +22,13 @@ import {
   submitVersionForReview,
   type Document,
 } from '@/lib/api'
-import { canAdministerWorkspace } from '@/lib/adminGating'
 import {
   EXTENSIONS_BY_TYPE,
   MAX_FILE_SIZE_BYTES,
   formatFileSize,
   getFileExtension,
 } from '@/lib/fileUploadValidation'
+import { Spinner } from '@/shared/ui/components'
 import { cn } from '@/shared/ui/cn'
 
 type ImportStatus =
@@ -83,9 +83,7 @@ function itemTone(status: ImportStatus): string {
 export default function ImportPage() {
   const inputRef = useRef<HTMLInputElement>(null)
   const {
-    selectedWorkspace,
     selectedWorkspaceId,
-    platformRoles,
     currentUser,
   } = useWorkspace()
   const [folderId, setFolderId] = useState('')
@@ -94,10 +92,7 @@ export default function ImportPage() {
   const [running, setRunning] = useState(false)
   const [pageError, setPageError] = useState<string | null>(null)
 
-  const canAdminister = canAdministerWorkspace({
-    platformRoles,
-    workspaceRole: selectedWorkspace?.role,
-  })
+  const { canManage: canAdminister, loading: canAdministerLoading } = useCanManageWorkspace()
 
   const foldersAsync = useAsync(
     async () => {
@@ -314,6 +309,14 @@ export default function ImportPage() {
   const folders = foldersAsync.data ?? []
   const folderName = folders.find((folder) => folder.id === folderId)?.name
 
+  if (canAdministerLoading) {
+    return (
+      <main className="mx-auto max-w-[760px] px-6 py-12">
+        <div className="h-40 animate-pulse rounded-lg bg-ink-100" aria-busy="true" />
+      </main>
+    )
+  }
+
   if (!canAdminister) {
     return (
       <main className="mx-auto max-w-[760px] px-6 py-12">
@@ -492,7 +495,7 @@ export default function ImportPage() {
                       itemTone(item.status)
                     )}
                   >
-                    {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                    {busy ? <Spinner size="xs" /> : null}
                     {item.status === 'approved' ? <Check className="h-3 w-3" /> : null}
                     {STATUS_LABELS[item.status]}
                   </span>
@@ -553,7 +556,7 @@ export default function ImportPage() {
 
       {pendingAsync.status === 'loading' && folderId ? (
         <div className="mt-4 flex items-center gap-2 text-[12px] text-ink-400">
-          <Loader2 className="h-4 w-4 animate-spin" />
+          <Spinner size="sm" />
           Buscando importaciones pendientes…
         </div>
       ) : null}

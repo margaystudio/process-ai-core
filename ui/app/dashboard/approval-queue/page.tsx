@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { FileText, ChevronRight, RefreshCw, Inbox } from 'lucide-react'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
-import { useUserRole } from '@/hooks/useUserRole'
+import { useHasPermission } from '@/hooks/useHasPermission'
 import { useUserId } from '@/hooks/useUserId'
 import { Button } from '@/shared/ui/components'
 import {
@@ -78,7 +78,7 @@ function typeLabel(raw: string | undefined): string {
 export default function ApprovalQueuePage() {
   const router = useRouter()
   const { selectedWorkspaceId } = useWorkspace()
-  const { role } = useUserRole()
+  const { hasPermission: canApproveDocuments, loading: permLoading } = useHasPermission('documents.approve')
   const userId = useUserId()
 
   const [documents, setDocuments] = useState<Document[]>([])
@@ -113,14 +113,12 @@ export default function ApprovalQueuePage() {
   }, [load])
 
   // ── Guard: permisos ───────────────────────────────────────────────────────
-  const allowedRoles = ['owner', 'admin', 'approver', 'superadmin']
-  if (role && !allowedRoles.includes(role)) {
+  if (!permLoading && !canApproveDocuments) {
     return (
-      <div data-module="process" className="mx-auto max-w-[820px] px-8 pb-[60px] pt-7">
+      <div data-module="arrayan" className="mx-auto max-w-[820px] px-8 pb-[60px] pt-7">
         <div className="rounded-lg border border-danger-bd bg-danger-bg p-5">
           <p className="text-sm text-danger">
-            No tenés permisos para ver esta página. Tu rol actual es:{' '}
-            <span className="font-semibold">{role}</span>.
+            No tenés permisos para ver esta página.
           </p>
         </div>
       </div>
@@ -130,7 +128,7 @@ export default function ApprovalQueuePage() {
   // ── Guard: sin workspace ──────────────────────────────────────────────────
   if (!selectedWorkspaceId) {
     return (
-      <div data-module="process" className="mx-auto max-w-[820px] px-8 pb-[60px] pt-7">
+      <div data-module="arrayan" className="mx-auto max-w-[820px] px-8 pb-[60px] pt-7">
         <div className="rounded-lg border border-warning-bd bg-warning-bg p-5">
           <p className="text-sm text-warning">
             Seleccioná un espacio de trabajo para ver la bandeja de aprobación.
@@ -141,7 +139,7 @@ export default function ApprovalQueuePage() {
   }
 
   return (
-    <div data-module="process" className="mx-auto max-w-[820px] px-8 pb-[60px] pt-7">
+    <div data-module="arrayan" className="mx-auto max-w-[820px] px-8 pb-[60px] pt-7">
       {/* Header */}
       <div className="mb-1.5 text-xs font-bold uppercase tracking-[.08em] text-ink-400">
         Bandeja de aprobación

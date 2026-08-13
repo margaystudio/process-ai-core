@@ -3,9 +3,11 @@
 import { useEffect } from 'react'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
 
-// Favicon por defecto = emblema del módulo Process AI (no el logo genérico de Margay).
+// Favicon por defecto = emblema del módulo Process AI (arrayán), no el logo genérico
+// de Margay. Va el `-favicon` (fondo sólido del acento + glifo blanco): el SVG plano
+// (`arrayan.svg`) es monolínea sobre transparente y desaparece a 16px.
 // Si el workspace tiene branding propio, ese ícono lo sobreescribe.
-const DEFAULT_FAVICON = '/brand/modules/process-tile.svg'
+const DEFAULT_FAVICON = '/brand/modules/arrayan-favicon.svg'
 
 function ensureIconLink(rel: string) {
   let link = document.querySelector(`link[rel="${rel}"]`) as HTMLLinkElement | null

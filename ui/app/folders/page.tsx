@@ -14,6 +14,7 @@ import {
   FileText,
   FilePlus2,
   Folder as FolderIcon,
+  Lock,
   Plus,
   Settings2,
   ShieldCheck,
@@ -39,10 +40,12 @@ import {
   type FolderStats,
   type OperationalRoleResponse,
 } from '@/lib/api'
+import { ACCESS_LEVEL_BADGE_VARIANT, ACCESS_LEVEL_LABEL } from '@/lib/accessLevels'
 import { useAsync } from '@/hooks/useAsync'
 import { useFolderCrud } from '@/hooks/useFolderCrud'
+import { useFolderAccess } from '@/hooks/useFolderAccess'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
-import { Dialog, InheritancePill, Switch, Tabs, TabsContent, type InheritanceKind, type TabItem } from '@/shared/ui/components'
+import { Badge, Dialog, InheritancePill, Switch, Tabs, TabsContent, type InheritanceKind, type TabItem } from '@/shared/ui/components'
 
 type FolderNode = Folder & {
   children: FolderNode[]
@@ -1042,6 +1045,10 @@ function PermissionsTab({ workspaceId, folder }: { workspaceId: string; folder: 
       id: roleId,
       name: fullRole?.name ?? responseRole?.name ?? roleId,
       description: fullRole?.description ?? '',
+      // `permissions.operational_roles` (respuesta de /folders/{id}/permissions) no
+      // trae access_level — solo `roles` (listOperationalRoles) lo tiene. Si el rol
+      // se borró del workspace, no hay badge que pintar.
+      accessLevel: fullRole?.access_level,
     }
   })
   const persistedIds = [...permissions.operational_role_ids].sort()
@@ -1104,7 +1111,14 @@ function PermissionsTab({ workspaceId, folder }: { workspaceId: string; folder: 
                     {role.name.slice(0, 2)}
                   </span>
                   <div className="min-w-0">
-                    <div className="text-[13px] font-bold text-ink-800">{role.name}</div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[13px] font-bold text-ink-800">{role.name}</span>
+                      {role.accessLevel ? (
+                        <Badge variant={ACCESS_LEVEL_BADGE_VARIANT[role.accessLevel]}>
+                          {ACCESS_LEVEL_LABEL[role.accessLevel]}
+                        </Badge>
+                      ) : null}
+                    </div>
                     {role.description ? (
                       <div className="mt-0.5 truncate text-[11.5px] text-ink-400">{role.description}</div>
                     ) : null}
@@ -1135,7 +1149,12 @@ function PermissionsTab({ workspaceId, folder }: { workspaceId: string; folder: 
                     className="h-[18px] w-[18px] rounded border-line-input accent-indigo"
                   />
                   <span className="min-w-0 flex-1">
-                    <span className="block text-[13px] font-bold text-ink-800">{role.name}</span>
+                    <span className="flex flex-wrap items-center gap-2">
+                      <span className="text-[13px] font-bold text-ink-800">{role.name}</span>
+                      <Badge variant={ACCESS_LEVEL_BADGE_VARIANT[role.access_level]}>
+                        {ACCESS_LEVEL_LABEL[role.access_level]}
+                      </Badge>
+                    </span>
                     {role.description ? (
                       <span className="mt-0.5 block truncate text-[11.5px] text-ink-400">{role.description}</span>
                     ) : null}
@@ -1266,6 +1285,16 @@ function FolderTreeRow({
             <FolderGlyph name={node.icon} size={14} />
           </span>
           <span className="min-w-0 flex-1 truncate text-left">{node.name}</span>
+          {node.permissions_restricted ? (
+            <span
+              className="flex-shrink-0"
+              role="img"
+              aria-label="Carpeta restringida por roles operativos"
+              title="Carpeta restringida por roles operativos"
+            >
+              <Lock size={11} className="text-ink-300" aria-hidden="true" />
+            </span>
+          ) : null}
           <span className="text-[10.5px] font-bold text-ink-300">{node.docs}</span>
         </button>
       </div>
@@ -1296,6 +1325,7 @@ export default function FoldersPage() {
   const { selectedWorkspaceId } = useWorkspace()
   const workspaceId = selectedWorkspaceId ?? ''
   const crud = useFolderCrud(workspaceId)
+  const { canCreate: canCreateInFolder } = useFolderAccess()
   const { status, data, error, reload } = useAsync(async () => {
     if (!workspaceId) return { folders: [], documents: [] }
     const [folders, documents] = await Promise.all([
@@ -1619,11 +1649,13 @@ export default function FoldersPage() {
               className="h-[42px] w-full rounded-[10px] border border-line-input px-3 text-sm outline-none focus:border-indigo focus:ring-[3px] focus:ring-indigo/10"
             >
               <option value="">Raiz</option>
-              {allNodes.map((node) => (
-                <option key={node.id} value={node.id}>
-                  {node.path || node.name}
-                </option>
-              ))}
+              {allNodes
+                .filter((node) => canCreateInFolder(node.id))
+                .map((node) => (
+                  <option key={node.id} value={node.id}>
+                    {node.path || node.name}
+                  </option>
+                ))}
             </select>
           </label>
 

@@ -1,7 +1,7 @@
 'use client'
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, ReactNode } from 'react'
-import { getCurrentUser, invalidateCurrentUserCache, WorkspaceResponse } from '@/lib/api'
+import { getCurrentUser, invalidateCurrentUserCache, CurrentUserResponse, WorkspaceResponse } from '@/lib/api'
 import { getActiveTenantId, setActiveTenantId as persistActiveTenantId } from '@/lib/api-auth'
 
 interface WorkspaceContextType {
@@ -12,6 +12,9 @@ interface WorkspaceContextType {
   platformRoles: string[]
   tenantRoles: string[]
   currentUser: { id: string; email: string; name: string | null } | null
+  /** Para el switcher de módulos del chrome. TODO(arquitectura): siempre undefined
+   *  hasta que el backend lo exponga — ver lib/modules.ts. */
+  modules: CurrentUserResponse['modules']
   setActiveTenantId: (tenantId: string) => Promise<void>
   loading: boolean
   refreshWorkspaces: () => Promise<void>
@@ -26,6 +29,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [platformRoles, setPlatformRoles] = useState<string[]>([])
   const [tenantRoles, setTenantRoles] = useState<string[]>([])
   const [currentUser, setCurrentUser] = useState<{ id: string; email: string; name: string | null } | null>(null)
+  const [modules, setModules] = useState<CurrentUserResponse['modules']>(undefined)
   const [loading, setLoading] = useState(true)
 
   const applyCurrentUser = useCallback((data: Awaited<ReturnType<typeof getCurrentUser>>) => {
@@ -42,6 +46,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setTenantRoles(data.tenant_roles)
     setCurrentUser(data.user)
     setWorkspaces(data.workspaces)
+    setModules(data.modules)
 
     const activeWs =
       data.workspaces.find((ws) => ws.tenant_id === tenantId) ??
@@ -101,6 +106,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       platformRoles,
       tenantRoles,
       currentUser,
+      modules,
       setActiveTenantId,
       loading,
       refreshWorkspaces,
@@ -113,6 +119,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       platformRoles,
       tenantRoles,
       currentUser,
+      modules,
       setActiveTenantId,
       loading,
       refreshWorkspaces,

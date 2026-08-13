@@ -21,13 +21,14 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from process_ai_core.db.models import DocumentType
-from process_ai_core.db.permissions import get_user_role
+from process_ai_core.db.permissions import is_workspace_admin
 from process_ai_core.domains.document_types import normalize_behaviors
 
 from ..dependencies import get_current_user_id, get_db
 from ..workspace_client import (
     WorkspaceSessionContext,
     get_workspace_context,
+    require_process_ai_access,
     resolve_tenant_workspace_id,
     sync_workspace_access,
 )
@@ -36,20 +37,24 @@ from ..request_identity import capture_request_identity
 router = APIRouter(
     prefix="/api/v1/document-types",
     tags=["document-types"],
-    dependencies=[Depends(sync_workspace_access), Depends(capture_request_identity)],
+    dependencies=[
+        Depends(sync_workspace_access),
+        Depends(capture_request_identity),
+        Depends(require_process_ai_access),
+    ],
 )
 
 
 def _require_ws_admin(
     session: Session, user_id: str, workspace_id: str, ctx: WorkspaceSessionContext
 ) -> None:
-    """Solo superadmin o owner/admin del propio workspace pueden editar los tipos."""
-    if "superadmin" in (ctx.platform_roles or []):
-        return
-    role = get_user_role(session, user_id, workspace_id)
-    if not role or role.name not in ("owner", "admin"):
+    """Solo superadmin o admin del propio workspace pueden editar los tipos."""
+    if not is_workspace_admin(
+        session, user_id, workspace_id,
+        platform_is_superadmin="superadmin" in (ctx.platform_roles or []),
+    ):
         raise HTTPException(
-            status_code=403, detail="Se requiere rol owner o admin del workspace"
+            status_code=403, detail="Se requiere ser administrador del workspace"
         )
 
 

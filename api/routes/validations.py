@@ -22,6 +22,7 @@ from ..dependencies import get_db, get_current_user_id
 from api.workspace_client import (
     WorkspaceSessionContext,
     get_workspace_context,
+    require_process_ai_access,
     resolve_tenant_workspace_id,
     sync_workspace_access,
 )
@@ -44,7 +45,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter(
     prefix="/api/v1",
     tags=["validations"],
-    dependencies=[Depends(sync_workspace_access), Depends(capture_request_identity)],
+    dependencies=[
+        Depends(sync_workspace_access),
+        Depends(capture_request_identity),
+        Depends(require_process_ai_access),
+    ],
 )
 
 
@@ -106,18 +111,26 @@ def _nombre_validador(session: Session, tenant_id: str, user_id: Optional[str]) 
 def create_document_validation(
     document_id: str,
     request: ValidationCreateRequest = Body(...),
+    user_id: str = Depends(get_current_user_id),
     ctx: WorkspaceSessionContext = Depends(get_workspace_context),
 ):
     """
     Crea una nueva validacion para un documento.
-    
+
+    Requiere documents.edit y acceso operativo a la carpeta: crear la
+    validación es parte del flujo de envío a revisión (antes no pedía ni
+    identidad de usuario).
+
     Args:
         document_id: ID del documento
         request: Datos de la validacion (run_id opcional, observations, checklist_json)
-    
+
     Returns:
         ValidationResponse con la validacion creada
     """
+    from process_ai_core.db.permissions import can_create_in_folder, has_permission
+
+    workspace_id = resolve_tenant_workspace_id(ctx)
     with get_db_session() as session:
         doc = session.query(Document).filter_by(id=document_id).first()
         if not doc:
@@ -125,9 +138,20 @@ def create_document_validation(
                 status_code=404,
                 detail=f"Documento {document_id} no encontrado"
             )
-        if doc.workspace_id != resolve_tenant_workspace_id(ctx):
+        if doc.workspace_id != workspace_id:
             raise HTTPException(status_code=404, detail=f"Documento {document_id} no encontrado")
-        
+
+        if not has_permission(session, user_id, workspace_id, "documents.edit"):
+            raise HTTPException(
+                status_code=403,
+                detail="No tiene permisos para enviar documentos a revisión",
+            )
+        if not can_create_in_folder(session, user_id, workspace_id, doc.folder_id):
+            raise HTTPException(
+                status_code=403,
+                detail="No tiene acceso a los documentos de esta carpeta",
+            )
+
         # Validar run_id si se proporciona
         if request.run_id:
             run = session.query(Run).filter_by(id=request.run_id, document_id=document_id).first()
@@ -749,27 +773,32 @@ def reject_document_validation(
 @router.get("/documents/{document_id}/validations", response_model=list[ValidationResponse])
 def get_document_validations(
     document_id: str,
+    user_id: str = Depends(get_current_user_id),
     ctx: WorkspaceSessionContext = Depends(get_workspace_context),
 ):
     """
     Obtiene todas las validaciones de un documento.
-    
+
+    Requiere poder VER el documento (permiso por carpeta incluido): el
+    historial expone validadores y observaciones.
+
     Args:
         document_id: ID del documento
-    
+
     Returns:
         Lista de ValidationResponse ordenadas por fecha de creacion (mas recientes primero)
     """
+    from api.routes._document_access import assert_document_viewable
+
     with get_db_session() as session:
-        doc = session.query(Document).filter_by(id=document_id).first()
-        if not doc:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Documento {document_id} no encontrado"
-            )
-        if doc.workspace_id != resolve_tenant_workspace_id(ctx):
-            raise HTTPException(status_code=404, detail=f"Documento {document_id} no encontrado")
-        
+        doc = assert_document_viewable(
+            session,
+            session.query(Document).filter_by(id=document_id).first(),
+            workspace_id=resolve_tenant_workspace_id(ctx),
+            user_id=user_id,
+            contexto="El documento",
+        )
+
         validations = (
             session.query(Validation)
             .filter_by(document_id=document_id)

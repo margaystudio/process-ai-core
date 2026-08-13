@@ -14,7 +14,7 @@ from sqlalchemy.orm import sessionmaker
 
 import process_ai_core.db.models  # noqa – registra modelos en Base.metadata
 from process_ai_core.db.database import Base
-from process_ai_core.db.models import Role, User, Workspace, WorkspaceMembership
+from process_ai_core.db.models import User, Workspace, WorkspaceMembership
 from process_ai_core.db.permissions import (
     has_permission,
     _is_superadmin,
@@ -48,16 +48,6 @@ def _uid() -> str:
     return str(uuid.uuid4())
 
 
-def _seed_roles(session) -> dict[str, Role]:
-    """Siembra los roles de sistema necesarios para los tests."""
-    roles = {}
-    for name in ("owner", "admin", "approver", "creator", "viewer", "superadmin"):
-        role = Role(name=name, is_system=True)
-        session.add(role)
-    session.flush()
-    return {r.name: r for r in session.query(Role).filter_by(is_system=True).all()}
-
-
 def _make_workspace(session, slug=None, workspace_type="organization") -> Workspace:
     ws = Workspace(
         slug=slug or f"ws-{_uid()[:8]}",
@@ -87,7 +77,6 @@ class TestPlatformSuperadminBypass:
     """platform_is_superadmin=True → bypass inmediato, sin necesidad de membership."""
 
     def test_has_permission_returns_true_with_platform_superadmin(self, session):
-        _seed_roles(session)
         user = _make_user(session)
         ws = _make_workspace(session)
 
@@ -102,7 +91,6 @@ class TestPlatformSuperadminBypass:
         assert result is True
 
     def test_has_permission_any_permission_bypassed(self, session):
-        _seed_roles(session)
         user = _make_user(session)
         ws = _make_workspace(session)
 
@@ -110,7 +98,6 @@ class TestPlatformSuperadminBypass:
             assert has_permission(session, user.id, ws.id, perm, platform_is_superadmin=True)
 
     def test_is_superadmin_flag_bypasses_db(self, session):
-        _seed_roles(session)
         user = _make_user(session)
 
         # Sin membership con rol superadmin en ningún workspace
@@ -120,7 +107,6 @@ class TestPlatformSuperadminBypass:
     def test_platform_superadmin_via_sync_then_has_permission(self, session):
         """Flujo real: sync_membership_from_context crea membership con rol superadmin
         en el workspace activo; has_permission lo encuentra SIN el flag."""
-        _seed_roles(session)
         user = _make_user(session)
         ws = _make_workspace(session)
 
@@ -134,14 +120,13 @@ class TestPlatformSuperadminBypass:
         )
         session.flush()
 
-        # Ahora has_permission lo encuentra por la membership (fallback legacy path)
+        # Ahora has_permission lo encuentra por la membership (base_access='admin')
         assert has_permission(session, user.id, ws.id, "documents.approve")
         # Y también con el flag directo
         assert has_permission(session, user.id, ws.id, "documents.approve", platform_is_superadmin=True)
 
     def test_can_view_folder_bypassed_for_platform_superadmin(self, session):
         from process_ai_core.db.models import Folder
-        _seed_roles(session)
         user = _make_user(session)
         ws = _make_workspace(session)
 
@@ -155,7 +140,6 @@ class TestPlatformSuperadminBypass:
 
     def test_can_create_in_folder_bypassed(self, session):
         from process_ai_core.db.models import Folder
-        _seed_roles(session)
         user = _make_user(session)
         ws = _make_workspace(session)
 
@@ -167,7 +151,6 @@ class TestPlatformSuperadminBypass:
 
     def test_can_approve_in_folder_bypassed(self, session):
         from process_ai_core.db.models import Folder
-        _seed_roles(session)
         user = _make_user(session)
         ws = _make_workspace(session)
 
@@ -184,7 +167,6 @@ class TestNoPlatformSuperadminBypass:
     """Sin el flag (o flag=False), el bypass NO aplica."""
 
     def test_has_permission_false_without_membership(self, session):
-        _seed_roles(session)
         user = _make_user(session)
         ws = _make_workspace(session)
 
@@ -195,7 +177,6 @@ class TestNoPlatformSuperadminBypass:
         ) is False
 
     def test_has_permission_false_default(self, session):
-        _seed_roles(session)
         user = _make_user(session)
         ws = _make_workspace(session)
 
@@ -204,7 +185,6 @@ class TestNoPlatformSuperadminBypass:
 
     def test_creator_cannot_approve(self, session):
         """tenant_member → rol creator → puede crear, no aprobar."""
-        _seed_roles(session)
         user = _make_user(session)
         ws = _make_workspace(session)
 
@@ -222,7 +202,6 @@ class TestNoPlatformSuperadminBypass:
         assert has_permission(session, user.id, ws.id, "documents.approve", platform_is_superadmin=False) is False
 
     def test_is_superadmin_false_without_flag_or_membership(self, session):
-        _seed_roles(session)
         user = _make_user(session)
 
         assert _is_superadmin(session, user.id, platform_is_superadmin=False) is False
@@ -236,7 +215,6 @@ class TestNoSistemaWorkspaceInList:
 
     def test_no_sistema_workspace_in_list_when_clean(self, session):
         """Sin workspace 'sistema', el listado de workspaces no lo incluye."""
-        _seed_roles(session)
         user = _make_user(session)
 
         # Crear workspace normal
@@ -260,56 +238,13 @@ class TestNoSistemaWorkspaceInList:
         assert "sistema" not in slugs
         assert "system" not in types
 
-    def test_cleanup_script_removes_sistema_workspace(self, session):
-        """El script de cleanup borra el workspace 'sistema' y sus memberships."""
-        _seed_roles(session)
-        user = _make_user(session)
-
-        # Crear el workspace 'sistema' legacy
-        sistema = Workspace(
-            slug="sistema",
-            name="Sistema",
-            workspace_type="system",
-        )
-        session.add(sistema)
-        session.flush()
-
-        # Crear la membership legacy
-        sa_role = session.query(Role).filter_by(name="superadmin", is_system=True).first()
-        membership = WorkspaceMembership(
-            user_id=user.id,
-            workspace_id=sistema.id,
-            role_id=sa_role.id,
-        )
-        session.add(membership)
-        session.flush()
-
-        # Verificar que existe antes del cleanup
-        assert session.query(Workspace).filter_by(slug="sistema").first() is not None
-
-        # Ejecutar el cleanup inline (misma lógica que el script)
-        memberships_to_delete = session.query(WorkspaceMembership).filter_by(
-            workspace_id=sistema.id
-        ).all()
-        for m in memberships_to_delete:
-            session.delete(m)
-        session.delete(sistema)
-        session.flush()
-
-        # Verificar que ya no existe
-        assert session.query(Workspace).filter_by(slug="sistema").first() is None
-        assert session.query(Workspace).filter_by(workspace_type="system").first() is None
-
-        # El usuario no tiene memberships en 'sistema'
-        remaining = session.query(WorkspaceMembership).filter_by(user_id=user.id).all()
-        for m in remaining:
-            ws = session.query(Workspace).filter_by(id=m.workspace_id).first()
-            assert ws is None or ws.slug != "sistema"
+    # (El test del script de cleanup se eliminó: la limpieza del workspace
+    # 'sistema' quedó absorbida por la migración 0025_drop_roles_legacy, que
+    # además borra las tablas del RBAC legacy.)
 
     def test_platform_superadmin_has_no_sistema_workspace_in_new_arch(self, session):
         """En la nueva arquitectura, un platform superadmin tiene membership en el
         workspace activo (no en 'sistema'), y 'sistema' no existe."""
-        _seed_roles(session)
         user = _make_user(session)
 
         # La nueva arquitectura: workspace real creado por get_or_create_workspace_for_tenant
@@ -332,9 +267,8 @@ class TestNoSistemaWorkspaceInList:
         assert workspaces[0].slug == "margay-studio"
         assert workspaces[0].workspace_type != "system"
 
-        # La membership tiene rol superadmin
-        role = session.query(Role).filter_by(id=memberships[0].role_id).first()
-        assert role.name == "superadmin"
+        # La membership es admin del workspace
+        assert memberships[0].base_access == "admin"
 
         # has_permission via membership local (sin flag) → True
         assert has_permission(session, user.id, ws_real.id, "documents.approve")

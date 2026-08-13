@@ -3,15 +3,16 @@
  * hacer el usuario con un documento, dado su estado + versiones + identidad +
  * permisos efectivos (con el bypass de superadmin ya resuelto por el caller).
  *
- * Reemplaza la lógica dispersa de `documentPermissions` + cálculos inline de la
- * ficha, que combinaba ~10 variables y producía condiciones de carrera (un draft
- * cuyo creador/superadmin no veía "Enviar a revisión").
- *
  * Función PURA y testeable: misma entrada → misma salida. La ficha solo consume
  * `getDocumentActions(...)` y nunca recalcula reglas inline.
  */
 
-import type { DocumentStatus } from './documentPermissions';
+export type DocumentStatus =
+  | 'draft'
+  | 'pending_validation'
+  | 'approved'
+  | 'rejected'
+  | 'archived';
 
 export interface DocumentActionsInput {
   /** Estado del documento. */
@@ -34,6 +35,13 @@ export interface DocumentActionsInput {
   canEditPermission: boolean;
   /** Permiso efectivo documents.delete. */
   canDeletePermission: boolean;
+  /**
+   * Acceso EFECTIVO a la carpeta del documento (`capabilities.folders[folder_id]`
+   * de `GET /users/me/capabilities`; herencia + bypass ya resueltos por el
+   * backend). Opcional: si el caller no la pasa (folder_id desconocido o
+   * documento sin carpeta), no restringe — se preserva el comportamiento previo.
+   */
+  folderAccess?: { canApprove?: boolean; canCreate?: boolean };
 }
 
 export interface DocumentActions {
@@ -62,7 +70,13 @@ export function getDocumentActions(input: DocumentActionsInput): DocumentActions
     canRejectPermission,
     canEditPermission,
     canDeletePermission,
+    folderAccess,
   } = input;
+
+  // Sin folderAccess (o sin ese campo) no restringe: preserva el comportamiento
+  // previo a la Fase 2 para los callers que todavía no conocen la carpeta.
+  const folderCanApprove = folderAccess?.canApprove ?? true;
+  const folderCanCreate = folderAccess?.canCreate ?? true;
 
   const isCreatorOfDraft = isCreatorOf(userId, draftCreatedBy);
   const isCreatorOfInReview = isCreatorOf(userId, inReviewCreatedBy);
@@ -73,17 +87,20 @@ export function getDocumentActions(input: DocumentActionsInput): DocumentActions
     status === 'draft' && hasDraftVersion && (isCreatorOfDraft || canEditPermission);
 
   // Aprobar / rechazar: documento pendiente, hay versión IN_REVIEW, el usuario
-  // tiene el permiso y NO es el creador de esa versión (segregación creador≠aprobador).
+  // tiene el permiso (general Y de la carpeta) y NO es el creador de esa versión
+  // (segregación creador≠aprobador).
   const canApprove =
     status === 'pending_validation' &&
     hasInReviewVersion &&
     canApprovePermission &&
+    folderCanApprove &&
     !isCreatorOfInReview;
 
   const canReject =
     status === 'pending_validation' &&
     hasInReviewVersion &&
     canRejectPermission &&
+    folderCanApprove &&
     !isCreatorOfInReview;
 
   // Cancelar envío (volver a borrador): solo el creador de la versión en revisión.
@@ -96,8 +113,9 @@ export function getDocumentActions(input: DocumentActionsInput): DocumentActions
     (status === 'draft' || status === 'pending_validation') &&
     (isCreatorOfDraft || isCreatorOfInReview || canEditPermission);
 
-  // Nueva versión: solo desde un documento ya resuelto (aprobado o rechazado).
-  const canCreateNewVersion = status === 'approved' || status === 'rejected';
+  // Nueva versión: solo desde un documento ya resuelto (aprobado o rechazado),
+  // y si hay dato de carpeta, con permiso de creación en esa carpeta.
+  const canCreateNewVersion = (status === 'approved' || status === 'rejected') && folderCanCreate;
 
   return {
     canSubmitForReview,

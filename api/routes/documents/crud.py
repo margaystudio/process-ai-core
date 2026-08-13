@@ -295,10 +295,10 @@ def list_documents(
                 detail="No tiene permisos para ver documentos en este workspace"
             )
 
-        # Si el usuario es viewer, forzar status=approved por seguridad
-        from process_ai_core.db.permissions import get_user_role
-        user_role = get_user_role(session, user_id, workspace_id)
-        if user_role and user_role.name == "viewer":
+        # Solo lectura (sin documents.edit) → solo documentos aprobados: los
+        # borradores y versiones en revisión no son "la verdad" del proceso.
+        from process_ai_core.db.permissions import has_permission as _has_perm
+        if not _has_perm(session, user_id, workspace_id, "documents.edit"):
             status = "approved"
 
         query = session.query(Document).filter_by(
@@ -462,10 +462,11 @@ def get_document(
                 detail="No tiene acceso a la carpeta de este documento"
             )
 
-        # Si el usuario es viewer, solo puede ver documentos aprobados
-        from process_ai_core.db.permissions import get_user_role
-        user_role = get_user_role(session, user_id, doc.workspace_id)
-        if user_role and user_role.name == "viewer" and doc.status != "approved":
+        # Solo lectura (sin documents.edit) → solo documentos aprobados.
+        from process_ai_core.db.permissions import has_permission as _has_perm
+        if doc.status != "approved" and not _has_perm(
+            session, user_id, doc.workspace_id, "documents.edit"
+        ):
             raise HTTPException(
                 status_code=403,
                 detail="Solo puede ver documentos aprobados"

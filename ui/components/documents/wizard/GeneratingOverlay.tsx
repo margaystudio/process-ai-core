@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { GEN_STEPS } from "./data";
 import { WizardIcon } from "./WizardIcon";
-import { Spinner } from "./Spinner";
+import { Spinner } from "@/shared/ui/components";
 
 // ── Tiempos estimados por etapa (milisegundos) ──────────────────────────────
 //
@@ -204,7 +204,7 @@ export function GeneratingOverlay({
                     strokeWidth={2.8}
                   />
                 )}
-                {isActive && <Spinner size={15} className="text-indigo" />}
+                {isActive && <Spinner size="sm" className="text-indigo" />}
               </span>
               <span
                 className={

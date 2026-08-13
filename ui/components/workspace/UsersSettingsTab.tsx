@@ -1,8 +1,13 @@
 'use client'
 
+import { useState } from 'react'
 import { OperationalRoleResponse, WorkspaceMember } from '@/lib/api'
+import { WORKSPACE_ACCESS_ROLE_BADGE_VARIANT, WORKSPACE_ACCESS_ROLE_LABEL } from '@/lib/accessLevels'
+import { Badge } from '@/shared/ui/components'
+import MemberEffectiveAccessModal from './MemberEffectiveAccessModal'
 
 type UsersSettingsTabProps = {
+  workspaceId: string
   members: WorkspaceMember[]
   operationalRoles: OperationalRoleResponse[]
   canManageUsers: boolean
@@ -15,6 +20,7 @@ type UsersSettingsTabProps = {
 }
 
 export default function UsersSettingsTab({
+  workspaceId,
   members,
   operationalRoles,
   canManageUsers,
@@ -25,6 +31,9 @@ export default function UsersSettingsTab({
   onSaveMemberRoles,
   onCancelEdit,
 }: UsersSettingsTabProps) {
+  // Miembro cuyo acceso efectivo se está viendo ("Ver acceso"). `null` = modal cerrado.
+  const [viewingAccessMember, setViewingAccessMember] = useState<WorkspaceMember | null>(null)
+
   return (
     <div>
       <div className="mb-6">
@@ -40,27 +49,46 @@ export default function UsersSettingsTab({
           <p className="text-ink-500">Cargando miembros...</p>
         ) : (
           <div className="divide-y divide-gray-200">
-            {members.map((member) => (
-              <div key={member.membership_id} className="py-4 flex items-center justify-between gap-4">
-                <div>
-                  <p className="font-medium">{member.name || member.email}</p>
-                  <p className="text-sm text-ink-500">
-                    {member.email} • Rol: {member.role}
-                    {member.operational_role_ids?.length
-                      ? ` • Roles operativos: ${member.operational_role_ids.length}`
-                      : ''}
-                  </p>
+            {members.map((member) => {
+              const isAdmin = member.role === 'admin'
+              return (
+                <div key={member.membership_id} className="py-4 flex items-center justify-between gap-4">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="font-medium">{member.name || member.email}</p>
+                      <Badge variant={WORKSPACE_ACCESS_ROLE_BADGE_VARIANT[member.role]}>
+                        {WORKSPACE_ACCESS_ROLE_LABEL[member.role]}
+                      </Badge>
+                    </div>
+                    <p className="text-sm text-ink-500">
+                      {member.email}
+                      {member.operational_role_ids?.length
+                        ? ` • Roles operativos: ${member.operational_role_ids.length}`
+                        : ''}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setViewingAccessMember(member)}
+                      className="px-3 py-1.5 text-sm bg-ink-100 hover:bg-ink-200 rounded-md"
+                    >
+                      Ver acceso
+                    </button>
+                    {canManageUsers && (
+                      <span title={isAdmin ? 'Los administradores tienen acceso total' : undefined}>
+                        <button
+                          onClick={() => onOpenMemberEdit(member)}
+                          disabled={isAdmin}
+                          className="px-3 py-1.5 text-sm bg-ink-100 hover:bg-ink-200 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-ink-100 rounded-md"
+                        >
+                          {editingMemberId === member.membership_id ? 'Editando...' : 'Asignar roles operativos'}
+                        </button>
+                      </span>
+                    )}
+                  </div>
                 </div>
-                {canManageUsers && (
-                  <button
-                    onClick={() => onOpenMemberEdit(member)}
-                    className="px-3 py-1.5 text-sm bg-ink-100 hover:bg-ink-200 rounded-md"
-                  >
-                    {editingMemberId === member.membership_id ? 'Editando...' : 'Asignar roles operativos'}
-                  </button>
-                )}
-              </div>
-            ))}
+              )
+            })}
           </div>
         )}
         {editingMemberId && (
@@ -102,6 +130,12 @@ export default function UsersSettingsTab({
           </div>
         )}
       </div>
+
+      <MemberEffectiveAccessModal
+        workspaceId={workspaceId}
+        member={viewingAccessMember}
+        onClose={() => setViewingAccessMember(null)}
+      />
     </div>
   )
 }

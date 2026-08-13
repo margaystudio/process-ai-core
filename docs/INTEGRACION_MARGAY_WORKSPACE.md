@@ -107,18 +107,34 @@ deben contaminarse con conceptos de un solo módulo (pistero/encargado/gerencia)
 | Nivel | Decide | Fuente | Ejemplos |
 |---|---|---|---|
 | **Acceso + rol macro** | margay-workspace | `tenant_roles` + `applications` del contexto | ¿es `tenant_admin`? ¿tiene acceso a la app `process-ai`? |
-| **Rol de dominio + permisos finos** | **process-ai-core** | RBAC local ya existente (`Role`/`Permission`) | pistero / encargado / gerencia → quién crea, quién aprueba, qué carpetas ve |
+| **Rol de dominio + permisos finos** | **process-ai-core** | Roles operativos (`operational_roles.access_level` × carpetas) | pistero / encargado / gerencia → quién crea, quién aprueba, qué carpetas ve |
 
-Mapeo sugerido macro → comportamiento por defecto en process-ai-core:
-- `tenant_admin` → admin del módulo (puede todo, incl. aprobar).
-- `tenant_member` → rol operativo por defecto; el rol de dominio fino (pistero/encargado/
-  gerencia) lo asigna process-ai-core dentro del módulo.
-- `tenant_external_client` → rol macro genérico; en process-ai-core lo usaríamos para
-  **Margay como consultor externo** documentando en el tenant del cliente (relevante para
-  consultoría, ver `docs/ESTRATEGIA_COMERCIAL_Y_PRICING.md`). NOTA: el mismo rol significa
-  otra cosa en otros módulos (en margay-oms = cliente final que pide mercadería), así que el
-  comportamiento concreto lo decide process-ai-core, no el rol en sí.
-- `superadmin` (plataforma) → bypass.
+Mapeo IMPLEMENTADO (fase 3 del rediseño de permisos) macro → `workspace_memberships.base_access`:
+- `tenant_admin` / `superadmin` de plataforma → `base_access='admin'`: admin del módulo
+  (gestión total + bypass del permiso por carpeta).
+- `tenant_member` → `base_access='member'`: nivel "edición" en carpetas sin restricción;
+  en las restringidas y para aprobar mandan sus roles operativos (nivel
+  lectura/edicion/aprobacion × carpetas).
+- `tenant_external_client` → `base_access='external'`: tope de SOLO LECTURA, tenga los
+  roles operativos que tenga. En process-ai lo usamos para **Margay como consultor
+  externo** o clientes de solo consulta. NOTA: el mismo rol significa otra cosa en otros
+  módulos (en margay-oms = cliente final que pide mercadería), así que el comportamiento
+  concreto lo decide cada módulo, no el rol en sí.
+- Rol desconocido / sin rol → `base_access='external'` (fallback al acceso más restrictivo).
+
+Los roles de sistema locales (owner/admin/approver/creator/viewer) que este documento
+mencionaba en versiones anteriores se **eliminaron**: eran un vocabulario intermedio que
+nadie administraba. Ver `docs/ROLES_OPERATIVOS_Y_PERMISOS_POR_CARPETA.md` §1.
+
+**Rol efectivo POR APP (fase 4, ADR "Roles por módulo").** El sync usa
+`tenant_modules[].applications[].role` (el rol efectivo del usuario en la app
+`process_ai` del tenant activo, resuelto por Workspace) con fallback a los
+`tenant_roles` globales si Workspace no lo emite. Consecuencia: un
+`tenant_member` puede ser admin SOLO de Process AI (override de la membresía
+de la app en el hub) sin ser admin del tenant. El campo raíz `applications`
+(deprecado) **ya no se lee**: este módulo deriva las apps de `tenant_modules`,
+así que Workspace puede eliminar el shim de compatibilidad de
+`margay_contracts` que mantenía por process-ai.
 
 ---
 

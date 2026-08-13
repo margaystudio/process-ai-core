@@ -1,11 +1,11 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import Image from 'next/image'
-import { AlertCircle, Download, ExternalLink, Loader2, X } from 'lucide-react'
+import { AlertCircle, Download, ExternalLink, X } from 'lucide-react'
 import { downloadVersionPdf, fetchArtifact, getVersionPdfUrl, isFrozenVersionStatus } from '@/lib/api'
 import type { VersionPdfTarget } from '@/hooks/usePdfViewer'
 import { Button, buttonVariants } from '@/shared/ui/components/button'
+import { Skeleton, Spinner } from '@/shared/ui/components'
 import { cn } from '@/shared/ui/cn'
 
 interface ArtifactViewerModalProps {
@@ -250,24 +250,15 @@ export default function ArtifactViewerModal({
             }`}
           >
             {showPdfLoadingState ? (
-              <div className="flex h-full min-h-[24rem] items-center justify-center rounded-lg border border-ink-200 bg-white">
-                <div className="flex flex-col items-center gap-4">
-                  <Image
-                    src="/margay-spiner.png"
-                    alt="Cargando PDF"
-                    width={64}
-                    height={64}
-                    className="h-16 w-16 object-contain animate-spin"
-                  />
-                  <p className="text-sm font-medium text-ink-600">Cargando PDF...</p>
-                </div>
+              <div className="flex h-full min-h-[24rem] flex-col gap-3 rounded-lg border border-ink-200 bg-white p-4">
+                <Skeleton className="h-5 w-40" />
+                <Skeleton className="h-full min-h-[18rem] w-full rounded-lg" />
               </div>
             ) : loading ? (
-              <div className="flex items-center justify-center h-96">
-                <div className="text-center">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent mx-auto mb-2"></div>
-                  <p className="text-sm text-ink-600">Cargando contenido...</p>
-                </div>
+              <div className="flex h-96 flex-col gap-3 rounded-lg border border-ink-200 bg-white p-4">
+                <Skeleton className="h-4 w-2/3" />
+                <Skeleton className="h-4 w-1/2" />
+                <Skeleton className="mt-2 h-full min-h-[16rem] w-full rounded-lg" />
               </div>
             ) : error ? (
               <div className="flex items-center justify-center h-96">
@@ -288,7 +279,7 @@ export default function ArtifactViewerModal({
                       aria-busy={downloading}
                     >
                       {downloading ? (
-                        <Loader2 className="animate-spin" aria-hidden="true" />
+                        <Spinner size="sm" aria-hidden="true" />
                       ) : (
                         <Download aria-hidden="true" />
                       )}
@@ -321,17 +312,8 @@ export default function ArtifactViewerModal({
                   onLoad={() => setPdfFrameLoading(false)}
                 />
                 {pdfFrameLoading && (
-                  <div className="absolute inset-0 z-10 flex items-center justify-center bg-white">
-                    <div className="flex flex-col items-center gap-4">
-                      <Image
-                        src="/margay-spiner.png"
-                        alt="Cargando PDF"
-                        width={64}
-                        height={64}
-                        className="h-16 w-16 object-contain animate-spin"
-                      />
-                      <p className="text-sm font-medium text-ink-600">Cargando PDF...</p>
-                    </div>
+                  <div className="absolute inset-0 z-10 bg-white p-4">
+                    <Skeleton className="h-full w-full rounded-lg" />
                   </div>
                 )}
               </div>

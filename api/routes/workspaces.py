@@ -24,20 +24,35 @@ from sqlalchemy.orm import Session
 from process_ai_core.storage import get_storage, workspace_branding_key
 from process_ai_core.db.database import get_db_session
 from ..dependencies import get_db
-from process_ai_core.db.helpers import (
-    add_user_to_workspace_helper,
-)
 from process_ai_core.config import get_settings
-from process_ai_core.db.models import Workspace, WorkspaceMembership, User, Role
+from process_ai_core.db.models import Workspace, WorkspaceMembership, User
 from process_ai_core.db.models import UserOperationalRole
-from ..dependencies import get_current_user_id, is_superadmin
+from ..dependencies import get_current_user_id
+from process_ai_core.db.permissions import (
+    get_membership_base_access,
+    is_workspace_admin,
+    resolve_folder_permissions_source,
+)
 from ..models.requests import (
     WorkspaceResponse,
     WorkspaceBrandingUpdateRequest,
     WorkspaceSettingsUpdateRequest,
 )
+from ..request_identity import capture_request_identity
+from ..workspace_client import (
+    get_workspace_context,
+    require_process_ai_access,
+    sync_workspace_access,
+)
 
-router = APIRouter(prefix="/api/v1/workspaces", tags=["workspaces"])
+# require_process_ai_access va por endpoint y no a nivel de router: la ruta del
+# icono de branding se carga desde un <link>/<img> del navegador, que no puede
+# mandar headers de auth, así que tiene que quedar fuera del gate.
+router = APIRouter(
+    prefix="/api/v1/workspaces",
+    tags=["workspaces"],
+    dependencies=[Depends(sync_workspace_access), Depends(capture_request_identity)],
+)
 
 logger = logging.getLogger(__name__)
 
@@ -127,39 +142,19 @@ def _serialize_workspace(workspace: Workspace, role: str | None = None) -> Works
     )
 
 
-def _get_workspace_role_name(session: Session, user_id: str, workspace_id: str) -> str | None:
-    membership = session.query(WorkspaceMembership).filter_by(
-        user_id=user_id,
-        workspace_id=workspace_id,
-    ).first()
-    if not membership:
-        return None
-    if membership.role_id:
-        role = session.query(Role).filter_by(id=membership.role_id).first()
-        if role:
-            return role.name
-    return membership.role
+def _require_workspace_settings_access(session: Session, user_id: str, workspace_id: str) -> None:
+    """Configuración y branding del workspace: solo el admin del módulo.
 
-
-def _require_workspace_branding_access(session: Session, user_id: str, workspace_id: str) -> None:
-    role_name = _get_workspace_role_name(session, user_id, workspace_id)
-    if role_name not in {"owner", "creator"}:
+    Antes había dos listas distintas de roles de sistema (settings:
+    owner/creator/admin; branding: owner/creator). Con los roles de sistema
+    eliminados, toda la gestión del workspace es del admin (tenant_admin o
+    superadmin de plataforma).
+    """
+    if not is_workspace_admin(session, user_id, workspace_id):
         raise HTTPException(
             status_code=403,
-            detail="Solo los roles owner o creator pueden personalizar el icono del workspace",
+            detail="Solo un administrador del workspace puede editar su configuración",
         )
-
-
-def _require_workspace_settings_access(session: Session, user_id: str, workspace_id: str) -> None:
-    if is_superadmin(user_id, session):
-        return
-    role_name = _get_workspace_role_name(session, user_id, workspace_id)
-    if role_name in {"owner", "creator", "admin"}:
-        return
-    raise HTTPException(
-        status_code=403,
-        detail="Solo los roles owner, creator o admin pueden editar la configuración del workspace",
-    )
 
 
 def _normalize_optional_str(value: str | None, *, max_length: int | None = None) -> str | None:
@@ -196,20 +191,31 @@ def _validate_hex_color(color: str, field_name: str) -> str:
 
 
 
-@router.get("", response_model=list[WorkspaceResponse])
-def list_workspaces():
+@router.get("", response_model=list[WorkspaceResponse], dependencies=[Depends(require_process_ai_access)])
+def list_workspaces(
+    user_id: str = Depends(get_current_user_id),
+    session: Session = Depends(get_db),
+):
     """
-    Lista todos los workspaces (clientes/organizaciones).
+    Lista los workspaces de los que el usuario autenticado es miembro.
+
+    Antes no pedía autenticación y devolvía TODOS los tenants de la
+    plataforma. Un superadmin local sigue viendo todos.
 
     Returns:
         Lista de WorkspaceResponse
     """
-    with get_db_session() as session:
-        workspaces = session.query(Workspace).filter_by(workspace_type="organization").all()
-        return [_serialize_workspace(w) for w in workspaces]
+    from process_ai_core.db.permissions import _is_superadmin
+
+    query = session.query(Workspace).filter_by(workspace_type="organization")
+    if not _is_superadmin(session, user_id):
+        query = query.join(
+            WorkspaceMembership, WorkspaceMembership.workspace_id == Workspace.id
+        ).filter(WorkspaceMembership.user_id == user_id)
+    return [_serialize_workspace(w) for w in query.all()]
 
 
-@router.get("/{workspace_id}/members")
+@router.get("/{workspace_id}/members", dependencies=[Depends(require_process_ai_access)])
 def get_workspace_members(
     workspace_id: str,
     user_id: str = Depends(get_current_user_id),
@@ -219,9 +225,9 @@ def get_workspace_members(
     Lista los miembros del workspace (memberships) con usuario, rol de sistema y roles operativos.
     Requiere ser miembro del workspace (owner/admin para gestión).
     """
-    from process_ai_core.db.permissions import get_user_role
-    role = get_user_role(session, user_id, workspace_id)
-    if not role:
+    if not get_membership_base_access(session, user_id, workspace_id) and not is_workspace_admin(
+        session, user_id, workspace_id
+    ):
         raise HTTPException(status_code=403, detail="No eres miembro de este workspace")
     workspace = session.query(Workspace).filter_by(id=workspace_id).first()
     if not workspace:
@@ -233,17 +239,11 @@ def get_workspace_members(
     # Batch-load para evitar N+1 (antes: 3 queries por miembro contra el Postgres
     # remoto). Ahora son 4 queries fijas sin importar la cantidad de miembros.
     user_ids = {m.user_id for m in memberships if m.user_id}
-    role_ids = {m.role_id for m in memberships if m.role_id}
     membership_ids = [m.id for m in memberships]
 
     users_by_id = (
         {u.id: u for u in session.query(User).filter(User.id.in_(user_ids)).all()}
         if user_ids
-        else {}
-    )
-    roles_by_id = (
-        {r.id: r for r in session.query(Role).filter(Role.id.in_(role_ids)).all()}
-        if role_ids
         else {}
     )
     op_role_ids_by_membership: dict[str, list[str]] = {}
@@ -261,20 +261,131 @@ def get_workspace_members(
     out = []
     for m in memberships:
         user = users_by_id.get(m.user_id)
-        role_obj = roles_by_id.get(m.role_id) if m.role_id else None
-        role_name = role_obj.name if role_obj else (m.role or "")
         out.append({
             "membership_id": m.id,
             "user_id": m.user_id,
             "email": user.email if user else "",
             "name": user.name if user else "",
-            "role": role_name,
+            # Acceso base derivado del rol macro del tenant ('admin'|'member'|'external').
+            # La clave sigue siendo "role" para no romper el contrato con la UI.
+            "role": m.base_access,
             "operational_role_ids": op_role_ids_by_membership.get(m.id, []),
         })
     return {"workspace_id": workspace_id, "members": out}
 
 
-@router.patch("/{workspace_id}/settings", response_model=WorkspaceResponse)
+@router.get(
+    "/{workspace_id}/members/{membership_id}/effective-access",
+    dependencies=[Depends(require_process_ai_access)],
+)
+def get_member_effective_access(
+    workspace_id: str,
+    membership_id: str,
+    user_id: str = Depends(get_current_user_id),
+    session: Session = Depends(get_db),
+    ctx=Depends(get_workspace_context),
+):
+    """
+    Acceso EFECTIVO de un miembro, para el admin del workspace: qué puede
+    hacer en cada carpeta y POR QUÉ (qué rol operativo se lo da, o de qué
+    ancestro hereda la restricción).
+
+    Es la herramienta de soporte del modelo de permisos: convierte "¿por qué
+    Juan no puede aprobar acá?" en una consulta, en vez de un ticket. Solo
+    admin/superadmin: expone la configuración de acceso de otra persona.
+    """
+    from process_ai_core.db.models import Folder, OperationalRole, UserOperationalRole
+    from process_ai_core.db.permissions import build_permission_context
+
+    platform_is_superadmin = "superadmin" in (ctx.platform_roles or [])
+    if not is_workspace_admin(session, user_id, workspace_id, platform_is_superadmin):
+        raise HTTPException(
+            status_code=403,
+            detail="Solo un administrador puede ver el acceso efectivo de otros usuarios",
+        )
+
+    membership = session.query(WorkspaceMembership).filter_by(
+        id=membership_id, workspace_id=workspace_id
+    ).first()
+    if not membership:
+        raise HTTPException(status_code=404, detail="Membresía no encontrada")
+
+    target = session.query(User).filter_by(id=membership.user_id).first()
+
+    # Nota: el claim de plataforma del USUARIO OBJETIVO no se conoce acá (viaja
+    # en SU sesión); si el objetivo fuera superadmin, esto muestra su acceso
+    # como miembro común. Aceptable: los superadmin no se administran acá.
+    perm_ctx = build_permission_context(session, membership.user_id, workspace_id)
+
+    roles = (
+        session.query(OperationalRole)
+        .join(
+            UserOperationalRole,
+            UserOperationalRole.operational_role_id == OperationalRole.id,
+        )
+        .filter(UserOperationalRole.workspace_membership_id == membership.id)
+        .order_by(OperationalRole.name)
+        .all()
+    )
+
+    folders = (
+        session.query(Folder)
+        .filter_by(workspace_id=workspace_id)
+        .order_by(Folder.path)
+        .all()
+    )
+    folder_name_by_id = {f.id: f.name for f in folders}
+
+    folder_rows = []
+    for f in folders:
+        allowed = perm_ctx.allowed_operational_role_ids(f.id)
+        restricted = bool(allowed)
+        source_id = None
+        if restricted:
+            # De qué carpeta sale la lista efectiva (la propia o un ancestro).
+            _, source = resolve_folder_permissions_source(session, f)
+            source_id = source.id if source else None
+        folder_rows.append({
+            "id": f.id,
+            "name": f.name,
+            "path": f.path,
+            "parent_id": f.parent_id,
+            "view": perm_ctx.can_view_folder(f.id),
+            "create": perm_ctx.can_create_in_folder(f.id),
+            "approve": perm_ctx.can_approve_in_folder(f.id),
+            "restricted": restricted,
+            "source_folder_id": source_id,
+            "source_folder_name": folder_name_by_id.get(source_id),
+            # Los roles del usuario que abren ESTA carpeta (vacío si entra por
+            # el nivel base o si no entra).
+            "granted_by_role_ids": sorted(
+                perm_ctx.operational_role_ids & allowed
+            ) if restricted else [],
+        })
+
+    return {
+        "membership_id": membership.id,
+        "user_id": membership.user_id,
+        "email": target.email if target else "",
+        "name": target.name if target else "",
+        "base_access": perm_ctx.base_access,
+        "is_admin": perm_ctx.base_access == "admin",
+        "permissions": sorted(perm_ctx.permission_names),
+        "operational_roles": [
+            {
+                "id": r.id,
+                "name": r.name,
+                "slug": r.slug,
+                "access_level": r.access_level,
+                "is_active": r.is_active,
+            }
+            for r in roles
+        ],
+        "folders": folder_rows,
+    }
+
+
+@router.patch("/{workspace_id}/settings", response_model=WorkspaceResponse, dependencies=[Depends(require_process_ai_access)])
 def update_workspace_settings(
     workspace_id: str,
     request: WorkspaceSettingsUpdateRequest,
@@ -322,14 +433,22 @@ def update_workspace_settings(
         )
 
     session.flush()
-    role_name = _get_workspace_role_name(session, user_id, workspace_id)
-    return _serialize_workspace(workspace, role=role_name)
+    return _serialize_workspace(
+        workspace, role=get_membership_base_access(session, user_id, workspace_id)
+    )
 
 
-@router.get("/{workspace_id}", response_model=WorkspaceResponse)
-def get_workspace(workspace_id: str):
+@router.get("/{workspace_id}", response_model=WorkspaceResponse, dependencies=[Depends(require_process_ai_access)])
+def get_workspace(
+    workspace_id: str,
+    user_id: str = Depends(get_current_user_id),
+    session: Session = Depends(get_db),
+):
     """
-    Obtiene un workspace por su ID.
+    Obtiene un workspace por su ID. Solo para miembros (o superadmin).
+
+    404 también para no-miembros: para quien está en otro tenant, este
+    workspace no existe (mismo criterio que los documentos).
 
     Args:
         workspace_id: ID del workspace
@@ -338,20 +457,28 @@ def get_workspace(workspace_id: str):
         WorkspaceResponse
 
     Raises:
-        404: Si el workspace no existe
+        404: Si el workspace no existe o el usuario no es miembro
     """
-    with get_db_session() as session:
-        workspace = session.query(Workspace).filter_by(id=workspace_id).first()
-        if not workspace:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Workspace {workspace_id} no encontrado"
-            )
+    workspace = session.query(Workspace).filter_by(id=workspace_id).first()
+    if not workspace:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Workspace {workspace_id} no encontrado"
+        )
 
-        return _serialize_workspace(workspace)
+    from process_ai_core.db.permissions import _is_superadmin
+
+    base_access = get_membership_base_access(session, user_id, workspace_id)
+    if not base_access and not _is_superadmin(session, user_id):
+        raise HTTPException(
+            status_code=404,
+            detail=f"Workspace {workspace_id} no encontrado"
+        )
+
+    return _serialize_workspace(workspace, role=base_access)
 
 
-@router.post("/{workspace_id}/branding/icon")
+@router.post("/{workspace_id}/branding/icon", dependencies=[Depends(require_process_ai_access)])
 async def upload_workspace_branding_icon(
     workspace_id: str,
     file: UploadFile = File(...),
@@ -366,7 +493,7 @@ async def upload_workspace_branding_icon(
     if not workspace:
         raise HTTPException(status_code=404, detail="Workspace no encontrado")
 
-    _require_workspace_branding_access(session, user_id, workspace_id)
+    _require_workspace_settings_access(session, user_id, workspace_id)
 
     ext = Path(file.filename or "icon.png").suffix.lower() or ".png"
     if ext not in ALLOWED_BRANDING_EXTENSIONS:
@@ -409,7 +536,7 @@ async def upload_workspace_branding_icon(
     }
 
 
-@router.delete("/{workspace_id}/branding/icon")
+@router.delete("/{workspace_id}/branding/icon", dependencies=[Depends(require_process_ai_access)])
 def delete_workspace_branding_icon(
     workspace_id: str,
     user_id: str = Depends(get_current_user_id),
@@ -423,7 +550,7 @@ def delete_workspace_branding_icon(
     if not workspace:
         raise HTTPException(status_code=404, detail="Workspace no encontrado")
 
-    _require_workspace_branding_access(session, user_id, workspace_id)
+    _require_workspace_settings_access(session, user_id, workspace_id)
 
     filename = _get_workspace_branding_icon_filename(workspace)
     if filename:
@@ -439,7 +566,7 @@ def delete_workspace_branding_icon(
     return {"icon_url": None}
 
 
-@router.put("/{workspace_id}/branding")
+@router.put("/{workspace_id}/branding", dependencies=[Depends(require_process_ai_access)])
 def update_workspace_branding(
     workspace_id: str,
     request: WorkspaceBrandingUpdateRequest,
@@ -454,7 +581,7 @@ def update_workspace_branding(
     if not workspace:
         raise HTTPException(status_code=404, detail="Workspace no encontrado")
 
-    _require_workspace_branding_access(session, user_id, workspace_id)
+    _require_workspace_settings_access(session, user_id, workspace_id)
 
     primary_color = _validate_hex_color(request.primary_color, "primary_color")
     secondary_color = _validate_hex_color(request.secondary_color, "secondary_color")
@@ -475,6 +602,11 @@ def update_workspace_branding(
 def get_workspace_branding_icon(workspace_id: str, filename: str):
     """
     Sirve el icono personalizado del workspace desde object storage.
+
+    SIN auth a propósito: la UI lo usa como favicon (<link rel="icon">) y en
+    <img>, que no pueden mandar el header Authorization. El riesgo es acotado:
+    el filename es un uuid4 hex irrecuperable sin conocer la metadata del
+    workspace, y el contenido es un logo, no datos.
     """
     if ".." in filename or "/" in filename or "\\" in filename:
         raise HTTPException(status_code=400, detail="Nombre de archivo no válido")

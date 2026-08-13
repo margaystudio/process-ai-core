@@ -70,10 +70,14 @@ router = APIRouter()
 @router.get("/{document_id}/versions")
 def get_document_versions(
     document_id: str,
+    user_id: str = Depends(get_current_user_id),
     ctx: WorkspaceSessionContext = Depends(get_workspace_context),
 ):
     """
     Obtiene todas las versiones de un documento.
+
+    Requiere poder VER el documento (permiso por carpeta incluido): el listado
+    de versiones expone quién creó/aprobó/rechazó cada una.
 
     Args:
         document_id: ID del documento
@@ -82,13 +86,13 @@ def get_document_versions(
         Lista de versiones ordenadas por número (más recientes primero)
     """
     with get_db_session() as session:
-        doc = session.query(Document).filter_by(id=document_id).first()
-        if not doc:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Documento {document_id} no encontrado"
-            )
-        _assert_doc_in_active_workspace(doc.workspace_id, resolve_tenant_workspace_id(ctx), document_id)
+        assert_document_viewable(
+            session,
+            session.query(Document).filter_by(id=document_id).first(),
+            workspace_id=resolve_tenant_workspace_id(ctx),
+            user_id=user_id,
+            contexto="El documento",
+        )
 
         from process_ai_core.db.models import DocumentVersion
 
@@ -230,6 +234,7 @@ def get_version_frozen_pdf(
     request: Request,
     original: bool = False,
     download: bool = False,
+    user_id: str = Depends(get_current_user_id),
     ctx: WorkspaceSessionContext = Depends(get_workspace_context),
 ):
     """
@@ -266,13 +271,15 @@ def get_version_frozen_pdf(
       endpoint necesitara tocar otra tabla, hay que revisar esto de nuevo.
     """
     with get_db_session() as session:
-        document = session.query(Document).filter_by(id=document_id).first()
-        if not document:
-            raise HTTPException(
-                status_code=404, detail=f"Documento {document_id} no encontrado"
-            )
-        _assert_doc_in_active_workspace(
-            document.workspace_id, resolve_tenant_workspace_id(ctx), document_id
+        # Permiso por CARPETA incluido: el PDF congelado es el contenido
+        # completo del documento — dejarlo con solo el check de tenant era el
+        # mismo bug que ya se arregló para las imágenes (_document_access.py).
+        assert_document_viewable(
+            session,
+            session.query(Document).filter_by(id=document_id).first(),
+            workspace_id=resolve_tenant_workspace_id(ctx),
+            user_id=user_id,
+            contexto="El documento",
         )
 
         version = (
@@ -455,6 +462,7 @@ async def get_version_preview_pdf(
     document_id: str,
     version_id: str,
     download: bool = False,
+    user_id: str = Depends(get_current_user_id),
     ctx: WorkspaceSessionContext = Depends(get_workspace_context),
 ):
     """
@@ -472,9 +480,15 @@ async def get_version_preview_pdf(
     settings = get_settings()
     api_base = settings.api_base_url.rstrip("/")
     with get_db_session() as session:
-        document = session.query(Document).filter_by(id=document_id).first()
-        if document:
-            _assert_doc_in_active_workspace(document.workspace_id, resolve_tenant_workspace_id(ctx), document_id)
+        # Antes toleraba document=None y saltaba el check de tenant; ahora el
+        # documento es obligatorio y el permiso por carpeta se verifica siempre.
+        document = assert_document_viewable(
+            session,
+            session.query(Document).filter_by(id=document_id).first(),
+            workspace_id=resolve_tenant_workspace_id(ctx),
+            user_id=user_id,
+            contexto="El documento",
+        )
         version = (
             session.query(DocumentVersion)
             .filter_by(id=version_id, document_id=document_id)
@@ -620,12 +634,14 @@ async def get_version_preview_pdf(
 @router.get("/{document_id}/current-version")
 def get_current_document_version(
     document_id: str,
+    user_id: str = Depends(get_current_user_id),
     ctx: WorkspaceSessionContext = Depends(get_workspace_context),
 ):
     """
     Obtiene la versión actual aprobada del documento.
 
-    Esta es la "verdad" visible para operarios y para RAG.
+    Esta es la "verdad" visible para operarios y para RAG. Devuelve el
+    contenido completo, así que exige el permiso por carpeta.
 
     Args:
         document_id: ID del documento
@@ -634,13 +650,13 @@ def get_current_document_version(
         Versión actual con JSON y Markdown
     """
     with get_db_session() as session:
-        doc = session.query(Document).filter_by(id=document_id).first()
-        if not doc:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Documento {document_id} no encontrado"
-            )
-        _assert_doc_in_active_workspace(doc.workspace_id, resolve_tenant_workspace_id(ctx), document_id)
+        assert_document_viewable(
+            session,
+            session.query(Document).filter_by(id=document_id).first(),
+            workspace_id=resolve_tenant_workspace_id(ctx),
+            user_id=user_id,
+            contexto="El documento",
+        )
 
         from process_ai_core.db.models import DocumentVersion
 
@@ -675,10 +691,13 @@ def get_current_document_version(
 @router.get("/{document_id}/audit-log")
 def get_document_audit_log(
     document_id: str,
+    user_id: str = Depends(get_current_user_id),
     ctx: WorkspaceSessionContext = Depends(get_workspace_context),
 ):
     """
     Obtiene el historial completo de cambios (audit log) de un documento.
+
+    Requiere poder VER el documento (permiso por carpeta incluido).
 
     Args:
         document_id: ID del documento
@@ -687,13 +706,13 @@ def get_document_audit_log(
         Lista de registros de auditoría ordenados por fecha (más recientes primero)
     """
     with get_db_session() as session:
-        doc = session.query(Document).filter_by(id=document_id).first()
-        if not doc:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Documento {document_id} no encontrado"
-            )
-        _assert_doc_in_active_workspace(doc.workspace_id, resolve_tenant_workspace_id(ctx), document_id)
+        assert_document_viewable(
+            session,
+            session.query(Document).filter_by(id=document_id).first(),
+            workspace_id=resolve_tenant_workspace_id(ctx),
+            user_id=user_id,
+            contexto="El documento",
+        )
 
         from process_ai_core.db.models import AuditLog
 
@@ -755,7 +774,7 @@ def submit_version_for_review_endpoint(
     workspace_id = resolve_tenant_workspace_id(ctx)
     with get_db_session() as session:
         # Verificar permisos
-        from process_ai_core.db.permissions import has_permission
+        from process_ai_core.db.permissions import can_create_in_folder, has_permission
 
         if not has_permission(session, user_id, workspace_id, "documents.edit"):
             raise HTTPException(
@@ -772,6 +791,15 @@ def submit_version_for_review_endpoint(
             )
 
         _assert_doc_in_active_workspace(doc.workspace_id, workspace_id, document_id)
+
+        # Permiso por CARPETA: documents.edit es global al workspace, pero el
+        # acceso operativo se define por carpeta; sin esto, un creator con
+        # carpetas restringidas podía operar versiones fuera de su alcance.
+        if not can_create_in_folder(session, user_id, workspace_id, doc.folder_id):
+            raise HTTPException(
+                status_code=403,
+                detail="No tiene acceso a los documentos de esta carpeta",
+            )
 
         # Verificar que la versión existe y pertenece al documento
         from process_ai_core.db.models import DocumentVersion
@@ -832,7 +860,7 @@ def cancel_submission_endpoint(
     """
     workspace_id = resolve_tenant_workspace_id(ctx)
     with get_db_session() as session:
-        from process_ai_core.db.permissions import has_permission
+        from process_ai_core.db.permissions import can_create_in_folder, has_permission
 
         if not has_permission(session, user_id, workspace_id, "documents.edit"):
             raise HTTPException(
@@ -843,6 +871,11 @@ def cancel_submission_endpoint(
         if not doc:
             raise HTTPException(status_code=404, detail="Documento no encontrado")
         _assert_doc_in_active_workspace(doc.workspace_id, workspace_id, document_id)
+        if not can_create_in_folder(session, user_id, workspace_id, doc.folder_id):
+            raise HTTPException(
+                status_code=403,
+                detail="No tiene acceso a los documentos de esta carpeta",
+            )
         try:
             updated_version = cancel_submission(
                 session=session,
@@ -885,7 +918,7 @@ def clone_version_to_draft(
     workspace_id = resolve_tenant_workspace_id(ctx)
     with get_db_session() as session:
         # Verificar permisos
-        from process_ai_core.db.permissions import has_permission
+        from process_ai_core.db.permissions import can_create_in_folder, has_permission
 
         if not has_permission(session, user_id, workspace_id, "documents.edit"):
             raise HTTPException(
@@ -902,6 +935,12 @@ def clone_version_to_draft(
             )
 
         _assert_doc_in_active_workspace(doc.workspace_id, workspace_id, document_id)
+
+        if not can_create_in_folder(session, user_id, workspace_id, doc.folder_id):
+            raise HTTPException(
+                status_code=403,
+                detail="No tiene acceso a los documentos de esta carpeta",
+            )
 
         # Verificar que la versión existe y pertenece al documento
         from process_ai_core.db.models import DocumentVersion

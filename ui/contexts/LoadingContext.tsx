@@ -1,7 +1,7 @@
 'use client'
 
 import { createContext, useContext, useState, useCallback, useMemo, ReactNode } from 'react'
-import LoadingOverlay from '@/components/layout/LoadingOverlay'
+import { Spinner } from '@/shared/ui/components'
 
 interface LoadingContextType {
   isLoading: boolean
@@ -43,7 +43,19 @@ export function LoadingProvider({ children }: { children: ReactNode }) {
   return (
     <LoadingContext.Provider value={value}>
       {children}
-      {isLoading && <LoadingOverlay />}
+      {/* Overlay bloqueante para acciones "de página" (guardar, aprobar) disparadas con
+          `withLoading`. Usa el `Spinner` estándar del sistema — ya no el logo del margay
+          girando. Sigue siendo la excepción "a pantalla completa" al criterio de que el
+          spinner va SOLO dentro de un control: acá bloquea a propósito mientras la
+          acción está en vuelo, para no permitir un segundo submit. */}
+      {isLoading && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-ink-900/50">
+          <div className="flex flex-col items-center gap-4 rounded-lg bg-white p-8 shadow-modal">
+            <Spinner size="lg" className="text-ink-500" />
+            <p className="text-sm font-medium text-ink-700">Procesando…</p>
+          </div>
+        </div>
+      )}
     </LoadingContext.Provider>
   )
 }

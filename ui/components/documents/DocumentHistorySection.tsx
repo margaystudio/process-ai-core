@@ -8,9 +8,10 @@
  */
 
 import { useState } from 'react'
-import { AlertCircle, ChevronDown, ChevronUp, Download, Loader2 } from 'lucide-react'
+import { AlertCircle, ChevronDown, ChevronUp, Download } from 'lucide-react'
 import { Button } from '@/shared/ui/components/button'
 import { Badge } from '@/shared/ui/components/badge'
+import { Spinner } from '@/shared/ui/components/Spinner'
 import { formatDateTime } from '@/utils/dateFormat'
 import { downloadVersionPdf } from '@/lib/api'
 import type { AuditLogEntry, DocumentVersion, Validation } from '@/lib/api'
@@ -178,7 +179,7 @@ export function DocumentHistorySection({
                             aria-label={`Descargar PDF de la versión ${v.version_number}`}
                           >
                             {isDownloading ? (
-                              <Loader2 className="animate-spin" aria-hidden="true" />
+                              <Spinner size="sm" aria-hidden="true" />
                             ) : (
                               <Download aria-hidden="true" />
                             )}

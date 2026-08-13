@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { X } from 'lucide-react'
 import { Document, fetchArtifactBlobUrl, getDocumentRuns } from '@/lib/api'
+import { Skeleton } from '@/shared/ui/components'
 import { formatDate } from '@/utils/dateFormat'
 
 interface ApprovalModalProps {
@@ -94,12 +95,7 @@ export default function ApprovalModal({
           {/* Preview del PDF */}
           <div className="mb-4 border border-ink-200 rounded-lg overflow-hidden">
             {loadingPdf ? (
-              <div className="h-96 flex items-center justify-center bg-ink-50">
-                <div className="text-center">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent mx-auto mb-2"></div>
-                  <p className="text-sm text-ink-600">Cargando PDF...</p>
-                </div>
-              </div>
+              <Skeleton className="h-96 w-full rounded-none" />
             ) : pdfUrl ? (
               <iframe
                 src={pdfUrl}

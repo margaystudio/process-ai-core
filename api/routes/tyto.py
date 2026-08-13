@@ -41,6 +41,7 @@ from ..dependencies import get_current_user_id, get_db
 from ..workspace_client import (
     WorkspaceSessionContext,
     get_workspace_context,
+    require_process_ai_access,
     resolve_tenant_workspace_id,
     sync_workspace_access,
 )
@@ -51,7 +52,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter(
     prefix="/api/v1/tyto",
     tags=["tyto"],
-    dependencies=[Depends(sync_workspace_access), Depends(capture_request_identity)],
+    dependencies=[
+        Depends(sync_workspace_access),
+        Depends(capture_request_identity),
+        Depends(require_process_ai_access),
+    ],
 )
 
 MAX_QUESTION_LENGTH = 2000

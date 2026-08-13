@@ -37,7 +37,7 @@ def link_user_to_supabase():
         user = session.query(User).filter_by(email=email).first()
         if not user:
             print(f"❌ Usuario {email} no encontrado en la base de datos.")
-            print("   Ejecuta tools/create_super_admin.py primero para crear el usuario.")
+            print("   El usuario se crea solo al ingresar por primera vez (sync desde margay-workspace).")
             return
         
         print(f"✅ Usuario encontrado: {user.name} ({user.email})")

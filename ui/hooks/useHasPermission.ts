@@ -1,52 +1,27 @@
 'use client'
 
-import { useMemo } from 'react'
-import { useWorkspace } from '@/contexts/WorkspaceContext'
-import { useUserRole } from './useUserRole'
+import { useCapabilities } from './useCapabilities'
 
 /**
- * Verifica permisos usando rol del workspace (GET /users/me) — sin round-trip extra al backend.
- * El rol ya viene sincronizado desde margay-workspace vía sync_workspace_access.
+ * Verifica permisos contra las capacidades EFECTIVAS del backend
+ * (GET /api/v1/users/me/capabilities) — la misma decisión que el backend va a
+ * aplicar al autorizar cada request, incluido el bypass de superadmin.
+ *
+ * Ya no reimplementa una matriz de permisos por rol acá: esa matriz vivía
+ * hardcodeada y se desincronizaba del backend (ej. admin nunca tuvo
+ * documents.delete, pero el front igual mostraba el botón y el backend
+ * respondía 403).
+ *
+ * Fail-closed: mientras `capabilities` no cargó, `hasPermission` es `false`.
  */
 export function useHasPermission(permissionName: string): { hasPermission: boolean; loading: boolean } {
-  const { platformRoles, tenantRoles, loading } = useWorkspace()
-  const { role, loading: roleLoading } = useUserRole()
+  const { capabilities, loading } = useCapabilities()
 
-  const hasPermission = useMemo(() => {
-    if (platformRoles.includes('superadmin')) return true
-    if (tenantRoles.includes('tenant_admin')) return true
-    if (role === 'owner' || role === 'admin') return true
-    return checkPermissionByRole(role, permissionName)
-  }, [role, platformRoles, tenantRoles, permissionName])
+  const hasPermission = Boolean(
+    capabilities && (capabilities.is_superadmin || capabilities.permissions.includes(permissionName))
+  )
 
-  return { hasPermission, loading: loading || roleLoading }
-}
-
-function checkPermissionByRole(role: string | null, permissionName: string): boolean {
-  if (!role) return false
-
-  if (role === 'superadmin') return true
-
-  const rolePermissions: Record<string, string[]> = {
-    approver: [
-      'documents.view',
-      'documents.export',
-      'documents.approve',
-      'documents.reject',
-      'workspaces.view',
-    ],
-    creator: [
-      'documents.create',
-      'documents.view',
-      'documents.edit',
-      'documents.export',
-      'workspaces.view',
-      'workspaces.manage_folders',
-    ],
-    viewer: ['documents.view', 'documents.export', 'workspaces.view'],
-  }
-
-  return (rolePermissions[role] || []).includes(permissionName)
+  return { hasPermission, loading }
 }
 
 export function useCanEditWorkspace() {
@@ -63,4 +38,22 @@ export function useCanApproveDocuments() {
 
 export function useCanRejectDocuments() {
   return useHasPermission('documents.reject')
+}
+
+/**
+ * Gate de administración del workspace (settings, importación por lote,
+ * relaciones globales, menú "Administración" del sidebar, etc.).
+ * `capabilities.can_manage_workspace` ya resuelve el bypass de superadmin y
+ * el acceso base 'admin' del workspace — no hay más roles de sistema que
+ * comparar acá (reemplaza a `canAdministerWorkspace` de `lib/adminGating`).
+ */
+export function useCanManageWorkspace(): { canManage: boolean; loading: boolean } {
+  const { capabilities, loading } = useCapabilities()
+  return { canManage: Boolean(capabilities?.can_manage_workspace), loading }
+}
+
+/** Gate de personalización (branding) del workspace. */
+export function useCanManageBranding(): { canManage: boolean; loading: boolean } {
+  const { capabilities, loading } = useCapabilities()
+  return { canManage: Boolean(capabilities?.can_manage_branding), loading }
 }

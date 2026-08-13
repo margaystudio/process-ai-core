@@ -13,36 +13,40 @@ import {
   MessageCircle,
   Network,
 } from 'lucide-react'
-import { AppShell, Topbar, Sidebar, type NavGroup, type TopbarTenant } from '@/shared/ui/components'
+import { PlatformShell, type NavGroup } from '@/shared/ui/components'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
 import { useUser } from '@/hooks/useUser'
+import { useCanManageWorkspace } from '@/hooks/useHasPermission'
 import { createClient } from '@/lib/supabase/client'
 import { redirectToHubLogin } from '@/lib/hub-login'
 import { clearLocalAuthState } from '@/lib/clear-auth-state'
-import { canAdministerWorkspace } from '@/lib/adminGating'
+import { MODULO_ACTUAL, hubUrl, modulosParaSwitcher } from '@/lib/modules'
 
 // Páginas fuera del shell del módulo (sin sidebar). El login es del hub (SSO).
-const BARE_PREFIXES = ['/login', '/onboarding', '/invitations', '/auth']
-
-function initialsOf(name: string): string {
-  const clean = name.trim()
-  if (!clean || clean === 'Usuario') return 'U'
-  const parts = clean.split(/\s+/)
-  if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`.toUpperCase()
-  return clean.slice(0, 2).toUpperCase()
-}
+const BARE_PREFIXES = ['/login', '/invitations', '/auth']
 
 export default function ChromeShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const router = useRouter()
-  const { workspaces, selectedWorkspace, selectedWorkspaceId, activeTenantId, platformRoles, setActiveTenantId, currentUser } =
-    useWorkspace()
+  const {
+    workspaces,
+    selectedWorkspaceId,
+    activeTenantId,
+    setActiveTenantId,
+    currentUser,
+    modules,
+    loading: workspaceLoading,
+  } = useWorkspace()
   const user = useUser()
+  // Hook: debe llamarse siempre, antes del early return de abajo (páginas "bare").
+  const { canManage: canAdminister, loading: canAdministerLoading } = useCanManageWorkspace()
 
   const isBare = BARE_PREFIXES.some((p) => pathname?.startsWith(p))
   if (isBare) return <>{children}</>
 
-  const displayName = currentUser?.name ?? user?.name ?? user?.email ?? 'Usuario'
+  // Mientras WorkspaceContext resuelve /users/me, el topbar muestra un skeleton en el
+  // bloque de usuario en vez de un nombre provisorio ("Usuario") que después cambia.
+  const displayName = currentUser?.name ?? user?.name ?? user?.email ?? ''
   const email = user?.email ?? currentUser?.email ?? ''
 
   const handleSignOut = async () => {
@@ -64,30 +68,44 @@ export default function ChromeShell({ children }: { children: React.ReactNode })
     ? `/workspace/${selectedWorkspaceId}/settings`
     : '/workspace'
 
-  const canAdminister = canAdministerWorkspace({
-    platformRoles,
-    workspaceRole: selectedWorkspace?.role,
-  })
+  /**
+   * Un ítem gateado por `documents.edit`/`workspaces.manage_users` (canAdminister) no se
+   * omite sin más mientras el permiso resuelve: eso es lo que hacía que la sidebar se
+   * "poblara de a uno" al cargar. Mientras `canAdministerLoading`, ocupa su lugar con un
+   * skeleton (mismo alto que el ítem real); resuelto, aparece o desaparece de una.
+   */
+  const gated = (item: NavGroup['items'][number]) =>
+    canAdministerLoading
+      ? [{ label: item.label, loading: true }]
+      : canAdminister
+      ? [item]
+      : []
 
-  // Switcher de organización (tenant) en el topbar, como el hub.
-  const tenants: TopbarTenant[] = workspaces
+  // Cliente activo de ESTE módulo (tenant, no confundir con el switcher de módulos):
+  // vive en cookie propia (active_tenant_id / X-Active-Tenant-Id), no en la URL.
+  const tenants = workspaces
     .filter((ws) => ws.tenant_id)
-    .map((ws) => ({ id: ws.tenant_id as string, name: ws.name }))
+    .map((ws) => ({ id: ws.tenant_id as string, name: ws.name, slug: ws.slug }))
+  const tenant = tenants.find((t) => t.id === activeTenantId)
 
-  // Secciones del sidebar — estructura del prototipo
-  const groups: NavGroup[] = [
+  // Secciones del sidebar — estructura del prototipo. `href` (además de `onClick`)
+  // habilita abrir un ítem en pestaña nueva con ⌘/Ctrl+clic o el botón del medio
+  // (margay-ui 0.15.0); el clic normal lo sigue resolviendo la navegación client-side.
+  const nav: NavGroup[] = [
     {
       label: 'Biblioteca',
       items: [
         {
           label: 'Biblioteca',
           icon: <FileText />,
+          href: '/workspace',
           active: active('/workspace', true),
           onClick: go('/workspace'),
         },
         {
           label: 'Por aprobar',
           icon: <CheckSquare />,
+          href: '/dashboard/approval-queue',
           active: active('/dashboard/approval-queue'),
           onClick: go('/dashboard/approval-queue'),
         },
@@ -99,19 +117,17 @@ export default function ChromeShell({ children }: { children: React.ReactNode })
         {
           label: 'Nuevo documento',
           icon: <Plus />,
+          href: '/documents/new',
           active: active('/documents/new'),
           onClick: go('/documents/new'),
         },
-        ...(canAdminister
-          ? [
-              {
-                label: 'Importar documentación',
-                icon: <Upload />,
-                active: active('/import'),
-                onClick: go('/import'),
-              },
-            ]
-          : []),
+        ...gated({
+          label: 'Importar documentación',
+          icon: <Upload />,
+          href: '/import',
+          active: active('/import'),
+          onClick: go('/import'),
+        }),
       ],
     },
     {
@@ -120,6 +136,7 @@ export default function ChromeShell({ children }: { children: React.ReactNode })
         {
           label: 'Panel de control',
           icon: <BarChart2 />,
+          href: '/dashboard/view',
           active: active('/dashboard/view'),
           onClick: go('/dashboard/view'),
         },
@@ -128,39 +145,31 @@ export default function ChromeShell({ children }: { children: React.ReactNode })
     {
       label: 'Administración',
       items: [
-        ...(canAdminister
-          ? [
-              {
-                label: 'Carpetas',
-                icon: <Folder />,
-                active: active('/folders'),
-                onClick: go('/folders'),
-              },
-            ]
-          : []),
-        ...(canAdminister
-          ? [
-              {
-                label: 'Tipos de documento',
-                icon: <List />,
-                active: active('/document-types'),
-                onClick: go('/document-types'),
-              },
-            ]
-          : []),
-        ...(canAdminister
-          ? [
-              {
-                label: 'Relaciones',
-                icon: <Network />,
-                active: active('/relations'),
-                onClick: go('/relations'),
-              },
-            ]
-          : []),
+        ...gated({
+          label: 'Carpetas',
+          icon: <Folder />,
+          href: '/folders',
+          active: active('/folders'),
+          onClick: go('/folders'),
+        }),
+        ...gated({
+          label: 'Tipos de documento',
+          icon: <List />,
+          href: '/document-types',
+          active: active('/document-types'),
+          onClick: go('/document-types'),
+        }),
+        ...gated({
+          label: 'Relaciones',
+          icon: <Network />,
+          href: '/relations',
+          active: active('/relations'),
+          onClick: go('/relations'),
+        }),
         {
           label: 'Usuarios y roles',
           icon: <Users />,
+          href: settingsPath,
           active: Boolean(pathname?.includes('/settings')),
           onClick: go(settingsPath),
         },
@@ -175,6 +184,7 @@ export default function ChromeShell({ children }: { children: React.ReactNode })
         {
           label: 'Tyto',
           icon: <MessageCircle />,
+          href: '/tyto',
           active: active('/tyto'),
           onClick: go('/tyto'),
         },
@@ -183,22 +193,24 @@ export default function ChromeShell({ children }: { children: React.ReactNode })
   ]
 
   return (
-    <AppShell
-      module="process"
-      topbar={
-        <Topbar
-          module="process"
-          title="Process AI"
-          user={{ name: displayName, email, initials: initialsOf(displayName) }}
-          onLogout={handleSignOut}
-          tenants={tenants}
-          activeTenantId={activeTenantId ?? undefined}
-          onTenantChange={(id) => void setActiveTenantId(id)}
-        />
-      }
-      sidebar={<Sidebar groups={groups} />}
+    <PlatformShell
+      module={MODULO_ACTUAL}
+      modules={modulosParaSwitcher(modules)}
+      tenant={tenant}
+      tenants={tenants}
+      // Sin sesión resuelta todavía, no hay `user` que pintar: el topbar muestra un
+      // skeleton en su lugar (`userLoading`) en vez de un nombre provisorio.
+      user={workspaceLoading ? undefined : { displayName, email, avatarUrl: user?.avatarUrl ?? undefined }}
+      userLoading={workspaceLoading}
+      tenantsLoading={workspaceLoading}
+      hubUrl={hubUrl()}
+      nav={nav}
+      onLogout={handleSignOut}
+      // El cliente activo de este módulo vive en cookie/contexto, no en la URL: sin
+      // este handler el shell no ofrecería selector de cliente.
+      onTenantChange={(t) => void setActiveTenantId(t.id)}
     >
       {children}
-    </AppShell>
+    </PlatformShell>
   )
 }

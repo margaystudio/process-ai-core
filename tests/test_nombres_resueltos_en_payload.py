@@ -39,6 +39,7 @@ from process_ai_core.db.models import (
     UserDirectory,
     Validation,
     Workspace,
+    WorkspaceMembership,
 )
 
 
@@ -75,6 +76,13 @@ def escenario(session):
     aprobador = User(id=_uid(), email=f"{_uid()[:8]}@pl.local", name="Aprob Viejo",
                      external_id=_uid())
     session.add_all([ws, autor, aprobador])
+    session.flush()
+
+    # Los endpoints exigen identidad + permiso por carpeta: el autor es admin
+    # del workspace (bypass del permiso operativo, como en producción).
+    session.add(WorkspaceMembership(
+        id=_uid(), user_id=autor.id, workspace_id=ws.id, base_access="admin"
+    ))
     session.flush()
 
     folder = Folder(id=f"pl-fol-{_uid()[:8]}", workspace_id=ws.id, name="root", path="root")
@@ -183,7 +191,9 @@ def test_versiones_traen_el_nombre_resuelto(
         {escenario.autor: "Ana Gómez", escenario.aprobador: "Beto Ruiz"},
     )
 
-    filas = versions_route.get_document_versions(escenario.doc.id, ctx=_ctx(escenario))
+    filas = versions_route.get_document_versions(
+        escenario.doc.id, user_id=escenario.autor.id, ctx=_ctx(escenario)
+    )
 
     assert len(filas) == 2
     for fila in filas:
@@ -209,7 +219,9 @@ def test_el_nombre_sigue_al_directorio_y_no_a_la_tabla_local(
         {escenario.autor: "Ana Gómez", escenario.aprobador: "Beto Ruiz Nuevo"},
     )
 
-    filas = versions_route.get_document_versions(escenario.doc.id, ctx=_ctx(escenario))
+    filas = versions_route.get_document_versions(
+        escenario.doc.id, user_id=escenario.autor.id, ctx=_ctx(escenario)
+    )
     assert filas[0]["approved_by_name"] == "Beto Ruiz Nuevo"
 
 
@@ -217,7 +229,9 @@ def test_sin_directorio_cae_al_nombre_local_y_nunca_al_uuid(
     escenario, session, monkeypatch, rutas_con_sesion
 ):
     """Workspace caído: se muestra lo que hay. Lo que NUNCA se muestra es el uuid."""
-    filas = versions_route.get_document_versions(escenario.doc.id, ctx=_ctx(escenario))
+    filas = versions_route.get_document_versions(
+        escenario.doc.id, user_id=escenario.autor.id, ctx=_ctx(escenario)
+    )
     for fila in filas:
         assert fila["created_by_name"] == "Autor Viejo"
         assert fila["approved_by_name"] == "Aprob Viejo"
@@ -250,7 +264,9 @@ def test_versiones_resuelve_en_lote_sin_n_mas_1(
 
     event.listen(engine, "before_cursor_execute", registrar)
     try:
-        versions_route.get_document_versions(escenario.doc.id, ctx=_ctx(escenario))
+        versions_route.get_document_versions(
+        escenario.doc.id, user_id=escenario.autor.id, ctx=_ctx(escenario)
+    )
     finally:
         event.remove(engine, "before_cursor_execute", registrar)
 
@@ -264,7 +280,9 @@ def test_audit_log_trae_el_nombre_del_actor(
     escenario, session, monkeypatch, rutas_con_sesion
 ):
     _poblar_directorio(monkeypatch, escenario, {escenario.aprobador: "Beto Ruiz"})
-    filas = versions_route.get_document_audit_log(escenario.doc.id, ctx=_ctx(escenario))
+    filas = versions_route.get_document_audit_log(
+        escenario.doc.id, user_id=escenario.autor.id, ctx=_ctx(escenario)
+    )
     assert filas[0]["user_name"] == "Beto Ruiz"
     assert filas[0]["user_id"] == escenario.aprobador.id
 
@@ -282,7 +300,7 @@ def test_validaciones_traen_el_nombre_del_validador(
     )
 
     filas = validations_route.get_document_validations(
-        escenario.doc.id, ctx=_ctx(escenario)
+        escenario.doc.id, user_id=escenario.autor.id, ctx=_ctx(escenario)
     )
 
     nombres = {f.status: f.validator_user_name for f in filas}
@@ -303,7 +321,7 @@ def test_validacion_sin_validador_devuelve_vacio_no_uuid(
     session.commit()
 
     filas = validations_route.get_document_validations(
-        escenario.doc.id, ctx=_ctx(escenario)
+        escenario.doc.id, user_id=escenario.autor.id, ctx=_ctx(escenario)
     )
     fila = next(f for f in filas if f.id == pendiente.id)
     assert fila.validator_user_name == ""
@@ -331,7 +349,7 @@ def test_validaciones_resuelve_en_lote_sin_n_mas_1(
     event.listen(engine, "before_cursor_execute", registrar)
     try:
         validations_route.get_document_validations(
-            escenario.doc.id, ctx=_ctx(escenario)
+            escenario.doc.id, user_id=escenario.autor.id, ctx=_ctx(escenario)
         )
     finally:
         event.remove(engine, "before_cursor_execute", registrar)
@@ -360,5 +378,7 @@ def test_no_se_resuelve_con_el_directorio_de_otro_tenant(
     )
     session.commit()
 
-    filas = versions_route.get_document_versions(escenario.doc.id, ctx=_ctx(escenario))
+    filas = versions_route.get_document_versions(
+        escenario.doc.id, user_id=escenario.autor.id, ctx=_ctx(escenario)
+    )
     assert filas[0]["approved_by_name"] == "Aprob Viejo"

@@ -18,6 +18,8 @@ from process_ai_core.db.permissions import has_permission
 from process_ai_core.config import get_settings
 
 from api.dependencies import get_current_user_id
+from api.request_identity import capture_request_identity
+from api.workspace_client import require_process_ai_access, sync_workspace_access
 from ..models.requests import (
     ContextFileMoveRequest,
     ContextFileResponse,
@@ -26,7 +28,15 @@ from ..models.requests import (
     ContextFolderResponse,
 )
 
-router = APIRouter(prefix="/api/v1/workspaces", tags=["context-files"])
+router = APIRouter(
+    prefix="/api/v1/workspaces",
+    tags=["context-files"],
+    dependencies=[
+        Depends(sync_workspace_access),
+        Depends(capture_request_identity),
+        Depends(require_process_ai_access),
+    ],
+)
 
 ALLOWED_EXTENSIONS = {".txt", ".md", ".pdf", ".doc", ".docx"}
 TEXT_EXTENSIONS = {".txt", ".md"}
