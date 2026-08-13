@@ -208,6 +208,46 @@ class TytoAnswerService:
         self._relevance_threshold = relevance_threshold
 
     # ------------------------------------------------------------------
+    # Permiso por carpeta sobre el contexto recuperado
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _filter_citations_by_access(
+        session: Session,
+        *,
+        workspace_id: str,
+        user_id: str | None,
+        citations: list,
+    ) -> list:
+        """Descarta las citas de carpetas que el usuario NO puede ver.
+
+        El retrieval es por workspace; sin este filtro, Tyto le contestaría a
+        cualquier miembro con contenido de carpetas restringidas — el permiso
+        por carpeta se puede saltear preguntando. Se filtra ANTES del umbral de
+        relevancia y del LLM: lo que el usuario no puede leer no existe para su
+        pregunta (mismo criterio que el listado de documentos).
+
+        user_id=None (uso interno sin usuario) no filtra: es responsabilidad
+        del caller no exponer esa vía a usuarios finales.
+        """
+        if user_id is None or not citations:
+            return citations
+        from process_ai_core.db.models import Document
+        from process_ai_core.db.permissions import build_permission_context
+
+        perm_ctx = build_permission_context(session, user_id, workspace_id)
+        doc_ids = {c.document_id for c in citations}
+        folder_by_doc = dict(
+            session.query(Document.id, Document.folder_id).filter(
+                Document.id.in_(doc_ids)
+            )
+        )
+        return [
+            c
+            for c in citations
+            if perm_ctx.can_view_folder(folder_by_doc.get(c.document_id))
+        ]
+
+    # ------------------------------------------------------------------
     # API principal
     # ------------------------------------------------------------------
     def answer(
@@ -229,7 +269,11 @@ class TytoAnswerService:
         context = self._retrieval.retrieve(
             session, workspace_id=workspace_id, query=question, top_k=top_k
         )
-        relevant = [c for c in context.citations if c.score >= threshold]
+        visibles = self._filter_citations_by_access(
+            session, workspace_id=workspace_id, user_id=user_id,
+            citations=context.citations,
+        )
+        relevant = [c for c in visibles if c.score >= threshold]
 
         # Camino de rechazo: sin contexto relevante NO se llama al LLM.
         if not relevant:
@@ -286,7 +330,11 @@ class TytoAnswerService:
         context = self._retrieval.retrieve(
             session, workspace_id=workspace_id, query=question, top_k=top_k
         )
-        relevant = [c for c in context.citations if c.score >= threshold]
+        visibles = self._filter_citations_by_access(
+            session, workspace_id=workspace_id, user_id=user_id,
+            citations=context.citations,
+        )
+        relevant = [c for c in visibles if c.score >= threshold]
 
         if not relevant:
             result = TytoAnswer(

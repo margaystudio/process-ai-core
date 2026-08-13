@@ -1,6 +1,9 @@
 'use client'
 
+import { Lock } from 'lucide-react'
 import { Folder, FolderPermissionsResponse, OperationalRoleResponse } from '@/lib/api'
+import { ACCESS_LEVEL_BADGE_VARIANT, ACCESS_LEVEL_LABEL } from '@/lib/accessLevels'
+import { Badge } from '@/shared/ui/components'
 import FolderCrud, { DEFAULT_FOLDER_COLOR } from '@/components/processes/FolderCrud'
 
 type FolderPermissionsModal = {
@@ -21,6 +24,32 @@ type FoldersSettingsTabProps = {
   onFolderPermsRoleIdsChange: (ids: string[]) => void
   onSaveFolderPermissions: () => Promise<void>
   onCloseFolderPermissionsModal: () => void
+}
+
+/**
+ * Indicador discreto de si la carpeta tiene lista de roles (propia o
+ * heredada) o está abierta a todos los miembros. La regla de producto que
+ * comunica: en las abiertas, cada miembro actúa según su nivel de acceso
+ * máximo; para controlar quién hace qué en una carpeta puntual, hay que
+ * restringirla.
+ */
+function FolderAccessIndicator({ restricted }: { restricted: boolean }) {
+  if (restricted) {
+    return (
+      <Badge variant="warning" dot={false} title="Solo entran los roles operativos con acceso a esta carpeta.">
+        <Lock className="h-3 w-3" aria-hidden="true" />
+        Restringida
+      </Badge>
+    )
+  }
+  return (
+    <span
+      className="flex-shrink-0 text-xs text-ink-400"
+      title="Carpeta abierta: cada miembro actúa según su nivel de acceso máximo. Para controlar quién hace qué acá, restringila."
+    >
+      Todos
+    </span>
+  )
 }
 
 export default function FoldersSettingsTab({
@@ -71,6 +100,7 @@ export default function FoldersSettingsTab({
                   aria-hidden
                 />
                 <span className="truncate">{folder.name}</span>
+                <FolderAccessIndicator restricted={Boolean(folder.permissions_restricted)} />
               </span>
               <button
                 onClick={() => onOpenFolderPermissions(folder)}
@@ -122,6 +152,9 @@ export default function FoldersSettingsTab({
                         className="rounded border-ink-300"
                       />
                       <span className="text-sm">{role.name}</span>
+                      <Badge variant={ACCESS_LEVEL_BADGE_VARIANT[role.access_level]}>
+                        {ACCESS_LEVEL_LABEL[role.access_level]}
+                      </Badge>
                     </label>
                   ))}
                 </div>

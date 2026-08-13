@@ -81,6 +81,17 @@ def _uid() -> str:
 def workspace(session):
     ws = Workspace(id=_uid(), slug=f"ws-{_uid()[:8]}", name="WS", workspace_type="organization")
     session.add(ws)
+    # "u1" es el usuario que usan todos los tests: miembro real del workspace,
+    # porque Tyto ahora filtra el retrieval por permiso de carpeta (fail-closed:
+    # sin membership no hay contexto y todo sería rechazo).
+    from process_ai_core.db.models import User, WorkspaceMembership
+
+    if session.query(User).filter_by(id="u1").first() is None:
+        session.add(User(id="u1", email="u1@t.io", name="U1"))
+        session.flush()
+    session.add(WorkspaceMembership(
+        id=_uid(), user_id="u1", workspace_id=ws.id, base_access="member"
+    ))
     session.commit()
     return ws
 
@@ -377,6 +388,16 @@ def test_log_registra_respuesta_y_rechazo(session, workspace, folder):
         session, workspace, folder, name="Cierre",
         markdown="# Cierre\n\nRegistrar el cierre de caja en el POS.",
     )
+    # u2 también miembro: el retrieval filtra por permiso de carpeta y un
+    # no-miembro recibiría rechazo en vez de respuesta.
+    from process_ai_core.db.models import User, WorkspaceMembership
+
+    session.add(User(id="u2", email="u2@t.io", name="U2"))
+    session.flush()
+    session.add(WorkspaceMembership(
+        id=_uid(), user_id="u2", workspace_id=workspace.id, base_access="member"
+    ))
+    session.commit()
     llm2 = FakeLLM({"answered": True, "segments": [{"text": "x", "source_ids": ["S1"]}]})
     _service(llm2).answer(session, workspace_id=workspace.id, question=QUESTION, user_id="u2")
     session.commit()
@@ -433,7 +454,7 @@ def client(session, workspace, monkeypatch):
     monkeypatch.setattr(tyto_route, "resolve_tenant_workspace_id", lambda ctx: workspace.id)
 
     app.dependency_overrides[get_db] = lambda: session
-    app.dependency_overrides[get_current_user_id] = lambda: "user-1"
+    app.dependency_overrides[get_current_user_id] = lambda: "u1"  # miembro real (ver fixture workspace)
     app.dependency_overrides[get_workspace_context] = _fake_workspace_ctx
     app.dependency_overrides[sync_workspace_access] = lambda: None
     try:
@@ -478,3 +499,70 @@ def test_endpoint_requiere_autenticacion():
     assert not app.dependency_overrides  # sin mocks: gate real
     resp = TestClient(app).post("/api/v1/tyto/query", json={"question": "hola"})
     assert resp.status_code == 401
+
+
+# ── Permiso por carpeta sobre el retrieval ────────────────────────────────────
+
+
+def test_tyto_no_responde_con_carpetas_que_el_usuario_no_ve(session, workspace):
+    """El permiso por carpeta no se puede saltear preguntando.
+
+    Un doc aprobado en una carpeta restringida solo alimenta las respuestas de
+    quien tiene un rol operativo con acceso; para el resto, ese contenido no
+    existe (rechazo por falta de contexto, sin llamar al LLM).
+    """
+    from process_ai_core.db.models import (
+        FolderPermission,
+        OperationalRole,
+        User,
+        UserOperationalRole,
+        WorkspaceMembership,
+    )
+
+    restringida = Folder(
+        id=_uid(), workspace_id=workspace.id, name="Confidencial",
+        path="Confidencial", inherits_permissions=False,
+    )
+    session.add(restringida)
+    session.flush()
+    rol = OperationalRole(
+        id=_uid(), workspace_id=workspace.id, name="Gerencia", slug="gerencia",
+        access_level="lectura",
+    )
+    session.add(rol)
+    session.flush()
+    session.add(FolderPermission(
+        id=_uid(), folder_id=restringida.id, operational_role_id=rol.id
+    ))
+    _make_doc(
+        session, workspace, restringida, name="Cierre",
+        markdown="# Cierre\n\nRegistrar el cierre de caja en el POS.",
+    )
+
+    # con_acceso: miembro + rol "Gerencia"; sin_acceso: miembro pelado
+    session.add(User(id="u-ger", email="ger@t.io", name="Ger"))
+    session.flush()
+    m = WorkspaceMembership(
+        id=_uid(), user_id="u-ger", workspace_id=workspace.id, base_access="member"
+    )
+    session.add(m)
+    session.flush()
+    session.add(UserOperationalRole(
+        id=_uid(), workspace_membership_id=m.id, operational_role_id=rol.id
+    ))
+    session.commit()
+
+    # Sin acceso → rechazo, y el LLM ni se llama (el contenido "no existe").
+    llm_negado = FakeLLM(payload=None)
+    negado = _service(llm_negado).answer(
+        session, workspace_id=workspace.id, question=QUESTION, user_id="u1"
+    )
+    assert negado.answered is False
+    assert llm_negado.calls == []
+
+    # Con el rol → respuesta normal sobre el mismo documento.
+    llm_ok = FakeLLM({"answered": True, "segments": [{"text": "x", "source_ids": ["S1"]}]})
+    ok = _service(llm_ok).answer(
+        session, workspace_id=workspace.id, question=QUESTION, user_id="u-ger"
+    )
+    assert ok.answered is True

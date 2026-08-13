@@ -119,6 +119,14 @@ export interface Folder {
   parent_id?: string;
   sort_order: number;
   inherits_permissions?: boolean;
+  /**
+   * Restricción EFECTIVA de la carpeta, con la herencia ya resuelta por el
+   * backend: `true` = tiene lista de roles operativos (propia o heredada),
+   * `false` = abierta a todos los miembros del workspace (cada uno según su
+   * nivel de acceso). El backend siempre lo manda (GET /folders, GET
+   * /folders/{id}, create/update) — el default acá es solo defensivo.
+   */
+  permissions_restricted?: boolean;
   color?: string;
   icon?: string | null;
   default_document_type?: string | null;

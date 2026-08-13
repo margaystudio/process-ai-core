@@ -64,6 +64,17 @@ def _uid() -> str:
 def workspace(session):
     ws = Workspace(id=_uid(), slug=f"ws-{_uid()[:8]}", name="WS", workspace_type="organization")
     session.add(ws)
+    # "u1" es el usuario que usan todos los tests: miembro real del workspace,
+    # porque Tyto ahora filtra el retrieval por permiso de carpeta (fail-closed:
+    # sin membership no hay contexto y todo sería rechazo).
+    from process_ai_core.db.models import User, WorkspaceMembership
+
+    if session.query(User).filter_by(id="u1").first() is None:
+        session.add(User(id="u1", email="u1@t.io", name="U1"))
+        session.flush()
+    session.add(WorkspaceMembership(
+        id=_uid(), user_id="u1", workspace_id=ws.id, base_access="member"
+    ))
     session.commit()
     return ws
 
@@ -332,7 +343,7 @@ def client(session, workspace, monkeypatch):
     monkeypatch.setattr(tyto_route, "resolve_tenant_workspace_id", lambda ctx: workspace.id)
 
     app.dependency_overrides[get_db] = lambda: session
-    app.dependency_overrides[get_current_user_id] = lambda: "user-1"
+    app.dependency_overrides[get_current_user_id] = lambda: "u1"  # miembro real (ver fixture workspace)
     app.dependency_overrides[get_workspace_context] = _fake_workspace_ctx
     app.dependency_overrides[sync_workspace_access] = lambda: None
     try:

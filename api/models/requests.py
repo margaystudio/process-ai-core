@@ -206,6 +206,13 @@ class FolderResponse(BaseModel):
     tyto_enabled: Optional[bool] = Field(default=None, description="Si Tyto esta habilitado")
     allow_document_override: bool = Field(default=True, description="Permite sobrescribir tipo por documento")
     metadata: Optional[dict] = Field(default=None, description="Metadata adicional de la carpeta")
+    permissions_restricted: bool = Field(
+        default=False,
+        description=(
+            "True si la carpeta tiene restricción EFECTIVA por roles operativos "
+            "(propia o heredada de un ancestro); False = abierta a todos los miembros"
+        ),
+    )
     created_at: str = Field(..., description="Fecha de creación")
 
 

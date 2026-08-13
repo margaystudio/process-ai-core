@@ -237,6 +237,7 @@ def create_folder_endpoint(
             metadata_json=json.dumps({"name": folder.name}),
         )
 
+        _restr_ids, _ = resolve_folder_permissions_source(session, folder)
         return FolderResponse(
             id=folder.id,
             workspace_id=folder.workspace_id,
@@ -251,6 +252,7 @@ def create_folder_endpoint(
             tyto_enabled=folder.tyto_enabled,
             allow_document_override=folder.allow_document_override,
             metadata=_folder_metadata(folder),
+            permissions_restricted=bool(_restr_ids),
             created_at=folder.created_at.isoformat(),
         )
 
@@ -304,6 +306,9 @@ def list_folders(
             tyto_enabled=f.tyto_enabled,
             allow_document_override=f.allow_document_override,
             metadata=_folder_metadata(f),
+            # Restricción EFECTIVA (herencia resuelta), para que la UI pueda
+            # distinguir carpetas "de todos" de carpetas con control de acceso.
+            permissions_restricted=bool(perm_ctx.allowed_operational_role_ids(f.id)),
             created_at=f.created_at.isoformat(),
         )
         for f in visible_folders
@@ -674,6 +679,7 @@ def get_folder(
             detail="No tiene permisos para acceder a esta carpeta",
         )
 
+    role_ids, _ = resolve_folder_permissions_source(session, folder)
     return FolderResponse(
         id=folder.id,
         workspace_id=folder.workspace_id,
@@ -688,6 +694,7 @@ def get_folder(
         tyto_enabled=folder.tyto_enabled,
         allow_document_override=folder.allow_document_override,
         metadata=_folder_metadata(folder),
+        permissions_restricted=bool(role_ids),
         created_at=folder.created_at.isoformat(),
     )
 
@@ -829,6 +836,7 @@ def update_folder_endpoint(
             ),
         )
 
+        _restr_ids, _ = resolve_folder_permissions_source(session, folder)
         return FolderResponse(
             id=folder.id,
             workspace_id=folder.workspace_id,
@@ -843,6 +851,7 @@ def update_folder_endpoint(
             tyto_enabled=folder.tyto_enabled,
             allow_document_override=folder.allow_document_override,
             metadata=_folder_metadata(folder),
+            permissions_restricted=bool(_restr_ids),
             created_at=folder.created_at.isoformat(),
         )
 
