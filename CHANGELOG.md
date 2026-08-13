@@ -6,6 +6,95 @@ Monorepo: se versiona **por componente** con tags prefijados — `api-vX.Y.Z` y 
 
 ## Unreleased
 
+## api-v0.7.0 · ui-v0.7.0 — 2026-08-13
+
+Release del **rediseño de permisos a dos capas**, la adopción de **margay-ui 0.15.1**
+(identidad Arrayán) y el estándar de estados de carga. Incluye además todo lo que
+estaba en Unreleased desde v0.6.0 (directorio de usuarios, id canónico, decided_by).
+
+> **Deploy a prod:** correr `alembic upgrade head` contra la base de prod como parte
+> del deploy (migraciones `0024` con backfill y `0025` que **borra** las tablas del
+> RBAC legacy y el workspace 'sistema' — hacer backup antes; `0025` no tiene downgrade
+> con datos). El código y las migraciones van juntos: no hay ventana de convivencia.
+
+### Security
+- **Endpoints sin autenticación cerrados** (`tests/test_endpoints_cerrados.py` fija el
+  contrato): se eliminó `POST /users/{id}/workspaces/{ws}/membership` (sin auth y con
+  `role_name=owner` por default — otorgaba owner a cualquiera); los listados de
+  workspaces y membresías exigen sesión y son self-only/por membresía;
+  `generate-pdf` exige JWT. `require_process_ai_access` (gate de app por tenant) pasó
+  de proteger solo documents a todos los routers con datos de tenant.
+- **El permiso por carpeta se aplica también a versiones y PDFs**: las rutas de
+  versiones, PDF congelado, preview, current-version y audit-log pasan por
+  `assert_document_viewable` (antes solo chequeaban tenant: un usuario sin acceso a la
+  carpeta podía leer el PDF y el historial completos).
+- **Tyto ya no permite saltear el permiso por carpeta preguntando**: el retrieval
+  descarta las citas de carpetas que el usuario no puede ver, antes del umbral de
+  relevancia y del LLM.
+
+### Changed
+- **Modelo de permisos de tres capas a DOS** (migraciones `0024` + `0025`, alineado con
+  el ADR de plataforma "Roles por módulo"). Los roles de sistema
+  (owner/admin/approver/creator/viewer) se eliminaron — eran un vocabulario intermedio
+  que nadie administraba, derivado por mapeo fijo del rol de tenant y con la mitad de
+  los valores inalcanzables. Ahora:
+  - `workspace_memberships.base_access` (`admin`|`member`|`external`) ← rol macro del
+    tenant, sincronizado desde workspace usando el **rol efectivo por app**
+    (`tenant_modules[].applications[].role`): un `tenant_member` puede ser admin solo
+    de Process AI. El campo deprecado `applications` ya no se lee (workspace pudo
+    borrar su shim de `margay_contracts`).
+  - `operational_roles.access_level` (`lectura`|`edicion`|`aprobacion`, acumulativos):
+    el rol del cliente define qué se puede hacer además de dónde. Evaluación por par
+    (permiso, carpeta) — "aprueba en Pista, solo lee en Seguridad" ahora se puede.
+    Especificación ejecutable en `tests/test_permission_context.py`.
+  - Cambios de comportamiento deliberados: settings y branding del workspace son
+    solo-admin; quien no tiene `documents.edit` ve solo documentos aprobados;
+    `external` es tope de solo lectura siempre.
+- **La UI gatea todo por `GET /users/me/capabilities`** (patrón OMS): desapareció la
+  matriz de permisos hardcodeada del frontend (que ya estaba desincronizada) y el
+  gating por carpeta llegó al wizard y las pantallas (`useFolderAccess`) — se acabaron
+  los botones que terminaban en 403.
+- **Design system margay-ui 0.5.0 → 0.15.1 e identidad Arrayán**: PlatformShell +
+  ModuleSwitcher (destinos en pestaña nueva, Hub aparte), sidebar con links reales y
+  el gating por capabilities intacto, assets de brand de los 7 módulos.
+  `GET /users/me` reexpone `modules` para el switcher. El tenant activo sigue por
+  cookie/header (el patrón 0.12 "cliente en la URL" no aplica acá) y el white-label
+  0.14 no se wireó (el branding por workspace existente convive con el switcher de
+  tenants).
+- **Estándar de estados de carga**: `Skeleton` (única forma de carga de
+  contenido/página; el shell aparece completo con skeletons en su lugar) y `Spinner`
+  sobrio (solo acciones dentro de un control). Murieron el logo del margay girando y
+  los ~20 spinners ad-hoc.
+
+### Added
+- `GET /users/me/capabilities`: permisos efectivos + acceso por carpeta resuelto
+  (herencia incluida) + flags de gestión. Única fuente del gating de UI.
+- **Visor de acceso efectivo**
+  (`GET /workspaces/{id}/members/{mid}/effective-access` + botón "Ver acceso" en la
+  tab Usuarios): para cada miembro, qué puede hacer en cada carpeta y POR QUÉ (qué rol
+  se lo da, de qué ancestro hereda la restricción). Convierte "¿por qué Juan no puede
+  aprobar acá?" en una consulta de segundos.
+- **Nivel de acceso en roles operativos** (UI): selector Lectura/Edición/Aprobación al
+  crear/editar, badge de nivel en listados y junto a cada rol en las pantallas de
+  permisos de carpeta.
+- **Indicador restringida/abierta por carpeta** (`permissions_restricted` en
+  `FolderResponse` + candado en el árbol y chip en settings): comunica la regla "en
+  las carpetas abiertas cada miembro actúa según su nivel máximo; para controlar
+  quién hace qué, se restringe".
+
+### Removed
+- Tablas `roles`/`permissions`/`role_permissions`, columnas `role_id`/`role` de
+  memberships y el workspace legacy 'sistema' (migración `0025`, que absorbe
+  `cleanup_workspace_sistema.py`). El superadmin es solo por claim de plataforma +
+  `base_access` del sync.
+- Tools muertos: `seed_permissions.py` (ya no hay nada que sembrar),
+  `create_super_admin.py`, `cleanup_workspace_sistema.py`, `migrate_to_permissions.py`,
+  `migrate_workspace_sistema_description.py`.
+- UI muerta: onboarding (sus endpoints no existían), `adminGating`/`useUserRole`
+  (reemplazados por capabilities), `documentPermissions.ts`, `LoadingOverlay` del
+  margay girando.
+
+
 ### Changed
 - **`document_relations.confirmed_by` → `decided_by`, y `confirmed_at` → `decided_at`**
   (migración `0023`). El nombre mentía: las dos columnas se escriben en `confirm()` **y** en
