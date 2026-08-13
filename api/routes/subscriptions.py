@@ -8,7 +8,6 @@ Endpoints:
 - GET /api/v1/workspaces/{workspace_id}/limits: Obtener límites y uso actual
 """
 
-from datetime import datetime, timedelta, UTC
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Depends
@@ -23,7 +22,6 @@ from process_ai_core.db.helpers import (
     get_subscription_plan,
     get_active_subscription,
     get_subscription,
-    create_workspace_subscription,
     check_workspace_limit,
 )
 from process_ai_core.db.models import Workspace, SubscriptionPlan
@@ -101,12 +99,6 @@ class WorkspaceLimitsResponse(BaseModel):
     can_create_documents_this_month: bool
 
 
-class CreateSubscriptionRequest(BaseModel):
-    plan_id: str
-    status: str = "active"  # "active" | "trial"
-    period_days: int = 30
-
-
 # ============================================================================
 # Endpoints
 # ============================================================================
@@ -163,74 +155,17 @@ def get_workspace_subscription(
     )
 
 
-@router.post("/workspaces/{workspace_id}/subscription", response_model=WorkspaceSubscriptionResponse)
-def create_or_update_subscription(
-    workspace_id: str,
-    request: CreateSubscriptionRequest,
-    user_id: str = Depends(get_current_user_id),
-    session: Session = Depends(get_db),
-):
-    """
-    Crea o actualiza la suscripción de un workspace.
-    
-    Requiere permiso: workspaces.edit (solo owner/admin pueden cambiar el plan).
-    """
-    from process_ai_core.db.permissions import has_permission
-    
-    # Verificar permiso
-    if not has_permission(session, user_id, workspace_id, "workspaces.edit"):
-        raise HTTPException(
-            status_code=403,
-            detail="No tienes permisos para modificar la suscripción de este workspace"
-        )
-    # Verificar que el workspace existe
-    workspace = session.query(Workspace).filter_by(id=workspace_id).first()
-    if not workspace:
-        raise HTTPException(status_code=404, detail="Workspace no encontrado")
-    
-    # Verificar que el plan existe
-    plan = get_subscription_plan(session, request.plan_id)
-    if not plan:
-        raise HTTPException(status_code=404, detail="Plan de suscripción no encontrado")
-    
-    # Verificar si ya existe una suscripción
-    existing = get_subscription(session, workspace_id)
-    if existing:
-        # Actualizar suscripción existente
-        existing.plan_id = request.plan_id
-        existing.status = request.status
-        existing.current_period_start = datetime.now(UTC)
-        existing.current_period_end = datetime.now(UTC) + timedelta(days=request.period_days)
-        existing.updated_at = datetime.now(UTC)
-        subscription = existing
-    else:
-        # Crear nueva suscripción
-        subscription = create_workspace_subscription(
-            session=session,
-            workspace_id=workspace_id,
-            plan_id=request.plan_id,
-            status=request.status,
-            current_period_start=datetime.now(UTC),
-            current_period_end=datetime.now(UTC) + timedelta(days=request.period_days),
-        )
-    
-    session.commit()
-    
-    return WorkspaceSubscriptionResponse(
-        id=subscription.id,
-        workspace_id=subscription.workspace_id,
-        plan_id=subscription.plan_id,
-        status=subscription.status,
-        current_period_start=subscription.current_period_start.isoformat(),
-        current_period_end=subscription.current_period_end.isoformat(),
-        current_users_count=subscription.current_users_count,
-        current_documents_count=subscription.current_documents_count,
-        current_documents_this_month=subscription.current_documents_this_month,
-        current_storage_gb=subscription.current_storage_gb,
-        plan=SubscriptionPlanResponse.model_validate(subscription.plan),
-    )
-
-
+# NO existe `POST /workspaces/{id}/subscription`, a propósito.
+#
+# Dejaba que el admin del propio tenant se asignara `plan_id` y
+# `status="active"` arbitrarios, sin ninguna verificación de pago: auto-upgrade
+# al plan más caro y todos los límites de storage/documentos levantados gratis.
+# Ninguna pantalla lo usaba.
+#
+# Asignar un plan es una decisión COMERCIAL, no una preferencia del workspace:
+# vive en el control plane / billing, no en un endpoint que el propio
+# beneficiario puede llamar. Los GET de plan y límites siguen acá porque leer
+# el propio plan sí es del módulo.
 @router.get("/workspaces/{workspace_id}/limits", response_model=WorkspaceLimitsResponse)
 def get_workspace_limits(
     workspace_id: str,

@@ -33,6 +33,40 @@ from ._helpers import _assert_doc_in_active_workspace
 
 logger = logging.getLogger(__name__)
 
+
+#: Estados que maneja el FLUJO DE APROBACIÓN, no la edición del documento.
+#: `pending_validation` lo pone el envío a revisión; `approved` y `rejected`,
+#: la decisión del aprobador (con su segregación creador≠aprobador, su acta y
+#: su PDF congelado). Dejarlos escribir por el PUT de edición era marcar un
+#: documento como aprobado sin que nadie lo aprobara: el listado lo mostraba
+#: como la verdad del proceso sin una versión APPROVED detrás.
+_STATUS_DEL_FLUJO = frozenset({"pending_validation", "approved", "rejected"})
+
+#: Lo único que sí es una acción de gestión sobre el documento: archivarlo y
+#: sacarlo del archivo. No toca versiones ni aprobaciones.
+_TRANSICIONES_MANUALES = {
+    "archived": {"draft", "pending_validation", "approved", "rejected", "archived"},
+    "draft": {"archived"},
+}
+
+
+def _assert_transicion_de_status_permitida(actual: str | None, nuevo: str) -> None:
+    """El PUT de edición solo archiva y desarchiva; el resto es del flujo."""
+    if nuevo in _STATUS_DEL_FLUJO:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "El estado de aprobación no se edita a mano: sale del flujo de "
+                "revisión (enviar a revisión / aprobar / rechazar)."
+            ),
+        )
+    origenes = _TRANSICIONES_MANUALES.get(nuevo)
+    if origenes is None or (actual or "draft") not in origenes:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Transición de estado no permitida: {actual} → {nuevo}",
+        )
+
 router = APIRouter()
 
 
@@ -552,7 +586,8 @@ def update_document(
             doc.name = request.name
         if request.description is not None:
             doc.description = request.description
-        if request.status is not None:
+        if request.status is not None and request.status != doc.status:
+            _assert_transicion_de_status_permitida(doc.status, request.status)
             doc.status = request.status
         if request.folder_id is not None and request.folder_id != carpeta_origen:
             # Mover NO genera versión nueva: una versión es un cambio de

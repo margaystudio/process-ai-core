@@ -19,7 +19,6 @@ dependencies = [
     "pyjwt>=2.8.0",
     "cryptography>=41.0.0",
     "httpx>=0.27.0",
-    "python-jose[cryptography]>=3.3.0",
     "email-validator>=2.0.0",
     "markdown>=3.5.0",
     # Saneo del HTML de documentos (ver process_ai_core/html_sanitize.py). Es

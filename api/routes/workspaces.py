@@ -28,6 +28,7 @@ from process_ai_core.config import get_settings
 from process_ai_core.db.models import Workspace, WorkspaceMembership, User
 from process_ai_core.db.models import UserOperationalRole
 from ..dependencies import get_current_user_id
+from process_ai_core.image_validation import es_imagen_valida
 from process_ai_core.db.permissions import (
     get_membership_base_access,
     is_workspace_admin,
@@ -273,13 +274,19 @@ def get_workspace_members(
                 r.workspace_membership_id, []
             ).append(r.operational_role_id)
 
+    # El email es además el usuario de login: listárselo a cualquier miembro
+    # entrega el padrón de cuentas del workspace. Quien administra lo necesita
+    # (identifica a la persona al asignar roles); el resto se arregla con el
+    # nombre. Mismo criterio que `folders._nombre_visible`.
+    puede_ver_emails = is_workspace_admin(session, user_id, workspace_id)
+
     out = []
     for m in memberships:
         user = users_by_id.get(m.user_id)
         out.append({
             "membership_id": m.id,
             "user_id": m.user_id,
-            "email": user.email if user else "",
+            "email": (user.email if user else "") if puede_ver_emails else "",
             "name": user.name if user else "",
             # Acceso base derivado del rol macro del tenant ('admin'|'member'|'external').
             # La clave sigue siendo "role" para no romper el contrato con la UI.
@@ -522,6 +529,14 @@ async def upload_workspace_branding_icon(
         raise HTTPException(status_code=400, detail="El archivo está vacío")
     if len(contents) > MAX_BRANDING_ICON_SIZE_BYTES:
         raise HTTPException(status_code=400, detail="El icono no puede superar 2 MB")
+    # La extensión y el content_type los elige quien sube: se verifica el
+    # contenido. Este archivo se sirve después a los navegadores y lo parsea el
+    # render del PDF.
+    if not es_imagen_valida(contents, ext):
+        raise HTTPException(
+            status_code=400,
+            detail="El archivo no es una imagen válida (PNG, JPG o WEBP)",
+        )
 
     # A object storage, no a disco local: el freeze del PDF corre en cualquier
     # instancia de Cloud Run y el filesystem es efímero. Guardarlo local hacía

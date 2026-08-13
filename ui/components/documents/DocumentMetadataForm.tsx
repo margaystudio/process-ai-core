@@ -37,6 +37,14 @@ interface DocumentMetadataFormProps {
   onCancel: () => void
 }
 
+const STATUS_LABEL: Record<string, string> = {
+  draft: 'Borrador',
+  pending_validation: 'Pendiente de validación',
+  approved: 'Aprobado',
+  rejected: 'Rechazado',
+  archived: 'Archivado',
+}
+
 export function DocumentMetadataForm({
   document,
   workspaceId,
@@ -128,11 +136,25 @@ export function DocumentMetadataForm({
               onChange={(e) => onStatusChange(e.target.value)}
               className="w-full rounded-md border border-line-input px-3 py-2 text-sm text-ink-800 focus:border-accent focus:outline-none focus:ring-2 focus:ring-action-ring"
             >
-              <option value="draft">Borrador</option>
-              <option value="pending_validation">Pendiente de validación</option>
-              <option value="approved">Aprobado</option>
-              <option value="rejected">Rechazado</option>
-              <option value="archived">Archivado</option>
+              {/* El estado de aprobación NO se elige a mano: lo define el flujo
+                  de revisión. Se muestra el actual (deshabilitado) y solo se
+                  ofrece archivar/desarchivar, que es la única acción de gestión
+                  sobre el documento. El backend rechaza el resto. */}
+              {status !== 'archived' && (
+                <option value={status} disabled>
+                  {STATUS_LABEL[status] ?? status}
+                </option>
+              )}
+              {status === 'archived' ? (
+                <option value="draft">Desarchivar (borrador)</option>
+              ) : (
+                <option value="archived">Archivar</option>
+              )}
+              {status === 'archived' && (
+                <option value="archived" disabled>
+                  Archivado
+                </option>
+              )}
             </select>
           </div>
 

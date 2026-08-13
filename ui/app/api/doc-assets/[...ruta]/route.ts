@@ -25,25 +25,9 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { esRutaDocAssetPermitida } from '@/lib/docAssetPath'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
-
-/**
- * Formas de ruta que este proxy acepta reenviar, ancladas de punta a punta.
- *
- * Es una lista blanca y no una validación negativa a propósito: sin ella, esto
- * sería un proxy abierto a cualquier endpoint de la API con la sesión del
- * usuario — incluidos los de escritura, y con el método que el atacante elija.
- * Solo estas tres familias, y solo GET.
- */
-const RUTAS_PERMITIDAS = [
-  // Assets de una versión: las imágenes que traía adentro un PDF importado.
-  /^api\/v1\/documents\/[^/]+\/versions\/[^/]+\/assets\/[^/]+$/,
-  // Imágenes subidas desde el editor manual.
-  /^api\/v1\/documents\/[^/]+\/editor-images\/[^/]+$/,
-  // Assets de un run (capturas de video, evidencia) referenciados por el markdown.
-  /^api\/v1\/artifacts\/[^/]+\/assets\/.+$/,
-]
 
 /** Headers de la respuesta de la API que se reenvían al navegador. */
 const HEADERS_REENVIADOS = [
@@ -61,7 +45,7 @@ export async function GET(
   const { ruta } = await params
   const path = ruta.map(encodeURIComponent).join('/')
 
-  if (!RUTAS_PERMITIDAS.some((patron) => patron.test(ruta.join('/')))) {
+  if (!esRutaDocAssetPermitida(ruta)) {
     return NextResponse.json({ error: 'Ruta no permitida' }, { status: 404 })
   }
 

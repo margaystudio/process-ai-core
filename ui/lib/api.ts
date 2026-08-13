@@ -882,53 +882,9 @@ export interface CreateCatalogOptionRequest {
   sort_order?: number;
 }
 
-/**
- * Crea una nueva opción de catálogo.
- */
-export async function createCatalogOption(
-  request: CreateCatalogOptionRequest
-): Promise<CatalogOption> {
-  const headers: HeadersInit = {
-    'Content-Type': 'application/json',
-  }
+// `createCatalogOption` eliminado: el endpoint POST /api/v1/catalog ya no
+// existe (era escritura global sin rol; ver api/routes/catalog.py).
 
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-
-  if (supabaseUrl && supabaseKey) {
-    // Token vía el puente server-side (getAccessToken lee la cookie HttpOnly en el
-    // server; el getSession() del browser no la ve).
-    const { getAccessToken } = await import('@/lib/api-auth')
-    const token = await getAccessToken()
-    if (!token) {
-      throw new Error('No hay sesión activa. Por favor, inicia sesión.')
-    }
-    headers['Authorization'] = `Bearer ${token}`
-  } else {
-    // Modo desarrollo sin Supabase: no se puede crear opciones de catálogo sin autenticación
-    throw new Error('Supabase no está configurado. No se pueden crear opciones de catálogo.')
-  }
-
-  const response = await authFetch(`${API_URL}/api/v1/catalog`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(request),
-  })
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }))
-    if (response.status === 401) {
-      throw new Error('No autorizado. Por favor, inicia sesión nuevamente.')
-    }
-    throw new Error(error.detail || `HTTP ${response.status}`)
-  }
-
-  return response.json()
-}
-
-/**
- * Lista todas las carpetas del workspace activo (derivado del contexto de sesión).
- */
 export async function listFolders(workspaceId?: string): Promise<Folder[]> {
   const cacheKey = `folders:${workspaceId ?? 'active'}`
   return dedupeInFlight(cacheKey, async () => {

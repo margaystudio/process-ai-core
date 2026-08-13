@@ -201,3 +201,131 @@ def test_el_icono_se_sirve_con_cabeceras_inertes():
     assert _CABECERAS_ICONO["X-Content-Type-Options"] == "nosniff"
     csp = _CABECERAS_ICONO["Content-Security-Policy"]
     assert "default-src 'none'" in csp and "sandbox" in csp
+
+
+# ── C1 · El estado de aprobación no se edita a mano ──────────────────────────
+
+@pytest.mark.parametrize("nuevo", ["approved", "rejected", "pending_validation"])
+def test_el_status_del_flujo_no_se_puede_setear_por_el_put(nuevo: str):
+    """Marcar "aprobado" por el PUT salteaba validación, segregación y acta."""
+    from fastapi import HTTPException
+
+    from api.routes.documents.crud import _assert_transicion_de_status_permitida
+
+    with pytest.raises(HTTPException) as exc:
+        _assert_transicion_de_status_permitida("draft", nuevo)
+    assert exc.value.status_code == 400
+
+
+def test_archivar_y_desarchivar_si_estan_permitidos():
+    """Es la única gestión manual de estado: no toca versiones ni aprobaciones."""
+    from api.routes.documents.crud import _assert_transicion_de_status_permitida
+
+    _assert_transicion_de_status_permitida("approved", "archived")
+    _assert_transicion_de_status_permitida("draft", "archived")
+    _assert_transicion_de_status_permitida("archived", "draft")
+
+
+# ── C2/C4 · Endpoints eliminados ─────────────────────────────────────────────
+
+def test_no_existe_escritura_del_catalogo_por_http():
+    """Era global (no scopeado por tenant) y su prompt_text entra a los prompts
+    de generación de todos los tenants."""
+    from api.routes import catalog
+
+    rutas = {(r.path, tuple(sorted(r.methods))) for r in catalog.router.routes}
+    assert not any("POST" in metodos for _, metodos in rutas)
+
+
+def test_no_existe_auto_provision_de_suscripcion():
+    """El plan es una decisión comercial, no una preferencia del workspace."""
+    from api.routes import subscriptions
+
+    for r in subscriptions.router.routes:
+        if "subscription" in r.path and "POST" in r.methods:
+            pytest.fail(f"volvió el endpoint de auto-provisión: {r.path}")
+
+
+# ── C5 · Vinculación por email ───────────────────────────────────────────────
+
+def test_no_se_vincula_por_email_sin_verificar(monkeypatch):
+    """Con registro sin confirmación, vincular por email es robo de identidad."""
+    import api.dependencies as deps
+
+    llamadas = []
+    monkeypatch.setattr(
+        deps, "get_user_by_external_id", lambda *a, **k: None
+    )
+    import process_ai_core.db.helpers as helpers_mod
+    monkeypatch.setattr(
+        helpers_mod, "get_user_by_email",
+        lambda *a, **k: llamadas.append(a) or None,
+    )
+    monkeypatch.setattr(
+        deps, "_decode_and_verify_supabase_jwt",
+        lambda t: {"sub": "sub-nuevo", "email": "victima@cliente.com"},
+    )
+
+    from fastapi import HTTPException
+
+    class _S:
+        def query(self, *a, **k):
+            raise AssertionError("no debería consultar")
+
+    with pytest.raises(HTTPException):
+        deps.get_current_user_id(authorization="Bearer x", session=_S())
+    assert not llamadas, "se buscó por email sin que estuviera verificado"
+
+
+# ── Bajas: emisor del JWT y HS256 ────────────────────────────────────────────
+
+def test_se_rechaza_un_token_de_otro_emisor(monkeypatch):
+    from fastapi import HTTPException
+
+    import api.dependencies as deps
+
+    monkeypatch.setenv("SUPABASE_URL", "https://proyecto-a.supabase.co")
+    with pytest.raises(HTTPException) as exc:
+        deps._assert_issuer_valido({"iss": "https://proyecto-b.supabase.co/auth/v1"})
+    assert exc.value.status_code == 401
+
+
+def test_un_token_sin_iss_sigue_siendo_valido(monkeypatch):
+    """Validar `iss` es defensa en profundidad; exigirlo apagaría el login."""
+    import api.dependencies as deps
+
+    monkeypatch.setenv("SUPABASE_URL", "https://proyecto-a.supabase.co")
+    deps._assert_issuer_valido({"sub": "x"})  # no lanza
+
+
+# ── Bajas: validación de imágenes por contenido ──────────────────────────────
+
+@pytest.mark.parametrize(
+    "contenido,ext",
+    [
+        (b'<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>', ".png"),
+        (b"<!DOCTYPE html><script>alert(1)</script>", ".png"),
+        (b"GIF89a" + b"x" * 10, ".png"),  # firma real distinta de la declarada
+        (b"", ".png"),
+    ],
+)
+def test_no_pasa_un_archivo_que_no_es_la_imagen_que_dice_ser(contenido, ext):
+    from process_ai_core.image_validation import es_imagen_valida
+
+    assert es_imagen_valida(contenido, ext) is False
+
+
+@pytest.mark.parametrize(
+    "contenido,ext",
+    [
+        (b"\x89PNG\r\n\x1a\n" + b"x" * 10, ".png"),
+        (b"\xff\xd8\xff\xe0" + b"x" * 10, ".jpg"),
+        (b"\xff\xd8\xff\xe0" + b"x" * 10, ".jpeg"),
+        (b"GIF89a" + b"x" * 10, ".gif"),
+        (b"RIFF\x00\x00\x00\x00WEBPVP8 ", ".webp"),
+    ],
+)
+def test_las_imagenes_reales_pasan(contenido, ext):
+    from process_ai_core.image_validation import es_imagen_valida
+
+    assert es_imagen_valida(contenido, ext) is True
