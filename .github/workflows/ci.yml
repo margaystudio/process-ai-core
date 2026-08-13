@@ -92,14 +92,14 @@ jobs:
           cp requirements.lock /tmp/antes.lock
           cp requirements-dev.lock /tmp/antes-dev.lock
           uv pip compile pyproject.toml --universal --python-version 3.12 \
-            -o requirements.lock -q
+            --generate-hashes -o requirements.lock -q
           uv pip compile pyproject.toml --extra dev --universal --python-version 3.12 \
-            -o requirements-dev.lock -q
+            --generate-hashes -o requirements-dev.lock -q
           if ! diff -u /tmp/antes.lock requirements.lock \
              || ! diff -u /tmp/antes-dev.lock requirements-dev.lock; then
             echo "::error::pyproject.toml cambió y los lock quedaron viejos. Regeneralos:"
-            echo "  uv pip compile pyproject.toml --universal --python-version 3.12 -o requirements.lock"
-            echo "  uv pip compile pyproject.toml --extra dev --universal --python-version 3.12 -o requirements-dev.lock"
+            echo "  uv pip compile pyproject.toml --universal --python-version 3.12 --generate-hashes -o requirements.lock"
+            echo "  uv pip compile pyproject.toml --extra dev --universal --python-version 3.12 --generate-hashes -o requirements-dev.lock"
             exit 1
           fi
 
