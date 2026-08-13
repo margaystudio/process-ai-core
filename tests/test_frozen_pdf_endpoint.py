@@ -39,7 +39,6 @@ from process_ai_core.db.models import (
     DocumentVersion,
     Folder,
     Process,
-    Role,
     User,
     Workspace,
     WorkspaceMembership,
@@ -97,19 +96,14 @@ def _make_version(session, monkeypatch, *, status="APPROVED", **version_kwargs):
     session.add(version)
     session.flush()
 
-    # Usuario con acceso: el endpoint ahora exige identidad + permiso por
-    # carpeta (rol owner ⇒ bypass del permiso operativo, como en producción).
-    rol_owner = session.query(Role).filter_by(name="owner").first()
-    if rol_owner is None:
-        rol_owner = Role(id=f"pdf-rol-{uid}", name="owner", is_system=True)
-        session.add(rol_owner)
-        session.flush()
+    # Usuario con acceso: el endpoint exige identidad + permiso por carpeta
+    # (base_access 'admin' ⇒ bypass del permiso operativo, como en producción).
     user = User(id=f"pdf-usr-{uid}", email=f"pdf-{uid}@test.io", name="PDF User")
     session.add(user)
     session.flush()
     session.add(
         WorkspaceMembership(
-            id=f"pdf-mem-{uid}", user_id=user.id, workspace_id=ws.id, role_id=rol_owner.id
+            id=f"pdf-mem-{uid}", user_id=user.id, workspace_id=ws.id, base_access="admin"
         )
     )
     session.flush()
@@ -628,16 +622,11 @@ def _crear_version_aprobada_committeada():
         )
         s.add(ver)
         s.flush()
-        rol_owner = s.query(Role).filter_by(name="owner").first()
-        if rol_owner is None:
-            rol_owner = Role(id=f"cc-rol-{uid}", name="owner", is_system=True)
-            s.add(rol_owner)
-            s.flush()
         user = User(id=f"cc-usr-{uid}", email=f"cc-{uid}@test.io", name="CC User")
         s.add(user)
         s.flush()
         s.add(WorkspaceMembership(
-            id=f"cc-mem-{uid}", user_id=user.id, workspace_id=ws.id, role_id=rol_owner.id
+            id=f"cc-mem-{uid}", user_id=user.id, workspace_id=ws.id, base_access="admin"
         ))
         s.flush()
         return ws.id, doc.id, ver.id, user.id

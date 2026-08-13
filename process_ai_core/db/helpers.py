@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 from .models import (
     Workspace, Document, Process, Recipe, User, WorkspaceMembership, Folder, 
     Validation, AuditLog, DocumentVersion, Run, SubscriptionPlan, 
-    WorkspaceSubscription, Role
+    WorkspaceSubscription
 )
 from datetime import datetime, UTC
 

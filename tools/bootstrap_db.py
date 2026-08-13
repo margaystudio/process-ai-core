@@ -82,10 +82,11 @@ def _run_schema_sql(engine) -> None:
 
 def _run_seeds() -> None:
     from tools.seed_catalogs import main as seed_catalogs_main
-    from tools.seed_permissions import seed_permissions
     from tools.seed_subscription_plans import seed_plans
 
-    seed_permissions()
+    # Sin seed de roles/permisos: el RBAC legacy se eliminó (migración 0025);
+    # el acceso base viene de margay-workspace y los permisos finos de los
+    # roles operativos. No hay nada que sembrar.
     seed_plans()
     seed_catalogs_main()
     print("✅ Seeds (permisos, planes, catálogos) aplicados")

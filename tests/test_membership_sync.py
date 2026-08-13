@@ -216,18 +216,6 @@ class TestSyncMembership:
         )
         assert membership.base_access == "admin"
 
-    def test_no_escribe_role_id_legacy(self, session):
-        """El sync ya no toca las columnas legacy de roles de sistema."""
-        ws_id = _make_workspace(session)
-        u_id = _make_user(session)
-
-        membership = sync_membership_from_context(
-            session, local_user_id=u_id, workspace_id=ws_id,
-            tenant_roles=["tenant_admin"], platform_roles=[],
-        )
-        assert membership.role_id is None
-        assert membership.role is None
-
     def test_idempotent_same_role(self, session):
         """Llamar dos veces con los mismos datos no crea memberships duplicadas."""
         ws_id = _make_workspace(session)

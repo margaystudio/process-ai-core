@@ -15,10 +15,10 @@ Modelo (fase 3 del rediseño de permisos — ver docs/ROLES_OPERATIVOS_Y_PERMISO
      por par (permiso, carpeta): alcanza con que ALGÚN rol del usuario tenga
      el nivel necesario Y acceso a esa carpeta.
 
-Los roles de sistema (owner/admin/approver/creator/viewer) se eliminaron; las
-tablas roles/permissions quedan como legacy (solo el fallback del superadmin
-por membership las consulta). La API por NOMBRE de permiso ("documents.view",
-"documents.approve"…) se conserva: los niveles se expanden a esos nombres.
+Los roles de sistema (owner/admin/approver/creator/viewer) y sus tablas
+(roles/permissions/role_permissions) se eliminaron. La API por NOMBRE de
+permiso ("documents.view", "documents.approve"…) se conserva: los niveles se
+expanden a esos nombres.
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 from .models import (
-    Role, WorkspaceMembership,
+    WorkspaceMembership,
     Folder, OperationalRole, UserOperationalRole, FolderPermission,
 )
 from .helpers import get_folder_by_id
@@ -98,22 +98,16 @@ def _is_superadmin(
     platform_is_superadmin: bool = False,
 ) -> bool:
     """
-    True si el usuario es superadmin de plataforma.
+    True si el usuario es superadmin de plataforma, POR CLAIM del contexto.
 
-    Orden de verificación:
-      1. platform_is_superadmin=True → bypass inmediato por claim del contexto.
-      2. Membership legacy con rol 'superadmin' (workspace 'sistema'). Se
-         mantiene para compatibilidad hasta que corra cleanup_workspace_sistema.py.
+    El fallback legacy (membership con rol 'superadmin' en el workspace
+    'sistema') se eliminó junto con las tablas de roles (migración 0025). El
+    superadmin no pierde acceso en los endpoints que no propagan el claim:
+    el sync le escribe base_access='admin' en cada workspace que visita, y
+    ese es el bypass que esos endpoints evalúan.
     """
-    if platform_is_superadmin:
-        return True
-    superadmin_role = session.query(Role).filter_by(name="superadmin", is_system=True).first()
-    if not superadmin_role:
-        return False
-    return session.query(WorkspaceMembership).filter_by(
-        user_id=user_id,
-        role_id=superadmin_role.id,
-    ).first() is not None
+    del session, user_id  # firma estable para los call-sites existentes
+    return platform_is_superadmin
 
 
 def is_workspace_admin(
@@ -365,21 +359,9 @@ class PermissionContext:
         self.user_id = user_id
         self.workspace_id = workspace_id
 
-        # 1) Superadmin: claim de plataforma o membership legacy (1 query).
-        if platform_is_superadmin:
-            self.is_superadmin = True
-        else:
-            self.is_superadmin = (
-                session.query(WorkspaceMembership.id)
-                .join(Role, Role.id == WorkspaceMembership.role_id)
-                .filter(
-                    WorkspaceMembership.user_id == user_id,
-                    Role.name == "superadmin",
-                    Role.is_system.is_(True),
-                )
-                .first()
-                is not None
-            )
+        # 1) Superadmin: solo por claim de plataforma (el legacy por
+        #    membership se eliminó con las tablas de roles, migración 0025).
+        self.is_superadmin = platform_is_superadmin
 
         # 2) Membership → acceso base (1 query).
         membership = (

@@ -35,7 +35,6 @@ from process_ai_core.db.models import (
     Document,
     Folder,
     DocumentVersion,
-    Role,
     User,
     UserDirectory,
     Validation,
@@ -79,15 +78,10 @@ def escenario(session):
     session.add_all([ws, autor, aprobador])
     session.flush()
 
-    # Los endpoints ahora exigen identidad + permiso por carpeta: el autor es
-    # owner del workspace (bypass del permiso operativo, como en producción).
-    rol_owner = session.query(Role).filter_by(name="owner").first()
-    if rol_owner is None:
-        rol_owner = Role(id=_uid(), name="owner", is_system=True)
-        session.add(rol_owner)
-        session.flush()
+    # Los endpoints exigen identidad + permiso por carpeta: el autor es admin
+    # del workspace (bypass del permiso operativo, como en producción).
     session.add(WorkspaceMembership(
-        id=_uid(), user_id=autor.id, workspace_id=ws.id, role_id=rol_owner.id
+        id=_uid(), user_id=autor.id, workspace_id=ws.id, base_access="admin"
     ))
     session.flush()
 

@@ -312,15 +312,12 @@ def test_el_rol_operativo_se_resuelve_en_una_query(session):
     ws = Workspace(id=f"ar-ws-{uid}", slug=f"ar-ws-{uid}", name="W", workspace_type="organization")
     session.add(ws)
     session.flush()
-    from process_ai_core.db.models import Role
-
-    rol_sistema = session.query(Role).first()
     user = User(id=f"ar-u-{uid}", email=f"{uid}@x.com", name="Diego Sosa")
     session.add(user)
     session.flush()
     membresia = WorkspaceMembership(
         id=f"ar-m-{uid}", user_id=user.id, workspace_id=ws.id,
-        role_id=rol_sistema.id if rol_sistema else None,
+        base_access="member",
     )
     session.add(membresia)
     session.flush()

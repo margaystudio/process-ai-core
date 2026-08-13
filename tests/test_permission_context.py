@@ -28,9 +28,6 @@ from process_ai_core.db.models import (
     Folder,
     FolderPermission,
     OperationalRole,
-    Permission,
-    Role,
-    RolePermission,
     User,
     UserOperationalRole,
     Workspace,
@@ -46,9 +43,6 @@ from process_ai_core.db.permissions import (
 TABLES = [
     Workspace.__table__,
     User.__table__,
-    Role.__table__,
-    Permission.__table__,
-    RolePermission.__table__,
     WorkspaceMembership.__table__,
     Folder.__table__,
     OperationalRole.__table__,
@@ -86,11 +80,6 @@ class Env:
             id=_uid(), slug=f"ws-{_uid()[:8]}", name="WS", workspace_type="organization"
         )
         session.add(self.workspace)
-
-        # Rol legacy 'superadmin': lo único que queda de las tablas de roles
-        # (fallback del superadmin por membership, pre-cleanup).
-        self.legacy_superadmin_role = Role(id=_uid(), name="superadmin", is_system=True)
-        session.add(self.legacy_superadmin_role)
 
         # Carpetas:
         #   root (hereda, sin permisos explícitos) → sin restricción
@@ -170,28 +159,6 @@ class Env:
         self.session.commit()
         return u
 
-    def legacy_superadmin(self) -> User:
-        """Superadmin legacy: membership con rol superadmin en OTRO workspace."""
-        other_ws = Workspace(
-            id=_uid(), slug=f"sistema-{_uid()[:8]}", name="Sistema", workspace_type="organization"
-        )
-        self.session.add(other_ws)
-        u = User(id=_uid(), email=f"{_uid()[:8]}@t.io", name="SA")
-        self.session.add(u)
-        self.session.flush()
-        self.session.add(
-            WorkspaceMembership(
-                id=_uid(),
-                user_id=u.id,
-                workspace_id=other_ws.id,
-                base_access="admin",
-                role_id=self.legacy_superadmin_role.id,
-            )
-        )
-        self.session.commit()
-        return u
-
-
 @pytest.fixture
 def env(session):
     return Env(session)
@@ -232,12 +199,6 @@ def test_platform_superadmin_bypass(session, env):
         "can_create_in_folder": True,
         "can_approve_in_folder": True,
     }
-
-
-def test_legacy_superadmin_membership_bypass(session, env):
-    user = env.legacy_superadmin()  # membership superadmin en otro workspace
-    r = _assert_parity(session, env, user, env.restricted.id)
-    assert all(r.values())
 
 
 def test_base_admin_bypass(session, env):

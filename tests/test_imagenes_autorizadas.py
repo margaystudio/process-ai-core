@@ -43,10 +43,7 @@ from process_ai_core.db.models import (
     Folder,
     FolderPermission,
     OperationalRole,
-    Permission,
     Process,
-    Role,
-    RolePermission,
     Run,
     User,
     UserOperationalRole,
@@ -86,13 +83,6 @@ class Escenario:
             id=_uid(), slug=f"ws-{_uid()[:8]}", name="WS", workspace_type="organization"
         )
         session.add(self.workspace)
-
-        permiso = Permission(id=_uid(), name="documents.view", category="documents")
-        session.add(permiso)
-        self.rol_viewer = Role(id=_uid(), name="viewer", is_system=True)
-        session.add(self.rol_viewer)
-        session.flush()
-        session.add(RolePermission(role_id=self.rol_viewer.id, permission_id=permiso.id))
 
         # Carpeta con permisos EXPLÍCITOS: solo quien tenga el rol operativo entra.
         self.carpeta = Folder(
@@ -157,7 +147,7 @@ class Escenario:
         )
 
     def usuario(self, *, con_rol_operativo: bool) -> str:
-        """Miembro del workspace con `documents.view`; el rol operativo decide."""
+        """Miembro del workspace (base 'member'); el rol operativo decide la carpeta."""
         u = User(id=_uid(), email=f"{_uid()[:8]}@t.io", name="U")
         self.session.add(u)
         self.session.flush()
@@ -165,7 +155,7 @@ class Escenario:
             id=_uid(),
             user_id=u.id,
             workspace_id=self.workspace.id,
-            role_id=self.rol_viewer.id,
+            base_access="member",
         )
         self.session.add(m)
         self.session.flush()

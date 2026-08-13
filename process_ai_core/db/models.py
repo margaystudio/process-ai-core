@@ -415,78 +415,10 @@ class UserDirectory(Base):
     synced_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
-class Role(Base):
-    """
-    LEGACY — rol del sistema (owner/admin/approver/creator/viewer/superadmin).
-
-    Los roles de sistema se eliminaron en la fase 3 del rediseño de permisos:
-    el acceso base vive en workspace_memberships.base_access y los permisos
-    finos en operational_roles.access_level. Esta tabla solo la consulta el
-    fallback legacy del superadmin por membership (pre-cleanup). No crear
-    filas nuevas.
-    """
-    __tablename__ = "roles"
-
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
-    name: Mapped[str] = mapped_column(String(50), unique=True, index=True)  # "owner", "admin", "approver", "creator", "viewer"
-    description: Mapped[str] = mapped_column(String(500), default="")
-    
-    # Tipo de workspace donde aplica (null = global)
-    workspace_type: Mapped[str | None] = mapped_column(String(20), nullable=True)  # "organization" | "user" | "community" | null
-    
-    # Si es un rol del sistema (no se puede eliminar)
-    is_system: Mapped[bool] = mapped_column(default=False)
-    
-    # Metadata adicional
-    metadata_json: Mapped[str] = mapped_column(Text, default="{}")
-    
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    
-    # Relaciones
-    permissions: Mapped[list["Permission"]] = relationship(
-        "Permission",
-        secondary=lambda: RolePermission.__table__,
-        back_populates="roles",
-    )
-    workspace_memberships: Mapped[list["WorkspaceMembership"]] = relationship(back_populates="role_obj")
-
-
-class Permission(Base):
-    """
-    Permiso del sistema (ej: "documents.approve", "documents.create").
-    
-    Los permisos se agrupan por categoría y se asignan a roles.
-    """
-    __tablename__ = "permissions"
-
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
-    name: Mapped[str] = mapped_column(String(100), unique=True, index=True)  # "documents.approve", "documents.create", etc.
-    description: Mapped[str] = mapped_column(String(500), default="")
-    category: Mapped[str] = mapped_column(String(50), index=True)  # "documents", "workspaces", "users"
-    
-    # Metadata adicional
-    metadata_json: Mapped[str] = mapped_column(Text, default="{}")
-    
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    
-    # Relaciones
-    roles: Mapped[list["Role"]] = relationship(
-        "Role",
-        secondary=lambda: RolePermission.__table__,
-        back_populates="permissions",
-    )
-
-
-class RolePermission(Base):
-    """
-    Tabla de relación muchos-a-muchos entre Role y Permission.
-    """
-    __tablename__ = "role_permissions"
-
-    role_id: Mapped[str] = mapped_column(String(36), ForeignKey("roles.id"), primary_key=True)
-    permission_id: Mapped[str] = mapped_column(String(36), ForeignKey("permissions.id"), primary_key=True)
-    
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+# Los modelos Role / Permission / RolePermission se ELIMINARON (junto con sus
+# tablas, migración 0025). Eran el RBAC de los roles de sistema; el modelo
+# vigente es workspace_memberships.base_access + operational_roles.access_level
+# (ver process_ai_core/db/permissions.py).
 
 
 class WorkspaceMembership(Base):
@@ -506,9 +438,8 @@ class WorkspaceMembership(Base):
 
     Qué puede hacer más allá de la base lo definen los roles operativos del
     cliente (OperationalRole.access_level × carpetas). Los roles de sistema
-    (owner/admin/approver/creator/viewer) se eliminaron: role_id/role quedan
-    como columnas legacy sin lectura en runtime (salvo el fallback del
-    superadmin legacy por membership).
+    (owner/admin/approver/creator/viewer) y sus columnas (role_id/role) se
+    eliminaron (migración 0025).
     """
     __tablename__ = "workspace_memberships"
 
@@ -519,17 +450,11 @@ class WorkspaceMembership(Base):
     # Acceso base derivado del rol macro del tenant: 'admin' | 'member' | 'external'
     base_access: Mapped[str] = mapped_column(String(20), default="member", server_default="member")
 
-    # DEPRECATED: roles de sistema eliminados; solo el fallback legacy de
-    # superadmin sigue leyendo role_id. No escribir.
-    role_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("roles.id"), index=True, nullable=True)
-    role: Mapped[str | None] = mapped_column(String(20), nullable=True)  # DEPRECATED
-
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     # Relaciones
     user: Mapped["User"] = relationship(back_populates="workspace_memberships")
     workspace: Mapped["Workspace"] = relationship(back_populates="memberships")
-    role_obj: Mapped["Role"] = relationship("Role", foreign_keys=[role_id], back_populates="workspace_memberships")
     user_operational_roles: Mapped[list["UserOperationalRole"]] = relationship(
         "UserOperationalRole", back_populates="workspace_membership", cascade="all, delete-orphan"
     )
