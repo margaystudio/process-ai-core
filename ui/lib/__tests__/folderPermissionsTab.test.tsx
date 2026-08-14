@@ -104,8 +104,14 @@ describe('PermissionsTab', () => {
   async function renderPermissionsTab() {
     const user = userEvent.setup()
     render(<FoldersPage />)
-    await screen.findAllByText('Liquidaciones')
-    await user.click(screen.getByRole('tab', { name: 'Permisos' }))
+    // Se espera LA PESTAÑA, no el nombre de la carpeta. El nombre aparece en el
+    // árbol lateral apenas resuelve el listado, pero las pestañas viven en el
+    // panel de detalle, que recién se pinta cuando un efecto posterior elige la
+    // carpeta seleccionada por defecto. Esperar el nombre y después buscar la
+    // pestaña con un `getBy` síncrono dejaba una ventana entre las dos cosas:
+    // el test fallaba de vez en cuando, solo con la suite completa corriendo
+    // (con la máquina cargada la ventana se ensancha).
+    await user.click(await screen.findByRole('tab', { name: 'Permisos' }))
     return user
   }
 

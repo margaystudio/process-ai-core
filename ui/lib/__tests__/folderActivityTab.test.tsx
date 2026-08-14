@@ -103,8 +103,9 @@ describe('ActivityTab', () => {
 
     const user = userEvent.setup()
     render(<FoldersPage />)
-    await screen.findAllByText('Operaciones')
-    await user.click(screen.getByRole('tab', { name: 'Actividad' }))
+    // La pestaña, no el nombre: el nombre ya está en el árbol lateral mientras
+    // el panel de detalle todavía no se pintó (ver folderPermissionsTab.test.tsx).
+    await user.click(await screen.findByRole('tab', { name: 'Actividad' }))
 
     expect(await screen.findByText('Ana Auditora')).toBeInTheDocument()
     expect(screen.getByText('aprobó una versión')).toBeInTheDocument()
@@ -127,8 +128,9 @@ describe('ActivityTab', () => {
 
     const user = userEvent.setup()
     render(<FoldersPage />)
-    await screen.findAllByText('Operaciones')
-    await user.click(screen.getByRole('tab', { name: 'Actividad' }))
+    // La pestaña, no el nombre: el nombre ya está en el árbol lateral mientras
+    // el panel de detalle todavía no se pintó (ver folderPermissionsTab.test.tsx).
+    await user.click(await screen.findByRole('tab', { name: 'Actividad' }))
 
     expect(await screen.findByText('Todavía no hay actividad')).toBeInTheDocument()
   })
