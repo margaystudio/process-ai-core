@@ -1,11 +1,19 @@
 'use client'
 
-import { useState, useEffect, useMemo, useCallback, useRef, memo } from 'react'
+import { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef, memo } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Search, Plus, Upload, ChevronDown, X } from 'lucide-react'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
-import { listDocuments, getDocumentTypes, Document, Folder, CatalogOption } from '@/lib/api'
+import {
+  listDocuments,
+  getDocumentTypes,
+  deleteDocument,
+  updateDocument,
+  Document,
+  Folder,
+  CatalogOption,
+} from '@/lib/api'
 import { useCanEditWorkspace, useCanManageWorkspace, useHasPermission } from '@/hooks/useHasPermission'
 import { useWorkspaceProfileIncomplete } from '@/hooks/useWorkspaceProfileIncomplete'
 import WorkspaceProfileBanner from '@/components/workspace/WorkspaceProfileBanner'
@@ -13,7 +21,7 @@ import { usePdfViewer } from '@/hooks/usePdfViewer'
 import ArtifactViewerModal from '@/components/processes/ArtifactViewerModal'
 import BibliotecaFolderTree from '@/components/biblioteca/BibliotecaFolderTree'
 import { RowSkeleton } from '@/components/layout/ListSkeleton'
-import { StatusBadge, VersionPill, ESTADO_LABEL, Chip } from '@/shared/ui/components'
+import { StatusBadge, VersionPill, ESTADO_LABEL, Chip, Dialog } from '@/shared/ui/components'
 import type { DocumentEstado } from '@/shared/ui/components'
 
 // ---- Tipos ----
@@ -204,36 +212,82 @@ function TipoDocumentalFilter({
 }
 
 // ---- Menú contextual por fila ----
+/**
+ * Acciones disponibles gateadas por permiso EFECTIVO (fail-closed: si el hook
+ * de capacidades no cargó, no se muestra la acción — nunca mostramos algo que
+ * el backend va a rechazar con 403).
+ *
+ * Archivar/Desarchivar usa el `status` CRUDO del documento (draft/archived),
+ * no la etiqueta en español: "rejected" también se muestra como "Borrador"
+ * (ver ESTADO_LABEL) pero el backend sólo permite la transición manual
+ * archived ↔ draft. Gatear por la etiqueta habría mostrado "Archivar" en un
+ * documento rechazado y el backend lo hubiera rechazado con 400.
+ */
 function RowMenu({
-  status,
+  doc,
+  canDelete,
+  canEdit,
   onClose,
   onOpen,
+  onViewHistory,
+  onCopyLink,
+  onArchiveToggle,
+  onDeleteRequest,
 }: {
-  status: string
+  doc: Document
+  canDelete: boolean
+  canEdit: boolean
   onClose: () => void
   onOpen: () => void
+  onViewHistory: () => void
+  onCopyLink: () => void
+  onArchiveToggle: () => void
+  onDeleteRequest: () => void
 }) {
-  const e = toEstado(status)
-  const groups: { label: string; danger?: boolean; action?: () => void }[][] = [
+  const e = toEstado(doc.status)
+  const canArchive = canEdit && doc.status === 'draft'
+  const canUnarchive = canEdit && doc.status === 'archived'
+  // Regla actual (sin cambios): eliminar solo se ofrece para borradores.
+  const canDeleteItem = canDelete && e === 'Borrador'
+
+  const groups: { label: string; danger?: boolean; action: () => void }[][] = [
     [
       { label: 'Abrir documento', action: onOpen },
-      { label: 'Ver historial' },
+      { label: 'Ver historial', action: onViewHistory },
     ],
     [
-      ...((e === 'Aprobado' || e === 'Pendiente') ? [{ label: 'Crear nueva versión' }] : []),
-      { label: 'Copiar enlace' },
+      { label: 'Copiar enlace', action: onCopyLink },
     ],
     [
-      { label: 'Mover' },
-      { label: 'Archivar' },
-      ...(e === 'Borrador' ? [{ label: 'Eliminar', danger: true }] : []),
+      ...(canArchive ? [{ label: 'Archivar', action: onArchiveToggle }] : []),
+      ...(canUnarchive ? [{ label: 'Desarchivar', action: onArchiveToggle }] : []),
+      ...(canDeleteItem ? [{ label: 'Eliminar', danger: true, action: onDeleteRequest }] : []),
     ],
-  ]
+  ].filter((g) => g.length > 0)
+
+  const panelRef = useRef<HTMLDivElement>(null)
+  const [placement, setPlacement] = useState<'down' | 'up'>('down')
+
+  // Medir contra el viewport ANTES del paint: si no entra hacia abajo, se abre
+  // hacia arriba (evita que el menú de las últimas filas quede fuera de pantalla).
+  useLayoutEffect(() => {
+    const el = panelRef.current
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    if (rect.bottom > window.innerHeight - 8) {
+      setPlacement('up')
+    }
+  }, [])
 
   return (
     <div
-      className="absolute right-3.5 top-[calc(100%-4px)] z-20 w-[212px] rounded-[11px] border border-line bg-surface p-1.5 shadow-menu"
-      onMouseLeave={onClose}
+      ref={panelRef}
+      role="menu"
+      aria-label="Más opciones del documento"
+      className={
+        'absolute right-3.5 z-20 w-[212px] rounded-[11px] border border-line bg-surface p-1.5 shadow-menu ' +
+        (placement === 'up' ? 'bottom-[calc(100%-4px)]' : 'top-[calc(100%-4px)]')
+      }
     >
       {groups.map((g, gi) => (
         <div key={gi}>
@@ -242,10 +296,11 @@ function RowMenu({
             <button
               key={a.label}
               type="button"
-              onClick={() => { a.action?.(); onClose() }}
+              role="menuitem"
+              onClick={() => { a.action(); onClose() }}
               className={
                 'w-full rounded-md px-2.5 py-2 text-left text-[12.5px] font-semibold ' +
-                (a.danger ? 'text-danger' : 'text-ink-800 hover:bg-surface-hover')
+                (a.danger ? 'text-danger hover:bg-danger-bg' : 'text-ink-800 hover:bg-surface-hover')
               }
             >
               {a.label}
@@ -300,19 +355,58 @@ function EmptyState({ canCreate }: { canCreate: boolean }) {
 const DocumentRow = memo(function DocumentRow({
   doc,
   isMenuOpen,
+  canDelete,
+  canEdit,
+  busy,
   onOpen,
   onToggleMenu,
+  onViewHistory,
+  onCopyLink,
+  onArchiveToggle,
+  onDeleteRequest,
 }: {
   doc: Document
   isMenuOpen: boolean
+  canDelete: boolean
+  canEdit: boolean
+  busy: boolean
   onOpen: (docId: string) => void
   onToggleMenu: (docId: string | null) => void
+  onViewHistory: (docId: string) => void
+  onCopyLink: (docId: string) => void
+  onArchiveToggle: (doc: Document) => void
+  onDeleteRequest: (doc: Document) => void
 }) {
   const estado = toEstado(doc.status)
   const vlabel = versionLabel(doc.status, doc.version_number)
+  const rowRef = useRef<HTMLDivElement>(null)
+
+  // Cerrar al hacer click afuera o con Escape. Antes solo cerraba con
+  // onMouseLeave, que no existe en touch — quedaba trabado abierto en mobile.
+  // El ref cubre la fila entera (botón "…" + panel), así que un click en el
+  // propio botón "…" para cerrar no dispara un cierre-y-reapertura fantasma.
+  useEffect(() => {
+    if (!isMenuOpen) return
+    function onPointerDown(e: MouseEvent | TouchEvent) {
+      if (rowRef.current && !rowRef.current.contains(e.target as Node)) {
+        onToggleMenu(null)
+      }
+    }
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') onToggleMenu(null)
+    }
+    document.addEventListener('mousedown', onPointerDown)
+    document.addEventListener('touchstart', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown)
+      document.removeEventListener('touchstart', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [isMenuOpen, onToggleMenu])
 
   return (
-    <div className="relative flex items-center gap-[15px] rounded-[13px] border border-line bg-surface px-[18px] py-3.5">
+    <div ref={rowRef} className="relative flex items-center gap-[15px] rounded-[13px] border border-line bg-surface px-[18px] py-3.5">
       {/* Ícono del documento */}
       <span
         className="grid h-10 w-10 flex-shrink-0 place-items-center rounded-[10px] bg-indigo-tint text-indigo"
@@ -360,17 +454,25 @@ const DocumentRow = memo(function DocumentRow({
         type="button"
         aria-label="Más opciones"
         aria-expanded={isMenuOpen}
+        aria-haspopup="menu"
+        disabled={busy}
         onClick={() => onToggleMenu(isMenuOpen ? null : doc.id)}
-        className="grid h-[34px] w-[34px] flex-shrink-0 place-items-center rounded-[9px] border border-line bg-surface text-ink-500 hover:bg-surface-hover"
+        className="grid h-[34px] w-[34px] flex-shrink-0 place-items-center rounded-[9px] border border-line bg-surface text-ink-500 hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50"
       >
         <SvgIcon d={ICON.dots} size={16} strokeWidth={2.4} />
       </button>
 
       {isMenuOpen && (
         <RowMenu
-          status={doc.status}
+          doc={doc}
+          canDelete={canDelete}
+          canEdit={canEdit}
           onClose={() => onToggleMenu(null)}
           onOpen={() => onOpen(doc.id)}
+          onViewHistory={() => onViewHistory(doc.id)}
+          onCopyLink={() => onCopyLink(doc.id)}
+          onArchiveToggle={() => onArchiveToggle(doc)}
+          onDeleteRequest={() => onDeleteRequest(doc)}
         />
       )}
     </div>
@@ -390,6 +492,9 @@ export default function WorkspacePage() {
   // de solo lectura dedicada.
   const { hasPermission: canEditDocuments, loading: editPermLoading } = useHasPermission('documents.edit')
   const isReadOnly = !editPermLoading && !canEditDocuments
+  // Fail-closed: mientras no cargó, false — el ítem "Eliminar" del menú no
+  // aparece hasta confirmar el permiso (nunca mostramos algo que va a dar 403).
+  const { hasPermission: canDeleteDocuments } = useHasPermission('documents.delete')
   const { modalProps } = usePdfViewer()
 
   const [documents, setDocuments] = useState<Document[]>([])
@@ -410,9 +515,54 @@ export default function WorkspacePage() {
   const handleOpenDoc = useCallback((docId: string) => {
     router.push(`/documents/${docId}`)
   }, [router])
+  const handleViewHistory = useCallback((docId: string) => {
+    // El detalle del documento lee este query param para expandir el
+    // historial y llevar el scroll a esa sección automáticamente.
+    router.push(`/documents/${docId}?historial=1`)
+  }, [router])
 
   // Opciones de tipo documental
   const [tipoOptions, setTipoOptions] = useState<CatalogOption[]>([])
+
+  // ---- Feedback de acciones del menú contextual (copiar enlace / archivar / eliminar) ----
+  const [actionMessage, setActionMessage] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [busyDocId, setBusyDocId] = useState<string | null>(null)
+  const actionMessageTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (actionMessageTimeout.current) clearTimeout(actionMessageTimeout.current)
+    }
+  }, [])
+
+  const showActionMessage = useCallback((message: string) => {
+    setActionError(null)
+    setActionMessage(message)
+    if (actionMessageTimeout.current) clearTimeout(actionMessageTimeout.current)
+    actionMessageTimeout.current = setTimeout(() => setActionMessage(null), 2800)
+  }, [])
+
+  const handleCopyLink = useCallback(async (docId: string) => {
+    const url = `${window.location.origin}/documents/${docId}`
+    try {
+      await navigator.clipboard.writeText(url)
+      showActionMessage('Enlace copiado al portapapeles.')
+    } catch {
+      setActionMessage(null)
+      setActionError('No se pudo copiar el enlace. Copiálo manualmente desde la barra de direcciones.')
+    }
+  }, [showActionMessage])
+
+  // ---- Eliminar (con confirmación) ----
+  const [deleteTarget, setDeleteTarget] = useState<Document | null>(null)
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+
+  const handleDeleteRequest = useCallback((doc: Document) => {
+    setDeleteError(null)
+    setDeleteTarget(doc)
+  }, [])
 
   // Redirigir a usuarios de solo lectura (sin documents.edit)
   useEffect(() => {
@@ -444,6 +594,38 @@ export default function WorkspacePage() {
       setLoading(false)
     }
   }, [selectedWorkspaceId, activeTenantId])
+
+  const handleArchiveToggle = useCallback(async (doc: Document) => {
+    const nextStatus = doc.status === 'archived' ? 'draft' : 'archived'
+    setBusyDocId(doc.id)
+    setActionError(null)
+    try {
+      await updateDocument(doc.id, { status: nextStatus })
+      showActionMessage(nextStatus === 'archived' ? 'Documento archivado.' : 'Documento restaurado a borrador.')
+      await loadDocuments()
+    } catch (err) {
+      setActionMessage(null)
+      setActionError(err instanceof Error ? err.message : 'No se pudo actualizar el estado del documento.')
+    } finally {
+      setBusyDocId(null)
+    }
+  }, [loadDocuments, showActionMessage])
+
+  const handleDeleteConfirm = useCallback(async () => {
+    if (!deleteTarget) return
+    setIsDeleting(true)
+    setDeleteError(null)
+    try {
+      await deleteDocument(deleteTarget.id)
+      setDeleteTarget(null)
+      showActionMessage('Documento eliminado.')
+      await loadDocuments()
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : 'No se pudo eliminar el documento.')
+    } finally {
+      setIsDeleting(false)
+    }
+  }, [deleteTarget, loadDocuments, showActionMessage])
 
   useEffect(() => {
     if (isReadOnly) return
@@ -570,6 +752,24 @@ export default function WorkspacePage() {
           </div>
         </div>
 
+        {/* Feedback de acciones del menú contextual (copiar enlace / archivar / eliminar) */}
+        {actionError && (
+          <div
+            role="alert"
+            className="mb-3.5 rounded-[11px] border border-danger-bd bg-danger-bg px-4 py-3 text-[12.5px] font-semibold text-danger"
+          >
+            {actionError}
+          </div>
+        )}
+        {actionMessage && (
+          <div
+            role="status"
+            className="mb-3.5 rounded-[11px] border border-success-bd bg-success-bg px-4 py-3 text-[12.5px] font-semibold text-success-fg"
+          >
+            {actionMessage}
+          </div>
+        )}
+
         {/* Tabs (sin "Carpetas") */}
         <div className="mb-[18px] inline-flex items-center gap-0.5 rounded-[10px] bg-surface-track p-[3px]">
           {(['lista', 'recientes', 'pendientes'] as TabView[]).map((v) => (
@@ -653,8 +853,15 @@ export default function WorkspacePage() {
                 key={doc.id}
                 doc={doc}
                 isMenuOpen={menuId === doc.id}
+                canDelete={canDeleteDocuments}
+                canEdit={canEditDocuments}
+                busy={busyDocId === doc.id}
                 onOpen={handleOpenDoc}
                 onToggleMenu={setMenuId}
+                onViewHistory={handleViewHistory}
+                onCopyLink={handleCopyLink}
+                onArchiveToggle={handleArchiveToggle}
+                onDeleteRequest={handleDeleteRequest}
               />
             ))}
           </div>
@@ -662,6 +869,41 @@ export default function WorkspacePage() {
       </div>
 
       <ArtifactViewerModal {...modalProps} />
+
+      {/* Confirmación de eliminación */}
+      <Dialog
+        open={deleteTarget !== null}
+        onClose={() => { if (!isDeleting) setDeleteTarget(null) }}
+        title="Eliminar documento"
+        maxWidth="max-w-md"
+      >
+        <p className="text-sm text-ink-700">
+          ¿Querés eliminar &quot;{deleteTarget?.name}&quot;? Esta acción no se puede deshacer.
+        </p>
+        {deleteError && (
+          <p role="alert" className="mt-3 rounded-[9px] border border-danger-bd bg-danger-bg px-3 py-2 text-xs font-semibold text-danger">
+            {deleteError}
+          </p>
+        )}
+        <div className="mt-5 flex justify-end gap-2.5">
+          <button
+            type="button"
+            onClick={() => setDeleteTarget(null)}
+            disabled={isDeleting}
+            className="inline-flex h-10 items-center rounded-[10px] border border-line-input bg-surface px-4 text-[13px] font-bold text-ink-700 hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={handleDeleteConfirm}
+            disabled={isDeleting}
+            className="inline-flex h-10 items-center rounded-[10px] bg-danger px-4 text-[13px] font-bold text-white hover:bg-danger-press disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {isDeleting ? 'Eliminando…' : 'Eliminar'}
+          </button>
+        </div>
+      </Dialog>
 
     </div>
   )

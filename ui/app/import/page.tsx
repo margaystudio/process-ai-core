@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   Check,
   FileText,
+  RotateCw,
   Send,
   ShieldCheck,
   Upload,
@@ -71,7 +72,11 @@ function isImportedDocument(document: Document): boolean {
 }
 
 function itemTone(status: ImportStatus): string {
-  if (status === 'approved') return 'border-green-border bg-green-bg text-green-text'
+  // "approved" (verde) usa los tokens semánticos success-* — `green-border` /
+  // `green-bg` / `green-text` no existen en el design system (el color `green`
+  // del preset solo define DEFAULT+50..700), esas clases no generaban CSS y el
+  // tono quedaba invisible.
+  if (status === 'approved') return 'border-success-bd bg-success-bg text-success-fg'
   if (status === 'error') return 'border-danger-bd bg-danger-bg text-danger'
   if (status === 'pending_validation') return 'border-amber-border bg-amber-bg text-[#7A5600]'
   if (status === 'importing' || status === 'sending' || status === 'approving') {
@@ -91,6 +96,9 @@ export default function ImportPage() {
   const [dragOver, setDragOver] = useState(false)
   const [running, setRunning] = useState(false)
   const [pageError, setPageError] = useState<string | null>(null)
+  // Resumen de la última corrida de importación (cuántos entraron / fallaron),
+  // para no dejar que el usuario lo deduzca de los colores de cada fila.
+  const [importSummary, setImportSummary] = useState<{ ok: number; failed: number } | null>(null)
 
   const { canManage: canAdminister, loading: canAdministerLoading } = useCanManageWorkspace()
 
@@ -138,6 +146,7 @@ export default function ImportPage() {
   useEffect(() => {
     setItems([])
     setPageError(null)
+    setImportSummary(null)
   }, [folderId, selectedWorkspaceId])
 
   const addFiles = useCallback((incoming: FileList | File[]) => {
@@ -174,42 +183,89 @@ export default function ImportPage() {
     )
   }, [])
 
-  const importQueued = async () => {
+  /**
+   * Corre la importación para un lote de items ya marcados 'queued'. Único
+   * punto que llama a `importDocuments` — lo usan tanto el botón principal
+   * (lote completo) como "Reintentar" por fila (lote de 1), así ambos caminos
+   * comparten la misma regla: solo procesa lo que está 'queued' en `targets`,
+   * nunca lo que ya importó ('imported'/'pending_validation'/'approved').
+   */
+  const runImportForItems = useCallback(
+    async (targets: ImportItem[]) => {
+      if (!folderId) {
+        setPageError('Elegí una carpeta destino')
+        return
+      }
+      const runnable = targets.filter((item) => item.file && item.status === 'queued')
+      if (!runnable.length) return
+
+      setRunning(true)
+      setPageError(null)
+      let ok = 0
+      let failed = 0
+      for (const item of runnable) {
+        updateItem(item.id, { status: 'importing', error: null })
+        try {
+          const formData = new FormData()
+          formData.append('folder_id', folderId)
+          formData.append('requires_approval', 'true')
+          formData.append('files', item.file as File)
+          const [document] = await importDocuments(formData)
+          updateItem(item.id, {
+            document,
+            status: 'imported',
+            selected: true,
+          })
+          ok += 1
+        } catch (error) {
+          updateItem(item.id, {
+            status: 'error',
+            selected: false,
+            error: error instanceof Error ? error.message : 'Error al importar',
+          })
+          failed += 1
+        }
+      }
+      setRunning(false)
+      setImportSummary({ ok, failed })
+    },
+    [folderId, updateItem]
+  )
+
+  /**
+   * Botón principal: procesa 'queued' Y 'error' (antes solo 'queued', por eso
+   * un archivo fallido quedaba trabado para siempre — ver bug original).
+   * Nunca toca 'imported'/'pending_validation'/'approved': ese es el filtro
+   * que evita volver a duplicar un documento que ya entró.
+   */
+  const importAll = async () => {
     if (!folderId) {
       setPageError('Elegí una carpeta destino')
       return
     }
-    const queued = items.filter((item) => item.status === 'queued' && item.file)
-    if (!queued.length) {
+    const targets = items.filter(
+      (item) => (item.status === 'queued' || item.status === 'error') && item.file
+    )
+    if (!targets.length) {
       setPageError('Agregá al menos un archivo para importar')
       return
     }
-
-    setRunning(true)
-    setPageError(null)
-    for (const item of queued) {
-      updateItem(item.id, { status: 'importing', error: null })
-      try {
-        const formData = new FormData()
-        formData.append('folder_id', folderId)
-        formData.append('requires_approval', 'true')
-        formData.append('files', item.file as File)
-        const [document] = await importDocuments(formData)
-        updateItem(item.id, {
-          document,
-          status: 'imported',
-          selected: true,
-        })
-      } catch (error) {
-        updateItem(item.id, {
-          status: 'error',
-          selected: false,
-          error: error instanceof Error ? error.message : 'Error al importar',
-        })
-      }
-    }
-    setRunning(false)
+    targets.forEach((item) => {
+      if (item.status === 'error') updateItem(item.id, { status: 'queued', error: null })
+    })
+    await runImportForItems(targets.map((item) => ({ ...item, status: 'queued', error: null })))
   }
+
+  /** Reintento individual: solo aplica a un item en 'error', conserva el File. */
+  const retryItem = useCallback(
+    (id: string) => {
+      const item = items.find((candidate) => candidate.id === id)
+      if (!item || item.status !== 'error' || !item.file) return
+      updateItem(id, { status: 'queued', error: null })
+      void runImportForItems([{ ...item, status: 'queued', error: null }])
+    },
+    [items, runImportForItems, updateItem]
+  )
 
   const sendSelectedForApproval = async () => {
     const selected = items.filter(
@@ -291,6 +347,16 @@ export default function ImportPage() {
   }
 
   const queuedCount = items.filter((item) => item.status === 'queued').length
+  const erroredCount = items.filter((item) => item.status === 'error').length
+  const retryableCount = queuedCount + erroredCount
+  // El label refleja qué va a pasar al apretar el botón: si todo lo pendiente
+  // falló antes, "Reintentar N"; si hay una mezcla, se aclaran los reintentos.
+  const importButtonLabel =
+    erroredCount > 0 && queuedCount === 0
+      ? `Reintentar ${erroredCount}`
+      : erroredCount > 0
+        ? `Importar ${retryableCount} (${erroredCount} reintentos)`
+        : `Importar ${queuedCount}`
   const importableCount = items.filter((item) => item.file !== null).length
   const processedCount = items.filter(
     (item) => item.file !== null && item.status !== 'queued' && item.status !== 'importing'
@@ -499,13 +565,25 @@ export default function ImportPage() {
                     {item.status === 'approved' ? <Check className="h-3 w-3" /> : null}
                     {STATUS_LABELS[item.status]}
                   </span>
-                  {item.status === 'queued' ? (
+                  {item.status === 'error' ? (
                     <button
                       type="button"
+                      disabled={running}
+                      onClick={() => retryItem(item.id)}
+                      className="mt-0.5 inline-flex h-7 flex-shrink-0 items-center gap-1.5 rounded-[8px] border border-danger-bd bg-surface px-2.5 text-[11.5px] font-bold text-danger hover:bg-danger-bg disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <RotateCw className="h-3.5 w-3.5" />
+                      Reintentar
+                    </button>
+                  ) : null}
+                  {(item.status === 'queued' || item.status === 'error') ? (
+                    <button
+                      type="button"
+                      disabled={running}
                       onClick={() =>
                         setItems((current) => current.filter((candidate) => candidate.id !== item.id))
                       }
-                      className="mt-1 rounded-md p-1 text-ink-300 hover:bg-surface-hover hover:text-danger"
+                      className="mt-1 rounded-md p-1 text-ink-300 hover:bg-surface-hover hover:text-danger disabled:cursor-not-allowed disabled:opacity-50"
                       aria-label={`Quitar ${item.fileName}`}
                     >
                       <X className="h-4 w-4" />
@@ -517,15 +595,15 @@ export default function ImportPage() {
           </div>
 
           <div className="flex flex-wrap items-center justify-end gap-2.5 border-t border-line px-5 py-4">
-            {queuedCount > 0 ? (
+            {retryableCount > 0 ? (
               <button
                 type="button"
                 disabled={running || !folderId}
-                onClick={() => void importQueued()}
+                onClick={() => void importAll()}
                 className="inline-flex h-10 items-center gap-2 rounded-[10px] bg-ink-800 px-4 text-[13px] font-bold text-white disabled:opacity-50"
               >
                 <Upload className="h-4 w-4" />
-                Importar {queuedCount}
+                {importButtonLabel}
               </button>
             ) : null}
             {selectedDrafts > 0 ? (
@@ -552,6 +630,39 @@ export default function ImportPage() {
             ) : null}
           </div>
         </section>
+      ) : null}
+
+      {/* Resumen de la última corrida: cuántos entraron y cuántos fallaron,
+          en vez de dejar que el usuario lo deduzca de los colores de cada fila. */}
+      {importSummary && !running ? (
+        <div
+          role="status"
+          className={cn(
+            'mt-4 flex items-start justify-between gap-3 rounded-[12px] border px-4 py-3 text-[12.5px]',
+            importSummary.failed > 0
+              ? 'border-danger-bd bg-danger-bg text-danger'
+              : 'border-success-bd bg-success-bg text-success-fg'
+          )}
+        >
+          <div>
+            <p className="font-extrabold">
+              {importSummary.ok} {importSummary.ok === 1 ? 'archivo importado' : 'archivos importados'}
+              {importSummary.failed > 0 ? `, ${importSummary.failed} con error` : ''}
+            </p>
+            {importSummary.failed > 0 ? (
+              <p className="mt-0.5">
+                Usá &quot;Reintentar&quot; en cada archivo, o el botón principal para reintentarlos todos.
+              </p>
+            ) : null}
+          </div>
+          <button
+            type="button"
+            onClick={() => setImportSummary(null)}
+            className="flex-shrink-0 text-[11.5px] font-bold underline underline-offset-2 hover:no-underline"
+          >
+            Cerrar
+          </button>
+        </div>
       ) : null}
 
       {pendingAsync.status === 'loading' && folderId ? (
