@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { authFetch, clearAccessTokenCache } from '@/lib/api-auth'
 
@@ -88,5 +88,83 @@ describe('authFetch (retry único ante 401)', () => {
 
     expect(res.status).toBe(200)
     expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('authFetch — tenant activo', () => {
+  const ORIGINAL = globalThis.localStorage
+
+  function conTenant(valor: string | null) {
+    Object.defineProperty(globalThis, 'localStorage', {
+      value: { getItem: () => valor, setItem: () => {} },
+      configurable: true,
+    })
+  }
+
+  afterEach(() => {
+    Object.defineProperty(globalThis, 'localStorage', {
+      value: ORIGINAL,
+      configurable: true,
+    })
+  })
+
+  it('completa X-Active-Tenant-Id cuando la request lleva sesión pero se olvidó el tenant', async () => {
+    // El bug real: una docena de llamadas arman los headers a mano (multipart,
+    // blobs) y mandaban solo el token. Sin el tenant, el backend resuelve el
+    // workspace por defecto y quien tiene varios recibe 404.
+    conTenant('tenant-activo')
+    const fetchMock = vi.fn().mockResolvedValue(new Response('ok', { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await authFetch('https://api.test/x', {
+      headers: { Authorization: 'Bearer t1' },
+    })
+
+    const enviados = new Headers(fetchMock.mock.calls[0][1].headers)
+    expect(enviados.get('X-Active-Tenant-Id')).toBe('tenant-activo')
+    expect(enviados.get('Authorization')).toBe('Bearer t1')
+  })
+
+  it('respeta el tenant que el llamador ya puso', async () => {
+    conTenant('tenant-activo')
+    const fetchMock = vi.fn().mockResolvedValue(new Response('ok', { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await authFetch('https://api.test/x', {
+      headers: { Authorization: 'Bearer t1', 'X-Active-Tenant-Id': 'el-que-pidio' },
+    })
+
+    expect(
+      new Headers(fetchMock.mock.calls[0][1].headers).get('X-Active-Tenant-Id')
+    ).toBe('el-que-pidio')
+  })
+
+  it('no le inventa contexto a una request sin sesión', async () => {
+    conTenant('tenant-activo')
+    const fetchMock = vi.fn().mockResolvedValue(new Response('ok', { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await authFetch('/api/auth/session')
+
+    const init = fetchMock.mock.calls[0][1]
+    expect(init?.headers ? new Headers(init.headers).get('X-Active-Tenant-Id') : null).toBeNull()
+  })
+
+  it('sin localStorage utilizable no rompe la request', async () => {
+    Object.defineProperty(globalThis, 'localStorage', {
+      value: {
+        getItem: () => {
+          throw new Error('acceso denegado al almacenamiento')
+        },
+      },
+      configurable: true,
+    })
+    const fetchMock = vi.fn().mockResolvedValue(new Response('ok', { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const res = await authFetch('https://api.test/x', {
+      headers: { Authorization: 'Bearer t1' },
+    })
+    expect(res.status).toBe(200)
   })
 })
