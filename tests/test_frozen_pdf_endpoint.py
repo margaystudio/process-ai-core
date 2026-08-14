@@ -704,3 +704,126 @@ def test_dos_requests_concurrentes_producen_un_solo_render(storage, monkeypatch)
         assert blob == respuestas[0].body
     finally:
         _borrar_version_committeada(workspace_id, document_id, version_id)
+
+
+# ── El artefacto registrado desapareció del storage ───────────────────────────
+#
+# Encontrado recorriendo el ambiente de test: dos documentos APROBADOS tenían su
+# `pdf_storage_key` en la base y el blob no existía (se habían congelado cuando
+# el storage era el disco efímero del contenedor). El endpoint devolvía 404 para
+# siempre y el barrido de pendientes NO los veía —tienen key—, así que nada en el
+# sistema se enteraba de que un documento aprobado se había quedado sin evidencia.
+
+
+def _freeze_falso(storage, contenido=b"%PDF-1.4\n% regenerado\n%%EOF\n"):
+    """Sustituto del freeze real: escribe un blob y registra key + hash.
+
+    Se reemplaza el render porque lo que se está probando es la RECUPERACIÓN,
+    no WeasyPrint (eso vive en test_freeze_integration.py).
+    """
+    def _fake(session, version, **kwargs):
+        key = (
+            f"workspaces/regen/documents/{version.document_id}/"
+            f"versions/{version.id}/document.pdf"
+        )
+        storage.put(key, contenido, content_type="application/pdf")
+        version.pdf_storage_key = key
+        version.pdf_sha256 = hashlib.sha256(contenido).hexdigest()
+        return True
+
+    return _fake
+
+
+def test_si_el_blob_desaparecio_se_regenera_en_vez_de_404_eterno(
+    session, storage, monkeypatch
+):
+    version, ws, user_id = _make_version(session, monkeypatch)
+    perdida = f"workspaces/{ws.id}/documents/{version.document_id}/versions/{version.id}/document.pdf"
+    version.pdf_storage_key = perdida  # registrada…
+    version.pdf_sha256 = hashlib.sha256(PDF_BYTES).hexdigest()
+    session.flush()
+    # …pero el blob NO está en storage (nunca se hace put).
+
+    regenerado = b"%PDF-1.4\n% regenerado\n%%EOF\n"
+    monkeypatch.setattr(versions_mod, "freeze_approved_pdf", _freeze_falso(storage, regenerado))
+
+    try:
+        response = versions_mod.get_version_frozen_pdf(
+            document_id=version.document_id,
+            version_id=version.id,
+            request=_fake_request(),
+            user_id=user_id,
+            ctx=None,
+        )
+        assert response.status_code == 200
+        assert response.body == regenerado
+
+        # El hash servido es el del artefacto NUEVO, no el del que se perdió:
+        # servir los bytes nuevos bajo el hash viejo sería peor que el 404.
+        nuevo_sha = hashlib.sha256(regenerado).hexdigest()
+        assert response.headers["x-document-sha256"] == nuevo_sha
+        assert response.headers["etag"] == f'"{nuevo_sha}"'
+        assert version.pdf_sha256 == nuevo_sha
+    finally:
+        from process_ai_core.db.models import AuditLog
+
+        session.query(AuditLog).filter_by(document_id=version.document_id).delete()
+        _cleanup(session, version, ws)
+
+
+def test_la_regeneracion_queda_asentada_en_el_audit_log(session, storage, monkeypatch):
+    """El hash cambia: una copia impresa vieja va a verificar distinto. Que el
+    artefacto haya cambiado tiene que ser un hecho registrado, no una corrección
+    invisible."""
+    from process_ai_core.db.models import AuditLog
+
+    version, ws, user_id = _make_version(session, monkeypatch)
+    sha_viejo = hashlib.sha256(PDF_BYTES).hexdigest()
+    version.pdf_storage_key = f"workspaces/{ws.id}/perdido.pdf"
+    version.pdf_sha256 = sha_viejo
+    session.flush()
+
+    monkeypatch.setattr(versions_mod, "freeze_approved_pdf", _freeze_falso(storage))
+
+    try:
+        versions_mod.get_version_frozen_pdf(
+            document_id=version.document_id,
+            version_id=version.id,
+            request=_fake_request(),
+            user_id=user_id,
+            ctx=None,
+        )
+        evento = (
+            session.query(AuditLog)
+            .filter_by(document_id=version.document_id, action="pdf_artefacto_regenerado")
+            .one()
+        )
+        assert evento.entity_id == version.id
+        assert sha_viejo in evento.changes_json
+        assert version.pdf_sha256 in evento.changes_json
+    finally:
+        session.query(AuditLog).filter_by(document_id=version.document_id).delete()
+        _cleanup(session, version, ws)
+
+
+def test_si_tampoco_se_puede_regenerar_el_404_lo_dice(session, storage, monkeypatch):
+    version, ws, user_id = _make_version(session, monkeypatch)
+    version.pdf_storage_key = f"workspaces/{ws.id}/perdido.pdf"
+    version.pdf_sha256 = hashlib.sha256(PDF_BYTES).hexdigest()
+    session.flush()
+
+    monkeypatch.setattr(versions_mod, "freeze_approved_pdf", lambda *a, **k: False)
+
+    try:
+        with pytest.raises(HTTPException) as exc:
+            versions_mod.get_version_frozen_pdf(
+                document_id=version.document_id,
+                version_id=version.id,
+                request=_fake_request(),
+                user_id=user_id,
+                ctx=None,
+            )
+        assert exc.value.status_code == 404
+        assert "no se pudo regenerar" in exc.value.detail
+    finally:
+        _cleanup(session, version, ws)
