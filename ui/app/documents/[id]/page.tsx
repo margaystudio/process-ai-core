@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { CheckCircle } from 'lucide-react'
 import { useParams, useRouter } from 'next/navigation'
 import {
@@ -150,6 +150,27 @@ export default function DocumentDetailPage() {
     loadDocument()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [documentId])
+
+  // ── Ancla "Ver historial" desde la Biblioteca (?historial=1) ────────────────
+  // Sin useSearchParams a propósito: evita el requisito de <Suspense> del App
+  // Router para páginas que lo usan sin envoltorio. Solo lee la URL una vez,
+  // client-side, tras la primera carga.
+  const autoOpenedHistoryRef = useRef(false)
+  useEffect(() => {
+    if (loading || autoOpenedHistoryRef.current) return
+    if (typeof window === 'undefined') return
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('historial') !== '1') return
+    autoOpenedHistoryRef.current = true
+    handleToggleHistory().then(() => {
+      // `document` acá es el estado del documento (useState), no el DOM global
+      // — de ahí `window.document`.
+      requestAnimationFrame(() => {
+        window.document.getElementById('historial')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      })
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading])
 
   async function loadDocument() {
     try {

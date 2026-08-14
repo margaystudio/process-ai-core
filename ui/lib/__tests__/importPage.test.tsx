@@ -173,4 +173,68 @@ describe('ImportPage', () => {
       screen.getByText('Tyto no usará estos documentos hasta que sean aprobados.')
     ).toBeInTheDocument()
   })
+
+  it('un item en error se puede reintentar sin duplicar los que ya entraron', async () => {
+    vi.mocked(importDocuments)
+      .mockRejectedValueOnce(new Error('Falló el servidor'))
+      .mockResolvedValueOnce([importedDocument])
+
+    const user = userEvent.setup()
+    render(<ImportPage />)
+
+    await user.selectOptions(await screen.findByLabelText('Carpeta destino'), 'folder-1')
+    const file = new File(['contenido'], 'manual.txt', { type: 'text/plain' })
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement
+    await user.upload(input, file)
+    await user.click(screen.getByRole('button', { name: 'Importar 1' }))
+
+    // Falló: queda trabado en 'error' con el botón de reintentar visible —
+    // antes de este fix no había forma de recuperarlo sin refrescar la página.
+    expect(await screen.findByText('Requiere atención')).toBeInTheDocument()
+    expect(screen.getByText('Falló el servidor')).toBeInTheDocument()
+    expect(importDocuments).toHaveBeenCalledTimes(1)
+
+    await user.click(screen.getByRole('button', { name: 'Reintentar' }))
+
+    expect(await screen.findByText('Importado · Borrador')).toBeInTheDocument()
+    expect(importDocuments).toHaveBeenCalledTimes(2)
+  })
+
+  it('un documento ya importado nunca se reenvía al reintentar los que fallaron', async () => {
+    const okFile = new File(['ok'], 'ok.txt', { type: 'text/plain' })
+    const failFile = new File(['fail'], 'fail.txt', { type: 'text/plain' })
+
+    vi.mocked(importDocuments)
+      .mockResolvedValueOnce([importedDocument])
+      .mockRejectedValueOnce(new Error('Falló el servidor'))
+      .mockResolvedValueOnce([{ ...importedDocument, id: 'document-2', name: 'fail.txt' }])
+
+    const user = userEvent.setup()
+    render(<ImportPage />)
+
+    await user.selectOptions(await screen.findByLabelText('Carpeta destino'), 'folder-1')
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement
+    await user.upload(input, [okFile, failFile])
+    await user.click(screen.getByRole('button', { name: 'Importar 2' }))
+
+    await screen.findByText('Importado · Borrador')
+    await screen.findByText('Requiere atención')
+    expect(importDocuments).toHaveBeenCalledTimes(2)
+
+    // El botón principal ahora ofrece reintentar SOLO lo que falló.
+    const retryAllButton = await screen.findByRole('button', { name: 'Reintentar 1' })
+    await user.click(retryAllButton)
+
+    await waitFor(() => expect(importDocuments).toHaveBeenCalledTimes(3))
+
+    // El tercer llamado (el reintento) tiene que llevar el archivo que había
+    // fallado — nunca el que ya había entrado. Reenviar ese es justo lo que
+    // causó el duplicado del bug original.
+    const thirdCallFormData = vi.mocked(importDocuments).mock.calls[2][0] as FormData
+    const resentFile = thirdCallFormData.get('files') as File
+    expect(resentFile.name).toBe('fail.txt')
+
+    // "ok.txt" no vuelve a viajar en ningún llamado posterior a su éxito.
+    expect(importDocuments).toHaveBeenCalledTimes(3)
+  })
 })

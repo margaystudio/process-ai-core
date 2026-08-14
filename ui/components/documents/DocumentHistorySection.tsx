@@ -102,7 +102,7 @@ export function DocumentHistorySection({
   }
 
   return (
-    <section aria-label="Historial y trazabilidad">
+    <section id="historial" aria-label="Historial y trazabilidad">
       <div className="mb-4 flex items-center justify-between gap-3">
         <h2 className="text-h2 text-ink-900">Historial y trazabilidad</h2>
         <Button variant="secondary" size="sm" onClick={onToggle} aria-expanded={showHistory}>
