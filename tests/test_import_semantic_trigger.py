@@ -2,9 +2,10 @@
 
 Bug de gobernanza (fix en api/routes/documents/crud.py::import_documents):
 el pipeline semántico solo se disparaba al aprobar por el flujo de validación.
-El import con requires_approval=false crea la versión ya APPROVED, así que también
-debe encolar trigger_semantic_pipeline_for_version — sino ese documento nunca entra
-a la red de conocimiento.
+Un import que entra ya APPROVED —hoy, el de un tipo documental cuyo behavior
+`aprobacion` está en false, como `instructivo`— también debe encolar
+trigger_semantic_pipeline_for_version; si no, ese documento nunca entra a la red
+de conocimiento y Tyto no lo puede citar.
 
 Estrategia (misma que test_cross_tenant_isolation.py):
   - TestClient con _decode_and_verify_supabase_jwt y fetch_workspace_context
@@ -162,14 +163,20 @@ def _approved_version_id(document_id: str) -> str:
         return str(version.id)
 
 
-def _import(client: TestClient, folder_id: str, requires_approval: str, filenames: list[str]):
+def _import(client: TestClient, folder_id: str, document_type: str, filenames: list[str]):
+    """Importa con un tipo documental explícito.
+
+    La aprobación ya no la pide el cliente: sale del behavior `aprobacion` del
+    tipo. `instructivo` no lo tiene (entra APPROVED); `procedimiento` sí (entra
+    a revisión).
+    """
     files = [
         ("files", (name, f"Contenido de {name}".encode("utf-8"), "text/plain"))
         for name in filenames
     ]
     return client.post(
         "/api/v1/documents/import",
-        data={"folder_id": folder_id, "requires_approval": requires_approval},
+        data={"folder_id": folder_id, "document_type": document_type},
         files=files,
         headers=_h(),
     )
@@ -178,13 +185,13 @@ def _import(client: TestClient, folder_id: str, requires_approval: str, filename
 # ── Tests ───────────────────────────────────────────────────────────────────
 
 def test_import_sin_aprobacion_encola_pipeline_por_documento(client, spy_pipeline):
-    """requires_approval=false → se encola trigger_semantic_pipeline_for_version
-    una vez por documento, con el version.id APPROVED correcto."""
+    """Tipo sin aprobación → se encola trigger_semantic_pipeline_for_version una
+    vez por documento, con el version.id APPROVED correcto."""
     _trigger_sync(client)
     folder_id = _root_folder_id()
 
     resp = _import(
-        client, folder_id, "false", [f"a-{_RUN_ID}.txt", f"b-{_RUN_ID}.txt"]
+        client, folder_id, "instructivo", [f"a-{_RUN_ID}.txt", f"b-{_RUN_ID}.txt"]
     )
     assert resp.status_code == 200, resp.text
     docs = resp.json()
@@ -205,12 +212,12 @@ def test_import_sin_aprobacion_encola_pipeline_por_documento(client, spy_pipelin
 
 
 def test_import_con_aprobacion_no_encola_pipeline(client, spy_pipeline):
-    """requires_approval=true → NO se encola nada (el pipeline se dispara luego,
-    al aprobarse por el flujo de validación)."""
+    """Tipo con aprobación → NO se encola nada (el pipeline se dispara luego, al
+    aprobarse por el flujo de validación)."""
     _trigger_sync(client)
     folder_id = _root_folder_id()
 
-    resp = _import(client, folder_id, "true", [f"draft-{_RUN_ID}.txt"])
+    resp = _import(client, folder_id, "procedimiento", [f"draft-{_RUN_ID}.txt"])
     assert resp.status_code == 200, resp.text
     docs = resp.json()
     assert len(docs) == 1

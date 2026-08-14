@@ -10,10 +10,20 @@ from .defaults import (
     build_default_rows,
     normalize_behaviors,
 )
+from .resolucion import (
+    TIPO_POR_DEFECTO,
+    TipoDocumentalInvalido,
+    heredar_default_document_type,
+    resolver_tipo_de_importacion,
+)
 
 __all__ = [
     "BEHAVIOR_KEYS",
     "DEFAULT_DOCUMENT_TYPES",
+    "TIPO_POR_DEFECTO",
+    "TipoDocumentalInvalido",
     "build_default_rows",
+    "heredar_default_document_type",
     "normalize_behaviors",
+    "resolver_tipo_de_importacion",
 ]

@@ -171,12 +171,19 @@ def create_imported_document(
     file_bytes: bytes,
     requires_approval: bool,
     user_id: str | None,
+    document_type: str | None = None,
 ) -> tuple[Process, DocumentVersion]:
     """
     Crea un documento importado desde un archivo subido.
 
     Si requires_approval=False, queda APPROVED de inmediato.
     Si requires_approval=True, queda en DRAFT para el flujo normal de revisión.
+
+    `document_type` es la key del tipo documental ya resuelto por el caller (ver
+    `domains/document_types/resolucion.py`), que es también quien derivó
+    `requires_approval` del behavior de ese tipo. Acá no se vuelve a decidir: las
+    dos cosas tienen que salir de la misma resolución o podrían contradecirse —
+    un documento marcado como tipo sin aprobación que igual entra a revisión.
     """
     from process_ai_core.db.helpers import create_audit_log, update_document_status
 
@@ -243,6 +250,11 @@ def create_imported_document(
         detail_level="",
         context_text="",
     )
+    # Se asigna antes del flush porque `assign_document_code` deriva el prefijo
+    # del código (PR-, IT-, …) del tipo documental. Si viene None —llamadores que
+    # todavía no resuelven el tipo— manda el default de la columna, como antes.
+    if document_type:
+        process.document_type = document_type
     session.add(process)
     session.flush()
     # Mismo código estable que para los documentos generados (ADR-019).
