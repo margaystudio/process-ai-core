@@ -1,0 +1,1 @@
+europe-west1-docker.pkg.dev/margay-platform-prod/margay-services/margay-process-ai-api@sha256:536fc760355a0e79ed92c6a82f9a5fb3ec316e85a6d7151b2bdb621802b31bcb
