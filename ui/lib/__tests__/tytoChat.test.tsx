@@ -38,6 +38,37 @@ function sseResponse(chunks: string[]): Response {
   })
 }
 
+function jsonResponse(body: unknown): Response {
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  })
+}
+
+/**
+ * La página ahora también carga el panel de "mis conversaciones" (al montar y
+ * después de cada pregunta contestada) — estos tests solo ejercitan el stream
+ * del chat, así que esas llamadas a `/tyto/sessions` se responden con una
+ * lista vacía sin pasar por `streamResponder`, para no consumir el mismo
+ * `ReadableStream` armado para la respuesta de Tyto.
+ */
+function withSessionsRoute(
+  streamResponder: () => Response | Promise<Response>
+): (input: RequestInfo | URL, init?: RequestInit) => Response | Promise<Response> {
+  return (input: RequestInfo | URL) => {
+    const url = new URL(typeof input === 'string' ? input : input.toString())
+    if (url.pathname === '/api/v1/tyto/sessions') return jsonResponse([])
+    return streamResponder()
+  }
+}
+
+/** Filtra las llamadas a `fetch` hechas contra el endpoint de streaming del chat. */
+function streamCalls(fetchMock: ReturnType<typeof vi.fn>) {
+  return fetchMock.mock.calls.filter(
+    (c) => new URL(String(c[0])).pathname === '/api/v1/tyto/query/stream'
+  )
+}
+
 async function askQuestion(question: string) {
   const user = userEvent.setup()
   render(<TytoPage />)
@@ -61,28 +92,30 @@ describe('TytoPage — chat streaming', () => {
   })
 
   it('muestra el texto de los tokens a medida que van llegando', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      sseResponse([
-        sseEvent('token', { text: 'Contá el efectivo ' }),
-        sseEvent('token', { text: 'con el supervisor [S1].' }),
-        sseEvent('result', {
-          answered: true,
-          answer: 'Contá el efectivo con el supervisor [S1].',
-          segments: [
-            { text: 'Contá el efectivo con el supervisor', source_ids: ['S1'], tier: 'aprobado' },
-          ],
-          sources: [
-            {
-              source_id: 'S1',
-              document_id: 'doc-1',
-              document_name: 'Cierre de caja',
-              version: 4,
-              approved_at: '2026-06-12T00:00:00Z',
-              tier: 'aprobado',
-            },
-          ],
-        }),
-      ])
+    const fetchMock = vi.fn(
+      withSessionsRoute(() =>
+        sseResponse([
+          sseEvent('token', { text: 'Contá el efectivo ' }),
+          sseEvent('token', { text: 'con el supervisor [S1].' }),
+          sseEvent('result', {
+            answered: true,
+            answer: 'Contá el efectivo con el supervisor [S1].',
+            segments: [
+              { text: 'Contá el efectivo con el supervisor', source_ids: ['S1'], tier: 'aprobado' },
+            ],
+            sources: [
+              {
+                source_id: 'S1',
+                document_id: 'doc-1',
+                document_name: 'Cierre de caja',
+                version: 4,
+                approved_at: '2026-06-12T00:00:00Z',
+                tier: 'aprobado',
+              },
+            ],
+          }),
+        ])
+      )
     )
     vi.stubGlobal('fetch', fetchMock)
 
@@ -98,43 +131,45 @@ describe('TytoPage — chat streaming', () => {
   })
 
   it('al llegar `result` aparecen los badges con el copy exacto por nivel de cada fuente', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      sseResponse([
-        sseEvent('token', { text: 'Necesitás POS, SAP y un Supervisor [S1] [S2] [S3].' }),
-        sseEvent('result', {
-          answered: true,
-          answer: 'Necesitás POS, SAP y un Supervisor [S1] [S2] [S3].',
-          segments: [
-            { text: 'Necesitás POS, SAP y un Supervisor', source_ids: ['S1', 'S2', 'S3'], tier: 'aprobado' },
-          ],
-          sources: [
-            {
-              source_id: 'S1',
-              document_id: 'doc-1',
-              document_name: 'Cierre de caja',
-              version: 4,
-              approved_at: '2026-06-12T00:00:00Z',
-              tier: 'aprobado',
-            },
-            {
-              source_id: 'S2',
-              document_id: 'doc-2',
-              document_name: 'Manual del fabricante · POS',
-              version: null,
-              approved_at: null,
-              tier: 'referencia',
-            },
-            {
-              source_id: 'S3',
-              document_id: 'doc-3',
-              document_name: 'Fondo fijo $20.000',
-              version: null,
-              approved_at: null,
-              tier: 'inferido',
-            },
-          ],
-        }),
-      ])
+    const fetchMock = vi.fn(
+      withSessionsRoute(() =>
+        sseResponse([
+          sseEvent('token', { text: 'Necesitás POS, SAP y un Supervisor [S1] [S2] [S3].' }),
+          sseEvent('result', {
+            answered: true,
+            answer: 'Necesitás POS, SAP y un Supervisor [S1] [S2] [S3].',
+            segments: [
+              { text: 'Necesitás POS, SAP y un Supervisor', source_ids: ['S1', 'S2', 'S3'], tier: 'aprobado' },
+            ],
+            sources: [
+              {
+                source_id: 'S1',
+                document_id: 'doc-1',
+                document_name: 'Cierre de caja',
+                version: 4,
+                approved_at: '2026-06-12T00:00:00Z',
+                tier: 'aprobado',
+              },
+              {
+                source_id: 'S2',
+                document_id: 'doc-2',
+                document_name: 'Manual del fabricante · POS',
+                version: null,
+                approved_at: null,
+                tier: 'referencia',
+              },
+              {
+                source_id: 'S3',
+                document_id: 'doc-3',
+                document_name: 'Fondo fijo $20.000',
+                version: null,
+                approved_at: null,
+                tier: 'inferido',
+              },
+            ],
+          }),
+        ])
+      )
     )
     vi.stubGlobal('fetch', fetchMock)
 
@@ -153,8 +188,8 @@ describe('TytoPage — chat streaming', () => {
   it('mientras streamea, los marcadores [Sn] se muestran neutros (sin color de nivel)', async () => {
     // Sin evento `result` todavía: el mensaje queda en estado streaming y el
     // marcador [S1] debe mostrarse neutro, no como link a ninguna fuente.
-    const fetchMock = vi.fn().mockResolvedValue(
-      sseResponse([sseEvent('token', { text: 'Arqueá el efectivo [S1].' })])
+    const fetchMock = vi.fn(
+      withSessionsRoute(() => sseResponse([sseEvent('token', { text: 'Arqueá el efectivo [S1].' })]))
     )
     vi.stubGlobal('fetch', fetchMock)
 
@@ -168,16 +203,18 @@ describe('TytoPage — chat streaming', () => {
   })
 
   it('un `result` de rechazo se renderiza como mensaje del asistente, no como error', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      sseResponse([
-        sseEvent('result', {
-          answered: false,
-          answer: '',
-          segments: [],
-          sources: [],
-          refusal_reason: 'No encontré documentación aprobada sobre ese tema.',
-        }),
-      ])
+    const fetchMock = vi.fn(
+      withSessionsRoute(() =>
+        sseResponse([
+          sseEvent('result', {
+            answered: false,
+            answer: '',
+            segments: [],
+            sources: [],
+            refusal_reason: 'No encontré documentación aprobada sobre ese tema.',
+          }),
+        ])
+      )
     )
     vi.stubGlobal('fetch', fetchMock)
 
@@ -197,17 +234,19 @@ describe('TytoPage — chat streaming', () => {
     // "No tengo documentación aprobada suficiente" y se leía como el sistema
     // funcionando bien. Sin búsqueda semántica, "no encontré" deja de significar
     // "no está", y quien lee tiene que poder distinguirlo.
-    const fetchMock = vi.fn().mockResolvedValue(
-      sseResponse([
-        sseEvent('result', {
-          answered: false,
-          answer: '',
-          segments: [],
-          sources: [],
-          refusal_reason: 'No pude buscar con normalidad: la búsqueda semántica no está disponible.',
-          search_degraded: true,
-        }),
-      ])
+    const fetchMock = vi.fn(
+      withSessionsRoute(() =>
+        sseResponse([
+          sseEvent('result', {
+            answered: false,
+            answer: '',
+            segments: [],
+            sources: [],
+            refusal_reason: 'No pude buscar con normalidad: la búsqueda semántica no está disponible.',
+            search_degraded: true,
+          }),
+        ])
+      )
     )
     vi.stubGlobal('fetch', fetchMock)
 
@@ -221,16 +260,18 @@ describe('TytoPage — chat streaming', () => {
   })
 
   it('un rechazo con la búsqueda sana no muestra el aviso de degradación', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      sseResponse([
-        sseEvent('result', {
-          answered: false,
-          answer: '',
-          segments: [],
-          sources: [],
-          refusal_reason: 'No tengo documentación aprobada suficiente para responder esta pregunta.',
-        }),
-      ])
+    const fetchMock = vi.fn(
+      withSessionsRoute(() =>
+        sseResponse([
+          sseEvent('result', {
+            answered: false,
+            answer: '',
+            segments: [],
+            sources: [],
+            refusal_reason: 'No tengo documentación aprobada suficiente para responder esta pregunta.',
+          }),
+        ])
+      )
     )
     vi.stubGlobal('fetch', fetchMock)
 
@@ -258,35 +299,37 @@ describe('TytoPage — chat streaming', () => {
         }),
       ])
 
-    const fetchMock = vi.fn().mockImplementation(() => respuesta('sess-1'))
+    const fetchMock = vi.fn(withSessionsRoute(() => respuesta('sess-1')))
     vi.stubGlobal('fetch', fetchMock)
 
     const user = userEvent.setup()
     render(<TytoPage />)
 
     await sendQuestion(user, '¿Cómo cierro la caja?')
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(streamCalls(fetchMock)).toHaveLength(1))
     // La primera va sin id: la conversación la abre el servidor.
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body).session_id).toBeNull()
+    expect(JSON.parse(String(streamCalls(fetchMock)[0][1].body)).session_id).toBeNull()
 
     await sendQuestion(user, '¿Y si hay faltante?')
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(streamCalls(fetchMock)).toHaveLength(2))
     // La segunda ya viaja con el id que mandó el servidor.
-    expect(JSON.parse(fetchMock.mock.calls[1][1].body).session_id).toBe('sess-1')
+    expect(JSON.parse(String(streamCalls(fetchMock)[1][1].body)).session_id).toBe('sess-1')
 
     // "Nueva conversación" lo suelta: la siguiente vuelve a ir sin id.
     await user.click(screen.getByRole('button', { name: /nueva conversación/i }))
     await sendQuestion(user, 'Otra cosa distinta')
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
-    expect(JSON.parse(fetchMock.mock.calls[2][1].body).session_id).toBeNull()
+    await waitFor(() => expect(streamCalls(fetchMock)).toHaveLength(3))
+    expect(JSON.parse(String(streamCalls(fetchMock)[2][1].body)).session_id).toBeNull()
   })
 
   it('un evento `error` se muestra como error real, distinto del rechazo', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      sseResponse([
-        sseEvent('token', { text: 'Registrá ' }),
-        sseEvent('error', { detail: 'Tyto no pudo generar una respuesta confiable' }),
-      ])
+    const fetchMock = vi.fn(
+      withSessionsRoute(() =>
+        sseResponse([
+          sseEvent('token', { text: 'Registrá ' }),
+          sseEvent('error', { detail: 'Tyto no pudo generar una respuesta confiable' }),
+        ])
+      )
     )
     vi.stubGlobal('fetch', fetchMock)
 

@@ -12,7 +12,10 @@ export function TytoSourcesPanel({ result }: { result: TytoQueryResult | null })
   const sources = result?.sources ?? []
 
   return (
-    <aside className="hidden w-[320px] flex-shrink-0 flex-col overflow-hidden border-l border-line bg-surface lg:flex">
+    <aside
+      aria-label="Fuentes de la respuesta"
+      className="hidden w-[320px] flex-shrink-0 flex-col overflow-hidden border-l border-line bg-surface lg:flex"
+    >
       <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-5 pt-6">
         <div className="mb-1 text-[11px] font-extrabold uppercase tracking-[.06em] text-ink-400">
           De qué piezas se arma esta respuesta

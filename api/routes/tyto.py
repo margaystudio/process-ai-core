@@ -34,6 +34,8 @@ from process_ai_core.semantic.tyto_sessions import (
     get_session_thread,
     list_sessions,
     resolve_session,
+    delete_session,    update_session,
+
 )
 from process_ai_core.semantic.tyto_answer import TytoAnswerError
 
@@ -286,6 +288,11 @@ class TytoThreadEntryResponse(BaseModel):
     answered: bool
     answer: str = ""
     refusal_reason: Optional[str] = None
+    #: Las fuentes citadas, como se devolvieron al responder. Se guardaban desde
+    #: siempre en `sources_json` pero el hilo no las traía, y sin ellas retomar
+    #: una conversación pierde la mitad: se ve qué contestó Tyto, no de qué
+    #: documento salió ni cómo volver a él.
+    sources: list[dict] = []
     created_at: str
 
 
@@ -294,17 +301,45 @@ class TytoThreadResponse(BaseModel):
     entries: list[TytoThreadEntryResponse]
 
 
+def _parse_sources(sources_json: str | None) -> list[dict]:
+    """Las fuentes guardadas. Un JSON roto no puede tumbar el historial."""
+    if not sources_json:
+        return []
+    try:
+        datos = json.loads(sources_json)
+    except (TypeError, ValueError):
+        logger.warning("sources_json inválido en el log de Tyto; se omite")
+        return []
+    return datos if isinstance(datos, list) else []
+
+
+class TytoSessionUpdateRequest(BaseModel):
+    """Renombrar y/o anclar. Ambos opcionales: se manda solo lo que cambia."""
+
+    title: Optional[str] = None
+    pinned: Optional[bool] = None
+
+
 @router.get("/sessions", response_model=list[TytoSessionResponse])
 def tyto_list_sessions(
     limit: int = Query(50, ge=1, le=200),
+    q: Optional[str] = Query(
+        None,
+        max_length=200,
+        description="Busca en el título y en las preguntas de la conversación",
+    ),
     user_id: str = Depends(get_current_user_id),
     session: Session = Depends(get_db),
     ctx: WorkspaceSessionContext = Depends(get_workspace_context),
 ):
     """Mis conversaciones en este workspace. Solo mías: ver la nota de arriba."""
     workspace_id = resolve_tenant_workspace_id(ctx)
+    # `q` puede llegar como el objeto Query() cuando el endpoint se invoca sin
+    # FastAPI (tests que lo llaman como función). Misma normalización que hace
+    # `workspace_client._normalize_active_tenant_id` con los Header().
+    buscar = q if isinstance(q, str) else None
     convos = list_sessions(
-        session, workspace_id=workspace_id, user_id=user_id, limit=limit
+        session, workspace_id=workspace_id, user_id=user_id, limit=limit, buscar=buscar
     )
     if not convos:
         return []
@@ -365,8 +400,71 @@ def tyto_get_session(
                 answered=e.answered,
                 answer=e.answer or "",
                 refusal_reason=e.refusal_reason,
+                sources=_parse_sources(e.sources_json),
                 created_at=e.created_at.isoformat(),
             )
             for e in entradas
         ],
     )
+
+
+@router.patch("/sessions/{session_id}", response_model=TytoSessionResponse)
+def tyto_update_session(
+    session_id: str,
+    request: TytoSessionUpdateRequest,
+    user_id: str = Depends(get_current_user_id),
+    session: Session = Depends(get_db),
+    ctx: WorkspaceSessionContext = Depends(get_workspace_context),
+):
+    """Renombra o ancla una conversación mía. 404 si no es mía (ver arriba)."""
+    workspace_id = resolve_tenant_workspace_id(ctx)
+    convo = update_session(
+        session,
+        workspace_id=workspace_id,
+        user_id=user_id,
+        session_id=session_id,
+        title=request.title,
+        pinned=request.pinned,
+    )
+    if convo is None:
+        raise HTTPException(status_code=404, detail="Conversación no encontrada")
+    session.commit()
+
+    total = (
+        session.query(func.count(TytoQueryLog.id))
+        .filter(TytoQueryLog.session_id == convo.id)
+        .scalar()
+        or 0
+    )
+    return TytoSessionResponse(
+        id=convo.id,
+        title=convo.title,
+        pinned=convo.pinned,
+        created_at=convo.created_at.isoformat(),
+        updated_at=convo.updated_at.isoformat(),
+        message_count=total,
+    )
+
+
+@router.delete("/sessions/{session_id}")
+def tyto_delete_session(
+    session_id: str,
+    user_id: str = Depends(get_current_user_id),
+    session: Session = Depends(get_db),
+    ctx: WorkspaceSessionContext = Depends(get_workspace_context),
+):
+    """
+    Borra una conversación mía del historial.
+
+    El rastro en `tyto_query_log` NO se borra: queda desligado de la sesión y
+    sigue alimentando la detección de brechas documentales, que es agregada y
+    anónima. Borrar la conversación es una acción sobre MI vista, no sobre el
+    rastro del sistema.
+    """
+    workspace_id = resolve_tenant_workspace_id(ctx)
+    if not delete_session(
+        session, workspace_id=workspace_id, user_id=user_id, session_id=session_id
+    ):
+        raise HTTPException(status_code=404, detail="Conversación no encontrada")
+    session.commit()
+    return {"deleted": session_id}

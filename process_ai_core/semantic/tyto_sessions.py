@@ -40,7 +40,7 @@ import logging
 import re
 from datetime import datetime, UTC
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from ..db.models_semantic import TytoQueryLog, TytoSession
@@ -115,21 +115,127 @@ def resolve_session(
 
 
 def list_sessions(
-    session: Session, *, workspace_id: str, user_id: str, limit: int = 50
+    session: Session,
+    *,
+    workspace_id: str,
+    user_id: str,
+    limit: int = 50,
+    buscar: str | None = None,
 ) -> list[TytoSession]:
-    """Las conversaciones del usuario, ancladas primero y después por recientes."""
+    """
+    Las conversaciones del usuario, ancladas primero y después por recientes.
+
+    Con `buscar`, filtra por el título **o por el texto de las preguntas** de la
+    conversación. Las dos cosas, porque la pregunta que uno recuerda casi nunca
+    es la primera —que es la que da el título—: se busca "cierre de caja" y eso
+    puede haber aparecido en la tercera repregunta de un hilo que se llama otra
+    cosa.
+    """
+    condiciones = [
+        TytoSession.workspace_id == workspace_id,
+        # Este filtro no es negociable: ver el docstring del módulo.
+        TytoSession.user_id == user_id,
+    ]
+
+    if buscar and buscar.strip():
+        patron = f"%{buscar.strip()}%"
+        # Subconsulta sobre las preguntas del hilo. Se acota por workspace_id
+        # además de session_id: el log no tiene dueño confiable (user_id puede
+        # ser null), así que el alcance lo da la sesión, ya filtrada arriba.
+        con_la_pregunta = (
+            select(TytoQueryLog.session_id)
+            .where(
+                TytoQueryLog.workspace_id == workspace_id,
+                TytoQueryLog.question.ilike(patron),
+            )
+            .scalar_subquery()
+        )
+        condiciones.append(
+            or_(
+                TytoSession.title.ilike(patron),
+                TytoSession.id.in_(con_la_pregunta),
+            )
+        )
+
     return list(
         session.execute(
             select(TytoSession)
-            .where(
-                TytoSession.workspace_id == workspace_id,
-                # Este filtro no es negociable: ver el docstring del módulo.
-                TytoSession.user_id == user_id,
-            )
+            .where(*condiciones)
             .order_by(TytoSession.pinned.desc(), TytoSession.updated_at.desc())
             .limit(limit)
         ).scalars()
     )
+
+
+def get_own_session(
+    session: Session, *, workspace_id: str, user_id: str, session_id: str
+) -> TytoSession | None:
+    """La sesión, solo si es del usuario. None en cualquier otro caso."""
+    return session.execute(
+        select(TytoSession).where(
+            TytoSession.id == session_id,
+            TytoSession.workspace_id == workspace_id,
+            TytoSession.user_id == user_id,
+        )
+    ).scalar_one_or_none()
+
+
+def update_session(
+    session: Session,
+    *,
+    workspace_id: str,
+    user_id: str,
+    session_id: str,
+    title: str | None = None,
+    pinned: bool | None = None,
+) -> TytoSession | None:
+    """Renombra y/o ancla una conversación propia.
+
+    El título lo edita el usuario y por eso NO se deriva de nada acá: si alguien
+    lo cambió, una regeneración automática se lo pisaría en la siguiente
+    pregunta. Se recorta al largo de la columna en vez de rechazar, que para un
+    título es lo que espera cualquiera.
+    """
+    convo = get_own_session(
+        session, workspace_id=workspace_id, user_id=user_id, session_id=session_id
+    )
+    if convo is None:
+        return None
+    if title is not None:
+        limpio = title.strip()
+        if limpio:
+            convo.title = limpio[:200]
+    if pinned is not None:
+        convo.pinned = pinned
+    session.flush()
+    return convo
+
+
+def delete_session(
+    session: Session, *, workspace_id: str, user_id: str, session_id: str
+) -> bool:
+    """
+    Borra una conversación propia. Devuelve False si no era del usuario.
+
+    Borra SOLO la fila de `tyto_session` y desliga sus preguntas
+    (`session_id = NULL`). El rastro en `tyto_query_log` se conserva a
+    propósito: alimenta la detección de brechas documentales, que es agregada y
+    anónima, y tiene que seguir funcionando aunque la persona limpie su
+    historial. Borrar la conversación es una acción sobre SU vista, no sobre el
+    rastro del sistema — es exactamente el motivo por el que ese log no tiene
+    foreign key a esta tabla.
+    """
+    convo = get_own_session(
+        session, workspace_id=workspace_id, user_id=user_id, session_id=session_id
+    )
+    if convo is None:
+        return False
+    session.query(TytoQueryLog).filter(
+        TytoQueryLog.session_id == session_id
+    ).update({TytoQueryLog.session_id: None}, synchronize_session=False)
+    session.delete(convo)
+    session.flush()
+    return True
 
 
 def get_session_thread(

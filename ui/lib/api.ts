@@ -2485,6 +2485,115 @@ export async function streamTytoQuery(
   }
 }
 
+// ─── Tyto — historial de conversaciones ────────────────────────────────────
+// Contrato: api/routes/tyto.py · GET/PATCH/DELETE /api/v1/tyto/sessions[/{id}].
+// El historial es estrictamente personal: el backend ya lo acota al usuario
+// autenticado (nunca hay un parámetro de "ver el historial de otra persona" —
+// si existiera, esta capa tampoco lo expondría).
+
+export interface TytoSessionSummary {
+  id: string;
+  title: string | null;
+  pinned: boolean;
+  created_at: string;
+  updated_at: string;
+  message_count: number;
+}
+
+/** Una pregunta ya respondida (o rechazada) dentro de una conversación pasada. */
+export interface TytoSessionEntry {
+  id: string;
+  question: string;
+  answered: boolean;
+  answer: string | null;
+  refusal_reason: string | null;
+  /** Mismo shape que `TytoSource`: las fuentes citadas tal como se respondió. */
+  sources: TytoSource[];
+  created_at: string;
+}
+
+export interface TytoSessionDetail {
+  session: TytoSessionSummary;
+  entries: TytoSessionEntry[];
+}
+
+/**
+ * Lista las conversaciones del usuario actual, ancladas primero y luego por
+ * más reciente. `q` busca en el título y en las preguntas del hilo — por eso
+ * puede devolver una conversación cuyo título no contiene el término.
+ */
+export async function getTytoSessions(q?: string, limit = 50): Promise<TytoSessionSummary[]> {
+  const { getAuthHeaders } = await import('@/lib/api-auth');
+  const headers = await getAuthHeaders({});
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (q && q.trim()) params.set('q', q.trim());
+
+  const response = await authFetch(`${API_URL}/api/v1/tyto/sessions?${params.toString()}`, {
+    headers,
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
+    throw new Error(formatApiErrorDetail(error.detail, `HTTP ${response.status}`));
+  }
+
+  return response.json();
+}
+
+/** Hilo completo de una conversación. 404 si no es tuya (a propósito). */
+export async function getTytoSession(sessionId: string): Promise<TytoSessionDetail> {
+  const { getAuthHeaders } = await import('@/lib/api-auth');
+  const headers = await getAuthHeaders({});
+
+  const response = await authFetch(`${API_URL}/api/v1/tyto/sessions/${sessionId}`, { headers });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
+    throw new Error(formatApiErrorDetail(error.detail, `HTTP ${response.status}`));
+  }
+
+  return response.json();
+}
+
+/** Renombrar y/o anclar una conversación. */
+export async function updateTytoSession(
+  sessionId: string,
+  patch: { title?: string; pinned?: boolean }
+): Promise<TytoSessionSummary> {
+  const { getAuthHeaders } = await import('@/lib/api-auth');
+  const headers = await getAuthHeaders({ 'Content-Type': 'application/json' });
+
+  const response = await authFetch(`${API_URL}/api/v1/tyto/sessions/${sessionId}`, {
+    method: 'PATCH',
+    headers,
+    body: JSON.stringify(patch),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
+    throw new Error(formatApiErrorDetail(error.detail, `HTTP ${response.status}`));
+  }
+
+  return response.json();
+}
+
+export async function deleteTytoSession(sessionId: string): Promise<{ deleted: string }> {
+  const { getAuthHeaders } = await import('@/lib/api-auth');
+  const headers = await getAuthHeaders({});
+
+  const response = await authFetch(`${API_URL}/api/v1/tyto/sessions/${sessionId}`, {
+    method: 'DELETE',
+    headers,
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
+    throw new Error(formatApiErrorDetail(error.detail, `HTTP ${response.status}`));
+  }
+
+  return response.json();
+}
+
 // ============================================================================
 // Relaciones semánticas y objetos de conocimiento
 // ============================================================================
