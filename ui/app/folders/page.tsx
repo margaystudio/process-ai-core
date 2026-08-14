@@ -1360,6 +1360,27 @@ export default function FoldersPage() {
     setSelectedId(allNodes[0]?.id ?? null)
   }, [allNodes, selectedId])
 
+  // ── Deep-link "Permisos" desde Configuración del workspace (?folder=&tab=) ──
+  // Mismo patrón que /documents/[id] (?historial=1): sin useSearchParams para no
+  // exigir <Suspense> en el App Router. Se lee la URL una sola vez, después de
+  // que el listado de carpetas resolvió, y pisa la selección/tab por defecto.
+  const deepLinkAppliedRef = useRef(false)
+  useEffect(() => {
+    if (deepLinkAppliedRef.current || status !== 'success') return
+    if (typeof window === 'undefined') return
+    const params = new URLSearchParams(window.location.search)
+    const folderParam = params.get('folder')
+    const tabParam = params.get('tab')
+    if (!folderParam && !tabParam) return
+    deepLinkAppliedRef.current = true
+    if (folderParam && allNodes.some((node) => node.id === folderParam)) {
+      setSelectedId(folderParam)
+    }
+    if (tabParam && FOLDER_TABS.some((item) => item.value === tabParam)) {
+      setActiveTab(tabParam)
+    }
+  }, [status, allNodes])
+
   const selected = useMemo(() => findNode(tree, selectedId), [tree, selectedId])
   const selectedPath = selected?.path?.split('/').join(' > ') || selected?.name || ''
   const isLoading = status === 'idle' || status === 'loading'

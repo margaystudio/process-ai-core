@@ -16,12 +16,15 @@ import { useAsync } from '@/hooks/useAsync'
 import { useCanManageWorkspace } from '@/hooks/useHasPermission'
 import {
   approveDocumentValidation,
+  getDocumentTypes,
   getDocumentVersions,
+  getFolderGovernance,
   importDocuments,
   listDocuments,
   listFolders,
   submitVersionForReview,
   type Document,
+  type DocumentType,
 } from '@/lib/api'
 import {
   EXTENSIONS_BY_TYPE,
@@ -29,7 +32,13 @@ import {
   formatFileSize,
   getFileExtension,
 } from '@/lib/fileUploadValidation'
-import { Spinner } from '@/shared/ui/components'
+import {
+  consecuenciaImportacion,
+  resolverTipoPorDefecto,
+  tipoEfectivoDeFila,
+  tipoRequiereAprobacion,
+} from '@/lib/importDocumentType'
+import { Badge, Spinner } from '@/shared/ui/components'
 import { cn } from '@/shared/ui/cn'
 
 type ImportStatus =
@@ -51,6 +60,13 @@ interface ImportItem {
   status: ImportStatus
   selected: boolean
   error: string | null
+  /**
+   * Tipo documental elegido puntualmente para ESTA fila. `null` = sigue el
+   * default del lote (`batchDocumentType`) — ver `tipoEfectivoDeFila`. Se
+   * fija recién cuando el usuario toca el selector de la fila, así un cambio
+   * posterior en el default del lote no le pisa una elección explícita.
+   */
+  documentTypeOverride: string | null
 }
 
 const IMPORT_EXTENSIONS = EXTENSIONS_BY_TYPE.text
@@ -99,6 +115,10 @@ export default function ImportPage() {
   // Resumen de la última corrida de importación (cuántos entraron / fallaron),
   // para no dejar que el usuario lo deduzca de los colores de cada fila.
   const [importSummary, setImportSummary] = useState<{ ok: number; failed: number } | null>(null)
+  // Tipo documental del lote: default para toda fila que no tenga su propio
+  // override. Arranca en el default duro (nunca vacío) y se corrige al
+  // default efectivo de la carpeta apenas resuelve su gobierno.
+  const [batchDocumentType, setBatchDocumentType] = useState(resolverTipoPorDefecto(null))
 
   const { canManage: canAdminister, loading: canAdministerLoading } = useCanManageWorkspace()
 
@@ -109,6 +129,30 @@ export default function ImportPage() {
     },
     [selectedWorkspaceId]
   )
+
+  const documentTypesAsync = useAsync(() => getDocumentTypes(false), [])
+  const documentTypes: DocumentType[] = documentTypesAsync.data ?? []
+
+  // Gobierno efectivo de la carpeta elegida: ya resuelve la herencia (si la
+  // carpeta no define default_document_type, sube al ancestro más cercano),
+  // así el selector precarga exactamente lo que el backend va a aplicar.
+  const folderGovernanceAsync = useAsync(
+    async () => {
+      if (!folderId) return null
+      return getFolderGovernance(folderId)
+    },
+    [folderId]
+  )
+
+  useEffect(() => {
+    if (folderGovernanceAsync.status === 'success' || folderGovernanceAsync.status === 'error') {
+      // En error no dejamos el selector vacío: mostramos el mismo default
+      // "a ciegas" que aplicaría el backend si tampoco pudiera leer el gobierno.
+      setBatchDocumentType(
+        resolverTipoPorDefecto(folderGovernanceAsync.status === 'success' ? folderGovernanceAsync.data : null)
+      )
+    }
+  }, [folderGovernanceAsync.status, folderGovernanceAsync.data])
 
   const pendingAsync = useAsync(
     async () => {
@@ -138,6 +182,7 @@ export default function ImportPage() {
           status: 'pending_validation',
           selected: false,
           error: null,
+          documentTypeOverride: null,
         }))
       return additions.length ? [...current, ...additions] : current
     })
@@ -171,6 +216,8 @@ export default function ImportPage() {
         status: 'queued',
         selected: true,
         error: null,
+        // Sin override: sigue el default del lote hasta que la fila lo pise.
+        documentTypeOverride: null,
       })
     })
     setItems((current) => [...current, ...accepted])
@@ -208,13 +255,21 @@ export default function ImportPage() {
         try {
           const formData = new FormData()
           formData.append('folder_id', folderId)
-          formData.append('requires_approval', 'true')
+          // El tipo documental decide si el archivo pide aprobación o entra
+          // vigente directamente (ver resolucion.py) — `requires_approval` ya
+          // no existe como parámetro, se ignoraría si lo mandáramos. Se manda
+          // siempre explícito, aunque coincida con el default de la carpeta,
+          // para que lo que se ve en la fila sea justo lo que se aplica.
+          formData.append('document_type', tipoEfectivoDeFila(item.documentTypeOverride, batchDocumentType))
           formData.append('files', item.file as File)
           const [document] = await importDocuments(formData)
+          // Si el tipo no pide aprobación, el backend ya lo dejó vigente
+          // ('approved') de una: no pasa por el borrador a enviar a revisión.
+          const approvedDeInmediato = document.status === 'approved'
           updateItem(item.id, {
             document,
-            status: 'imported',
-            selected: true,
+            status: approvedDeInmediato ? 'approved' : 'imported',
+            selected: !approvedDeInmediato,
           })
           ok += 1
         } catch (error) {
@@ -229,7 +284,7 @@ export default function ImportPage() {
       setRunning(false)
       setImportSummary({ ok, failed })
     },
-    [folderId, updateItem]
+    [folderId, batchDocumentType, updateItem]
   )
 
   /**
@@ -374,6 +429,8 @@ export default function ImportPage() {
 
   const folders = foldersAsync.data ?? []
   const folderName = folders.find((folder) => folder.id === folderId)?.name
+  const documentTypesLoading = documentTypesAsync.status === 'idle' || documentTypesAsync.status === 'loading'
+  const governanceLoading = folderGovernanceAsync.status === 'idle' || folderGovernanceAsync.status === 'loading'
 
   if (canAdministerLoading) {
     return (
@@ -428,30 +485,76 @@ export default function ImportPage() {
       </div>
 
       <section className="mb-4 rounded-[14px] border border-line bg-surface p-5 shadow-card">
-        <label htmlFor="import-folder" className="mb-2 block text-[13px] font-bold text-ink-900">
-          Carpeta destino
-        </label>
-        {foldersAsync.status === 'idle' || foldersAsync.status === 'loading' ? (
-          <div className="h-11 animate-pulse rounded-[10px] bg-ink-100" />
-        ) : foldersAsync.status === 'error' ? (
-          <div className="rounded-[10px] border border-danger-bd bg-danger-bg px-3 py-2 text-sm text-danger">
-            {foldersAsync.error}
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <label htmlFor="import-folder" className="mb-2 block text-[13px] font-bold text-ink-900">
+              Carpeta destino
+            </label>
+            {foldersAsync.status === 'idle' || foldersAsync.status === 'loading' ? (
+              <div className="h-11 animate-pulse rounded-[10px] bg-ink-100" />
+            ) : foldersAsync.status === 'error' ? (
+              <div className="rounded-[10px] border border-danger-bd bg-danger-bg px-3 py-2 text-sm text-danger">
+                {foldersAsync.error}
+              </div>
+            ) : (
+              <select
+                id="import-folder"
+                value={folderId}
+                onChange={(event) => setFolderId(event.target.value)}
+                className="h-11 w-full rounded-[10px] border border-line-input bg-surface px-3.5 text-sm font-semibold text-ink-800 outline-none focus:border-indigo focus:ring-[3px] focus:ring-indigo/10"
+              >
+                <option value="">Seleccionar carpeta…</option>
+                {folders.map((folder) => (
+                  <option key={folder.id} value={folder.id}>
+                    {folder.path || folder.name}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
-        ) : (
-          <select
-            id="import-folder"
-            value={folderId}
-            onChange={(event) => setFolderId(event.target.value)}
-            className="h-11 w-full rounded-[10px] border border-line-input bg-surface px-3.5 text-sm font-semibold text-ink-800 outline-none focus:border-indigo focus:ring-[3px] focus:ring-indigo/10"
-          >
-            <option value="">Seleccionar carpeta…</option>
-            {folders.map((folder) => (
-              <option key={folder.id} value={folder.id}>
-                {folder.path || folder.name}
-              </option>
-            ))}
-          </select>
-        )}
+
+          <div>
+            <label
+              htmlFor="import-document-type"
+              className="mb-2 block text-[13px] font-bold text-ink-900"
+            >
+              Tipo documental (todos los archivos)
+            </label>
+            {documentTypesLoading || governanceLoading ? (
+              <div className="h-11 animate-pulse rounded-[10px] bg-ink-100" />
+            ) : documentTypesAsync.status === 'error' ? (
+              <div className="flex items-center justify-between gap-2 rounded-[10px] border border-danger-bd bg-danger-bg px-3 py-2 text-[12.5px] font-semibold text-danger">
+                <span>{documentTypesAsync.error}</span>
+                <button
+                  type="button"
+                  onClick={documentTypesAsync.reload}
+                  className="shrink-0 underline underline-offset-2"
+                >
+                  Reintentar
+                </button>
+              </div>
+            ) : (
+              <select
+                id="import-document-type"
+                value={batchDocumentType}
+                onChange={(event) => setBatchDocumentType(event.target.value)}
+                className="h-11 w-full rounded-[10px] border border-line-input bg-surface px-3.5 text-sm font-semibold text-ink-800 outline-none focus:border-indigo focus:ring-[3px] focus:ring-indigo/10"
+              >
+                {documentTypes.map((type) => (
+                  <option key={type.key} value={type.key}>
+                    {type.label}
+                  </option>
+                ))}
+              </select>
+            )}
+            {!documentTypesLoading && !governanceLoading && documentTypesAsync.status !== 'error' ? (
+              <p className="mt-1.5 text-[11px] text-ink-400">
+                {consecuenciaImportacion(tipoRequiereAprobacion(batchDocumentType, documentTypes))}
+                {' · se puede pisar archivo por archivo.'}
+              </p>
+            ) : null}
+          </div>
+        </div>
       </section>
 
       <section
@@ -531,6 +634,12 @@ export default function ImportPage() {
             {items.map((item) => {
               const busy = ['importing', 'sending', 'approving'].includes(item.status)
               const selectable = ['imported', 'pending_validation'].includes(item.status)
+              // Solo se puede elegir/cambiar el tipo mientras el archivo no
+              // viajó todavía: una vez importado, el tipo ya quedó resuelto
+              // (y reflejado) del lado del backend.
+              const typeEditable = Boolean(item.file) && (item.status === 'queued' || item.status === 'error')
+              const itemDocumentType = tipoEfectivoDeFila(item.documentTypeOverride, batchDocumentType)
+              const itemRequiresApproval = tipoRequiereAprobacion(itemDocumentType, documentTypes)
               return (
                 <div key={item.id} className="flex items-start gap-3 px-5 py-3.5">
                   <input
@@ -551,6 +660,31 @@ export default function ImportPage() {
                     <p className="mt-0.5 text-[11px] text-ink-400">
                       {item.size != null ? formatFileSize(item.size) : 'Importado previamente'}
                     </p>
+                    {typeEditable && !documentTypesLoading ? (
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <label htmlFor={`document-type-${item.id}`} className="sr-only">
+                          Tipo documental de {item.fileName}
+                        </label>
+                        <select
+                          id={`document-type-${item.id}`}
+                          value={itemDocumentType}
+                          disabled={running || documentTypesAsync.status !== 'success'}
+                          onChange={(event) =>
+                            updateItem(item.id, { documentTypeOverride: event.target.value })
+                          }
+                          className="h-8 rounded-[8px] border border-line-input bg-surface px-2 text-[11.5px] font-semibold text-ink-700 outline-none focus:border-indigo focus:ring-[2px] focus:ring-indigo/10 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {documentTypes.map((type) => (
+                            <option key={type.key} value={type.key}>
+                              {type.label}
+                            </option>
+                          ))}
+                        </select>
+                        <Badge variant={itemRequiresApproval ? 'warning' : 'success'} dot={false}>
+                          {consecuenciaImportacion(itemRequiresApproval)}
+                        </Badge>
+                      </div>
+                    ) : null}
                     {item.error ? (
                       <p className="mt-1.5 text-[11.5px] font-semibold text-danger">{item.error}</p>
                     ) : null}

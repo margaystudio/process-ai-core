@@ -11,7 +11,7 @@ from typing import Any, Optional, List
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, File, UploadFile, Form
 
 from process_ai_core.db.database import get_db_session
-from process_ai_core.db.models import Document, DocumentVersion, Process, Recipe, Run
+from process_ai_core.db.models import Document, DocumentVersion, Folder, Process, Recipe, Run
 from process_ai_core.db.helpers import delete_document
 from process_ai_core.db.permissions import (
     has_permission,
@@ -366,7 +366,7 @@ def list_documents(
 async def import_documents(
     background_tasks: BackgroundTasks,
     folder_id: str = Form(...),
-    requires_approval: str = Form("true"),
+    document_type: str | None = Form(None),
     files: List[UploadFile] = File(...),
     user_id: str = Depends(get_current_user_id),
     ctx: WorkspaceSessionContext = Depends(get_workspace_context),
@@ -374,14 +374,22 @@ async def import_documents(
     """
     Importa uno o más archivos como documentos en una carpeta.
 
-    - requires_approval=True (default): documento en DRAFT, entra al flujo de revisión.
-    - requires_approval=False: documento APPROVED de inmediato.
+    El tipo documental decide si el documento entra al flujo de revisión: sale
+    del behavior `aprobacion` del tipo, resuelto contra la tabla del tenant. Si
+    no se manda `document_type`, se usa el `default_document_type` de la carpeta
+    (heredado del padre si hace falta). Ver
+    `process_ai_core/domains/document_types/resolucion.py`.
+
+    Antes había un parámetro `requires_approval` que mandaba el cliente. Se sacó:
+    que quien importa pudiera declarar "esto no necesita aprobación" es
+    exactamente lo que el flujo de revisión existe para impedir. Ahora esa
+    decisión es del tipo documental, que es una configuración del workspace y no
+    un campo del request.
     """
     if not files:
         raise HTTPException(status_code=400, detail="Debe subir al menos un archivo")
 
     workspace_id = resolve_tenant_workspace_id(ctx)
-    approval_required = str(requires_approval).lower() not in ("false", "0", "no", "")
 
     with get_db_session() as session:
         if not has_permission(session, user_id, workspace_id, "documents.create"):
@@ -398,10 +406,27 @@ async def import_documents(
 
         from process_ai_core.db.helpers import enforce_storage_limit, update_workspace_storage_usage
         from process_ai_core.document_import import create_imported_document
+        from process_ai_core.domains.document_types import (
+            TipoDocumentalInvalido,
+            resolver_tipo_de_importacion,
+        )
 
         storage_error = enforce_storage_limit(session, workspace_id)
         if storage_error:
             raise HTTPException(status_code=403, detail=storage_error)
+
+        folder = session.query(Folder).filter_by(id=folder_id, workspace_id=workspace_id).first()
+        if folder is None:
+            raise HTTPException(status_code=404, detail="Carpeta no encontrada en este workspace")
+
+        # Se resuelve UNA vez para todo el lote: el tipo y la carpeta son los
+        # mismos para todos los archivos del request.
+        try:
+            tipo_key, approval_required = resolver_tipo_de_importacion(
+                session, workspace_id=workspace_id, folder=folder, tipo_pedido=document_type
+            )
+        except TipoDocumentalInvalido as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
         created: list[DocumentResponse] = []
         approved_version_ids: list[str] = []
@@ -420,6 +445,7 @@ async def import_documents(
                     filename=filename,
                     file_bytes=file_bytes,
                     requires_approval=approval_required,
+                    document_type=tipo_key,
                     user_id=user_id,
                 )
                 # Documentos importados sin aprobación quedan APPROVED de inmediato:
