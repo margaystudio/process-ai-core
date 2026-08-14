@@ -15,6 +15,7 @@ import uuid
 import logging
 from typing import Dict, Any
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from process_ai_core.export.markdown_html import render_frozen_html
@@ -1651,7 +1652,9 @@ def delete_document(
     - Todas las validaciones asociadas
     - Todos los audit logs asociados
     - Todas las versiones asociadas
-    
+    - Todas las relaciones donde participa (como dueño, origen o destino)
+    - Toda la evidencia adjunta
+
     Args:
         session: Sesión de base de datos
         document_id: ID del documento a eliminar
@@ -1662,7 +1665,14 @@ def delete_document(
     Raises:
         ValueError: Si el documento no existe
     """
-    from process_ai_core.db.models import Run, Validation, AuditLog, DocumentVersion
+    from process_ai_core.db.models import (
+        AuditLog,
+        DocumentRelation,
+        DocumentVersion,
+        EvidenceItem,
+        Run,
+        Validation,
+    )
 
     document = session.query(Document).filter_by(id=document_id).first()
     if not document:
@@ -1714,7 +1724,35 @@ def delete_document(
     # Antes de borrar document_versions: quitar la FK documents.approved_version_id
     document.approved_version_id = None
     session.flush()
-    
+
+    # Relaciones y evidencia. Van ANTES de las versiones porque
+    # `document_relations.source_document_version_id` apunta a `document_versions`
+    # sin ON DELETE: sin este borrado, eliminar un documento que participó en una
+    # sugerencia de relación —que las genera el propio sistema— reventaba con un
+    # ForeignKeyViolation y devolvía 500.
+    #
+    # Se borran las tres formas en que una relación toca al documento:
+    # por dueño (`document_id`), por versión de origen y por destino (`target_id`,
+    # que no tiene FK y por eso no rompía nada, pero dejaba relaciones apuntando a
+    # un documento inexistente).
+    version_ids = [
+        v.id
+        for v in session.query(DocumentVersion.id).filter_by(document_id=document_id).all()
+    ]
+    condiciones = [
+        DocumentRelation.document_id == document_id,
+        DocumentRelation.target_id == document_id,
+    ]
+    if version_ids:
+        condiciones.append(DocumentRelation.source_document_version_id.in_(version_ids))
+    session.query(DocumentRelation).filter(or_(*condiciones)).delete(
+        synchronize_session=False
+    )
+    session.query(EvidenceItem).filter_by(document_id=document_id).delete(
+        synchronize_session=False
+    )
+    session.flush()
+
     # 7. Document Versions
     session.query(DocumentVersion).filter_by(document_id=document_id).delete(synchronize_session=False)
     session.flush()

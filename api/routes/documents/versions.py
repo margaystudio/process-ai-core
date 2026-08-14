@@ -6,6 +6,7 @@ Versiones y flujo de aprobación de un documento:
 - Envío a revisión, cancelación de envío y clonado a borrador.
 """
 
+import hashlib
 import json
 import logging
 import shutil
@@ -65,6 +66,82 @@ from ._helpers import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _recuperar_artefacto_perdido(
+    *,
+    document_id: str,
+    version_id: str,
+    storage_key: str,
+    sha256_perdido: str | None,
+    user_id: str | None,
+) -> bytes | None:
+    """Vuelve a congelar una versión cuyo PDF registrado ya no está en storage.
+
+    Devuelve los bytes del artefacto nuevo, o None si tampoco se pudo generar
+    (ahí sí no queda más que el 404).
+
+    El borrado de la referencia va bajo el mismo lock de fila que usa el freeze
+    bajo demanda: sin él, dos aperturas simultáneas del mismo PDF roto
+    renderizarían las dos y una guardaría un hash que no corresponde al blob que
+    quedó. La que pierde la carrera despierta viendo la key nueva y la sirve.
+    """
+    from process_ai_core.db.helpers import create_audit_log_best_effort
+
+    with get_db_session() as session:
+        version = (
+            session.query(DocumentVersion)
+            .filter_by(id=version_id, document_id=document_id)
+            .populate_existing()
+            .with_for_update()
+            .one_or_none()
+        )
+        if version is None:
+            return None
+
+        if version.pdf_storage_key and version.pdf_storage_key != storage_key:
+            # Otro request ya lo regeneró mientras esperábamos el lock.
+            try:
+                return get_storage().get(version.pdf_storage_key)
+            except FileNotFoundError:
+                return None
+
+        logger.error(
+            "Artefacto de auditoría ausente: versión %s registraba %s (sha=%s). "
+            "Se regenera desde el contenido congelado.",
+            version_id, storage_key, (sha256_perdido or "?")[:12],
+        )
+        version.pdf_storage_key = None
+        version.pdf_sha256 = None
+        session.flush()
+
+        if not freeze_approved_pdf(session, version):
+            session.rollback()
+            return None
+
+        create_audit_log_best_effort(
+            session,
+            document_id=document_id,
+            user_id=user_id,
+            action="pdf_artefacto_regenerado",
+            entity_type="document_version",
+            entity_id=version_id,
+            changes_json=json.dumps({
+                "pdf_sha256": {"antes": sha256_perdido, "despues": version.pdf_sha256},
+                "pdf_storage_key": {"antes": storage_key, "despues": version.pdf_storage_key},
+            }),
+            metadata_json=json.dumps({
+                "motivo": "el artefacto registrado no estaba en el almacenamiento",
+                "contenido_sin_cambios": True,
+            }),
+        )
+        nueva_key = version.pdf_storage_key
+        session.commit()
+
+    try:
+        return get_storage().get(nueva_key)
+    except FileNotFoundError:
+        return None
 
 
 @router.get("/{document_id}/versions")
@@ -439,16 +516,44 @@ def get_version_frozen_pdf(
     try:
         pdf_bytes = get_storage().get(storage_key)
     except FileNotFoundError as exc:
-        logger.warning(
-            "PDF congelado de la versión %s no está en storage (key=%s)", version_id, storage_key
+        # El artefacto está REGISTRADO pero el blob no está. Pasa cuando el
+        # storage cambió de backend bajo los pies (p. ej. de disco efímero del
+        # contenedor a bucket) o si alguien borró el objeto.
+        #
+        # Antes esto era un 404 permanente: la versión seguía teniendo su
+        # `pdf_storage_key`, así que ni el barrido ni el freeze bajo demanda la
+        # miraban nunca — un documento aprobado quedaba sin su evidencia y el
+        # sistema no tenía forma de enterarse. Para un módulo de gobernanza eso
+        # es lo peor que puede pasar en silencio.
+        #
+        # Se regenera desde el `content_html` congelado al aprobar, que es la
+        # fuente de verdad de la versión: el CONTENIDO es el mismo. Los bytes no,
+        # y por lo tanto el SHA-256 tampoco — una copia impresa vieja va a
+        # verificar contra un hash distinto. Por eso queda asentado en el audit
+        # log con el hash anterior: el cambio del artefacto tiene que ser un
+        # hecho registrado, no una corrección invisible.
+        pdf_bytes = _recuperar_artefacto_perdido(
+            document_id=document_id,
+            version_id=version_id,
+            storage_key=storage_key,
+            sha256_perdido=sha256,
+            user_id=user_id,
         )
-        raise HTTPException(
-            status_code=404,
-            detail=(
-                "El PDF congelado de esta versión está registrado pero no se "
-                "encontró en el almacenamiento."
-            ),
-        ) from exc
+        if pdf_bytes is None:
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    "El PDF congelado de esta versión no está en el almacenamiento "
+                    "y no se pudo regenerar. Avisá al administrador del sistema."
+                ),
+            ) from exc
+        # El hash cambió: el ETag y la cabecera calculados arriba ya no describen
+        # lo que se está por servir.
+        sha256 = hashlib.sha256(pdf_bytes).hexdigest()
+        headers["X-Document-SHA256"] = sha256
+        headers["ETag"] = f'"{sha256}+sup{vigente_version}"' if sellar else f'"{sha256}"'
+        if download:
+            headers["ETag"] = f'{headers["ETag"][:-1]}+att"'
 
     if sellar:
         pdf_bytes = stamp_superseded(pdf_bytes, vigente_version=vigente_version)
