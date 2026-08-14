@@ -2594,6 +2594,68 @@ export async function deleteTytoSession(sessionId: string): Promise<{ deleted: s
   return response.json();
 }
 
+// ─── Tyto — consulta de piso (voz + sugerencias) ───────────────────────────
+// Contrato: api/routes/tyto.py · POST /tyto/transcribe · GET /tyto/suggestions.
+// Pantalla /consultar: quien pregunta no explora nada, así que estos dos
+// endpoints existen solo para bajar la fricción de escribir la pregunta.
+
+export interface TytoTranscription {
+  text: string;
+}
+
+/**
+ * Sube una grabación de audio y devuelve SOLO la transcripción — nunca
+ * responde la pregunta. El flujo correcto (grabar → transcribir → mostrar en
+ * el campo → la persona confirma o corrige → recién ahí `streamTytoQuery`) lo
+ * arma quien llama a esta función, no esta capa.
+ */
+export async function transcribeTytoAudio(file: File): Promise<TytoTranscription> {
+  const { getAuthHeaders } = await import('@/lib/api-auth');
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const headers = new Headers(await getAuthHeaders());
+  // FormData necesita que el navegador arme el Content-Type con su boundary.
+  headers.delete('Content-Type');
+
+  const response = await authFetch(`${API_URL}/api/v1/tyto/transcribe`, {
+    method: 'POST',
+    headers,
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
+    throw new Error(formatApiErrorDetail(error.detail, `HTTP ${response.status}`));
+  }
+
+  return response.json();
+}
+
+/** Pregunta frecuente agregada y anónima, sobre documentos que el usuario puede ver. */
+export interface TytoSuggestion {
+  question: string;
+  veces: number;
+}
+
+/** Sugerencias para quien no sabe qué preguntarle a Tyto. Puede venir vacío (workspace nuevo). */
+export async function getTytoSuggestions(limit = 6): Promise<TytoSuggestion[]> {
+  const { getAuthHeaders } = await import('@/lib/api-auth');
+  const headers = await getAuthHeaders({});
+
+  const response = await authFetch(
+    `${API_URL}/api/v1/tyto/suggestions?limit=${encodeURIComponent(String(limit))}`,
+    { headers }
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
+    throw new Error(formatApiErrorDetail(error.detail, `HTTP ${response.status}`));
+  }
+
+  return response.json();
+}
+
 // ============================================================================
 // Relaciones semánticas y objetos de conocimiento
 // ============================================================================

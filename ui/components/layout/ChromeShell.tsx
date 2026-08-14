@@ -11,6 +11,7 @@ import {
   List,
   Users,
   MessageCircle,
+  MessageCircleQuestion,
   Network,
 } from 'lucide-react'
 import { PlatformShell, type NavGroup } from '@/shared/ui/components'
@@ -181,6 +182,16 @@ export default function ChromeShell({ children }: { children: React.ReactNode })
       // por eso este grupo NO usa canAdminister, a diferencia de "Administración".
       label: 'Asistente',
       items: [
+        {
+          // La caja de preguntar de piso (ver app/consultar/page.tsx). Es la
+          // pantalla principal de quien solo lee documentación — para quien
+          // edita o aprueba es simplemente otra forma de llegar a Tyto.
+          label: 'Consultar',
+          icon: <MessageCircleQuestion />,
+          href: '/consultar',
+          active: active('/consultar'),
+          onClick: go('/consultar'),
+        },
         {
           label: 'Tyto',
           icon: <MessageCircle />,

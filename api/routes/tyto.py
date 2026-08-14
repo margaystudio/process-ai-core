@@ -19,17 +19,23 @@ from __future__ import annotations
 
 import json
 import logging
+import tempfile
+from datetime import datetime, timedelta, UTC
+from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from process_ai_core.ai.factory import get_transcription_provider
 from process_ai_core.ai.openai_provider import AIProviderError
 from process_ai_core.semantic import TytoAnswerService
+from process_ai_core.db.models import Document
 from process_ai_core.db.models_semantic import TytoQueryLog
+from process_ai_core.db.permissions import build_permission_context
 from process_ai_core.semantic.tyto_sessions import (
     get_session_thread,
     list_sessions,
@@ -301,6 +307,25 @@ class TytoThreadResponse(BaseModel):
     entries: list[TytoThreadEntryResponse]
 
 
+#: Ventana de las sugerencias. Lo que se preguntaba hace un año no representa
+#: lo que la gente necesita hoy, y el proceso pudo haber cambiado.
+VENTANA_SUGERENCIAS_DIAS = 90
+
+#: Tope de filas a considerar. El agregado se hace en memoria a propósito
+#: (`sources_json` es JSON y se parsea en Python, no en SQL): con este techo el
+#: costo es constante y no depende de cuánto creció el log.
+MAX_FILAS_SUGERENCIAS = 2000
+
+
+def _document_ids_de_fuentes(sources_json: str | None) -> list[str]:
+    """Los `document_id` citados por una respuesta."""
+    return [
+        f["document_id"]
+        for f in _parse_sources(sources_json)
+        if isinstance(f, dict) and f.get("document_id")
+    ]
+
+
 def _parse_sources(sources_json: str | None) -> list[dict]:
     """Las fuentes guardadas. Un JSON roto no puede tumbar el historial."""
     if not sources_json:
@@ -468,3 +493,145 @@ def tyto_delete_session(
         raise HTTPException(status_code=404, detail="Conversación no encontrada")
     session.commit()
     return {"deleted": session_id}
+
+# ============================================================
+# Consulta desde el piso: preguntar por voz y qué preguntar
+# ============================================================
+
+#: Tope del audio de una pregunta. Una pregunta hablada dura segundos; 15 MB es
+#: holgado incluso sin comprimir. El límite no es por espacio —el archivo no se
+#: guarda— sino porque cada transcripción cuesta plata y sale a un tercero.
+MAX_AUDIO_PREGUNTA_BYTES = 15 * 1024 * 1024
+
+#: Formatos que graba un navegador (webm/mp4) más los comunes de un teléfono.
+EXTENSIONES_AUDIO_PREGUNTA = {".webm", ".mp4", ".m4a", ".mp3", ".wav", ".ogg", ".aac"}
+
+
+@router.post("/transcribe")
+async def tyto_transcribe(
+    file: UploadFile = File(...),
+    user_id: str = Depends(get_current_user_id),
+    ctx: WorkspaceSessionContext = Depends(get_workspace_context),
+):
+    """
+    Convierte una pregunta hablada en texto, para hacérsela a Tyto.
+
+    Existe para el uso desde el piso: quien está en la pista, con guantes o con
+    las manos ocupadas, no escribe. Es solo transcripción — no busca ni
+    responde—, así que el cliente muestra el texto y decide si lo manda.
+
+    El audio NO se guarda: se transcribe y se descarta. Es la pregunta de una
+    persona, no evidencia del proceso; conservarla sería juntar grabaciones de
+    voz sin ninguna finalidad que las justifique.
+    """
+    del user_id  # se exige sesión; la transcripción no depende de quién sea
+
+    nombre = file.filename or "pregunta.webm"
+    ext = Path(nombre).suffix.lower()
+    if ext not in EXTENSIONES_AUDIO_PREGUNTA:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Formato de audio no soportado: {ext or '(sin extensión)'}",
+        )
+
+    contenido = await file.read()
+    if not contenido:
+        raise HTTPException(status_code=400, detail="El audio está vacío")
+    if len(contenido) > MAX_AUDIO_PREGUNTA_BYTES:
+        raise HTTPException(status_code=400, detail="El audio es demasiado largo")
+
+    # A disco temporal porque el proveedor recibe una ruta (y puede tener que
+    # convertir el formato con ffmpeg antes de mandarlo).
+    with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
+        tmp.write(contenido)
+        ruta = tmp.name
+    try:
+        texto = get_transcription_provider().transcribe(ruta)
+    except Exception as exc:
+        logger.warning("Falló la transcripción de la pregunta: %s", type(exc).__name__)
+        raise HTTPException(
+            status_code=502, detail="No se pudo transcribir el audio"
+        ) from exc
+    finally:
+        Path(ruta).unlink(missing_ok=True)
+
+    return {"text": (texto or "").strip()}
+
+
+class TytoSugerenciaResponse(BaseModel):
+    question: str
+    veces: int
+
+
+@router.get("/suggestions", response_model=list[TytoSugerenciaResponse])
+def tyto_suggestions(
+    limit: int = Query(6, ge=1, le=20),
+    user_id: str = Depends(get_current_user_id),
+    session: Session = Depends(get_db),
+    ctx: WorkspaceSessionContext = Depends(get_workspace_context),
+):
+    """
+    Qué suele preguntar la gente sobre los documentos que ESTE usuario puede ver.
+
+    Para quien abre Tyto sin saber qué preguntar, que es el caso normal en el
+    piso: una pantalla en blanco con un cursor no invita a nada.
+
+    Dos propiedades que lo hacen aceptable, y que no son negociables:
+
+    - **Agregado y anónimo.** Se cuenta la pregunta, nunca quién la hizo. El
+      historial personal es de cada uno (ver la nota de arriba); esto es otra
+      cosa: el uso del workspace, sin dueño.
+    - **Acotado a lo que este usuario puede ver.** Una pregunta se propone solo
+      si las fuentes que la respondieron están en carpetas a las que el usuario
+      tiene acceso. Sin ese filtro, el listado de sugerencias sería un canal
+      lateral para enterarse de qué documentos existen en carpetas ajenas.
+
+    Solo se consideran preguntas que Tyto SÍ pudo responder: sugerir algo que
+    va a terminar en "no encuentro esa información" es peor que no sugerir nada.
+    """
+    workspace_id = resolve_tenant_workspace_id(ctx)
+    perm_ctx = build_permission_context(
+        session, user_id, workspace_id, "superadmin" in (ctx.platform_roles or [])
+    )
+
+    desde = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=VENTANA_SUGERENCIAS_DIAS)
+    filas = (
+        session.query(TytoQueryLog)
+        .filter(
+            TytoQueryLog.workspace_id == workspace_id,
+            TytoQueryLog.answered.is_(True),
+            TytoQueryLog.created_at >= desde,
+        )
+        .order_by(TytoQueryLog.created_at.desc())
+        .limit(MAX_FILAS_SUGERENCIAS)
+        .all()
+    )
+
+    # Carpeta de cada documento citado, en una query (no una por fila).
+    doc_ids = {
+        d for f in filas for d in _document_ids_de_fuentes(f.sources_json)
+    }
+    carpeta_por_doc = dict(
+        session.query(Document.id, Document.folder_id).filter(Document.id.in_(doc_ids))
+    ) if doc_ids else {}
+
+    conteo: dict[str, dict] = {}
+    for fila in filas:
+        citados = _document_ids_de_fuentes(fila.sources_json)
+        if not citados:
+            continue
+        # TODAS las fuentes tienen que ser visibles: alcanza con una carpeta
+        # vedada para que la pregunta revele algo de esa carpeta.
+        if not all(
+            perm_ctx.can_view_folder(carpeta_por_doc.get(d)) for d in citados
+        ):
+            continue
+        clave = " ".join((fila.question or "").lower().split())
+        if not clave:
+            continue
+        entrada = conteo.setdefault(clave, {"question": fila.question.strip(), "veces": 0})
+        entrada["veces"] += 1
+
+    top = sorted(conteo.values(), key=lambda e: (-e["veces"], e["question"]))[:limit]
+    return [TytoSugerenciaResponse(**e) for e in top]
+
