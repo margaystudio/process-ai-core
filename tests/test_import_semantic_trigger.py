@@ -2,8 +2,8 @@
 
 Bug de gobernanza (fix en api/routes/documents/crud.py::import_documents):
 el pipeline semántico solo se disparaba al aprobar por el flujo de validación.
-Un import que entra ya APPROVED —hoy, el de un tipo documental cuyo behavior
-`aprobacion` está en false, como `instructivo`— también debe encolar
+Un import que entra ya APPROVED —el de un tipo documental externo, cuyo behavior
+`aprobacion` está en false, como `normativa`— también debe encolar
 trigger_semantic_pipeline_for_version; si no, ese documento nunca entra a la red
 de conocimiento y Tyto no lo puede citar.
 
@@ -167,8 +167,8 @@ def _import(client: TestClient, folder_id: str, document_type: str, filenames: l
     """Importa con un tipo documental explícito.
 
     La aprobación ya no la pide el cliente: sale del behavior `aprobacion` del
-    tipo. `instructivo` no lo tiene (entra APPROVED); `procedimiento` sí (entra
-    a revisión).
+    tipo. `normativa` es material externo y no lo tiene (entra APPROVED, citable
+    de inmediato); `procedimiento` sí (entra a revisión).
     """
     files = [
         ("files", (name, f"Contenido de {name}".encode("utf-8"), "text/plain"))
@@ -191,7 +191,7 @@ def test_import_sin_aprobacion_encola_pipeline_por_documento(client, spy_pipelin
     folder_id = _root_folder_id()
 
     resp = _import(
-        client, folder_id, "instructivo", [f"a-{_RUN_ID}.txt", f"b-{_RUN_ID}.txt"]
+        client, folder_id, "normativa", [f"a-{_RUN_ID}.txt", f"b-{_RUN_ID}.txt"]
     )
     assert resp.status_code == 200, resp.text
     docs = resp.json()
