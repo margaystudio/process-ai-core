@@ -6,6 +6,61 @@ Monorepo: se versiona **por componente** con tags prefijados — `api-vX.Y.Z` y 
 
 ## Unreleased
 
+## api-v0.9.0 · ui-v0.9.0 — 2026-08-14
+
+Tyto: historial de conversaciones y la experiencia de consulta para el piso.
+Más el arreglo de un bug de fondo que hacía fallar requests en silencio para
+usuarios con más de un tenant.
+
+> **Deploy a prod:** sin migraciones. Se despliega y listo.
+
+### Added
+- **Historial de conversaciones de Tyto.** El modelo y los endpoints de lectura
+  ya existían, pero la UI nunca los leía: se escribía un historial que nadie
+  veía. Ahora hay panel de "mis conversaciones" (ancladas primero, después por
+  reciente) con **buscador** —que mira el título Y las preguntas del hilo,
+  porque lo que uno recuerda casi nunca es la primera pregunta—, retomar,
+  renombrar, anclar y borrar.
+  - El hilo ahora devuelve las **fuentes citadas** de cada respuesta: ya se
+    guardaban, y sin ellas retomar una conversación muestra qué contestó Tyto
+    pero no de qué documento salió.
+  - Borrar una conversación NO borra el rastro: la fila del log queda desligada
+    y se conserva, porque alimenta la detección de brechas documentales, que es
+    agregada y anónima. Borrar es una acción sobre MI vista, no sobre el rastro
+    del sistema.
+  - El historial sigue siendo estrictamente personal: no hay vista de admin ni
+    filtro por usuario.
+- **Tyto de consulta (`/consultar`)** — la pantalla para quien trabaja en la
+  pista y solo consulta. Campo grande y micrófono de 56px; nada de carpetas,
+  wizard ni ajustes. La cascada de entrada manda ahí a quien no puede editar ni
+  aprobar.
+  - `POST /tyto/transcribe`: convierte una pregunta hablada en texto. El audio
+    **no se guarda** —se transcribe y se descarta—: es la pregunta de una
+    persona, no evidencia del proceso. Y **solo transcribe**: el texto vuelve al
+    campo para que la persona lo confirme, porque con ruido de pista mandar
+    automáticamente lo que se entendió sería frustrante.
+  - `GET /tyto/suggestions`: las preguntas más frecuentes, para quien abre Tyto
+    sin saber qué preguntar. **Agregadas y anónimas** (se cuenta la pregunta,
+    nunca quién la hizo), **acotadas a lo que ese usuario puede ver** —alcanza
+    con una fuente en carpeta vedada para descartar la pregunta— y solo de
+    preguntas que Tyto sí pudo responder.
+
+### Fixed
+- **Las requests que arman headers a mano perdían el tenant activo.**
+  `authFetch` no agrega headers (es el wrapper que reintenta ante 401); quien
+  agrega `Authorization` junto con `X-Active-Tenant-Id` es `getAuthHeaders`.
+  Una docena de llamadas —crear documento, importar, icono de marca, permisos
+  de carpeta, roles operativos, y la carga del PDF de una versión— ponían solo
+  el token. Sin el tenant, el backend resuelve el workspace por DEFECTO: con un
+  tenant no se nota, con varios la request apunta a otro workspace y devuelve
+  404. Se arregla en el único lugar por el que pasan todas.
+- **La vista del documento mostraba "Generando PDF…" ante cualquier fallo**: el
+  error era indistinguible de la carga y la pantalla se veía colgada. Ahora
+  informa el fallo y ofrece reintentar.
+- **`getActiveTenantId` explotaba sin `localStorage`** (modo privado, webview
+  embebido) — justo los entornos del teléfono en el piso.
+
+
 ## api-v0.8.0 · ui-v0.8.0 — 2026-08-13
 
 Release de **seguridad**: cierra todos los hallazgos de una auditoría adversarial

@@ -38,7 +38,10 @@ export default function Home() {
     } else if (canEdit) {
       router.push('/workspace')
     } else if (canView) {
-      router.push('/dashboard/view')
+      // Sin documents.edit ni documents.approve: es alguien de solo lectura —
+      // el pistero de estación, con el teléfono en una mano. Su pantalla
+      // principal es la caja de preguntar a Tyto, no la Biblioteca.
+      router.push('/consultar')
     } else {
       router.push('/workspace')
     }

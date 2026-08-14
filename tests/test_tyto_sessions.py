@@ -22,10 +22,12 @@ from process_ai_core.db.database import get_db_session
 from process_ai_core.db.models_semantic import TytoQueryLog, TytoSession
 from process_ai_core.semantic.tyto_answer import TytoAnswer, TytoAnswerService
 from process_ai_core.semantic.tyto_sessions import (
+    delete_session,
     derive_title,
     get_session_thread,
     list_sessions,
     resolve_session,
+    update_session,
 )
 
 WS = "tysess-ws"
@@ -394,3 +396,134 @@ def test_no_existe_un_endpoint_de_historial_ajeno():
         assert "user_id=user_id" in fuente, (
             f"{handler.__name__} no está filtrando por el usuario autenticado"
         )
+
+
+# ── Gestión del historial propio: renombrar, anclar, borrar, buscar ──────────
+
+
+def test_renombrar_una_conversacion(session, limpio):
+    convo = _preguntar(session, limpio, "u1", "cómo cierro la caja")
+    actualizada = update_session(
+        session, workspace_id=limpio, user_id="u1",
+        session_id=convo.id, title="  Cierre de caja nocturno  ",
+    )
+    assert actualizada is not None
+    assert actualizada.title == "Cierre de caja nocturno"  # se recorta el espacio
+
+
+def test_un_titulo_vacio_no_borra_el_que_habia(session, limpio):
+    """Mandar espacios no puede dejar la conversación sin nombre en la lista."""
+    convo = _preguntar(session, limpio, "u1", "cómo cierro la caja")
+    previo = convo.title
+    actualizada = update_session(
+        session, workspace_id=limpio, user_id="u1", session_id=convo.id, title="   ",
+    )
+    assert actualizada.title == previo
+
+
+def test_anclar_la_pone_primera_aunque_sea_mas_vieja(session, limpio):
+    """El orden es: ancladas primero, después por reciente."""
+    vieja = _preguntar(session, limpio, "u1", "primera pregunta")
+    _preguntar(session, limpio, "u1", "pregunta más nueva")
+    session.commit()
+
+    assert list_sessions(session, workspace_id=limpio, user_id="u1")[0].id != vieja.id
+
+    update_session(
+        session, workspace_id=limpio, user_id="u1", session_id=vieja.id, pinned=True
+    )
+    session.commit()
+    assert list_sessions(session, workspace_id=limpio, user_id="u1")[0].id == vieja.id
+
+
+def test_no_se_puede_renombrar_ni_borrar_la_conversacion_de_otro(session, limpio):
+    """Misma regla que leer: sobre el historial ajeno no se puede nada."""
+    ajena = _preguntar(session, limpio, "u1", "algo privado")
+    session.commit()
+
+    assert update_session(
+        session, workspace_id=limpio, user_id="u2",
+        session_id=ajena.id, title="secuestrada",
+    ) is None
+    assert delete_session(
+        session, workspace_id=limpio, user_id="u2", session_id=ajena.id
+    ) is False
+    assert session.query(TytoSession).filter_by(id=ajena.id).first() is not None
+
+
+def test_borrar_desliga_el_log_pero_lo_conserva(session, limpio):
+    """El rastro alimenta la detección de brechas: sobrevive al borrado."""
+    convo = _preguntar(session, limpio, "u1", "cómo cierro la caja")
+    session.commit()
+    assert delete_session(
+        session, workspace_id=limpio, user_id="u1", session_id=convo.id
+    ) is True
+    session.commit()
+
+    assert session.query(TytoSession).filter_by(id=convo.id).first() is None
+    filas = session.query(TytoQueryLog).filter_by(workspace_id=limpio).all()
+    assert len(filas) == 1, "el rastro de auditoría no debe borrarse"
+    assert filas[0].session_id is None, "debe quedar desligado, no colgado"
+
+
+def test_buscar_encuentra_por_el_titulo(session, limpio):
+    _preguntar(session, limpio, "u1", "cómo cierro la caja")
+    _preguntar(session, limpio, "u1", "cada cuánto se calibra el surtidor")
+    session.commit()
+
+    r = list_sessions(session, workspace_id=limpio, user_id="u1", buscar="surtidor")
+    assert len(r) == 1 and "surtidor" in r[0].title
+
+
+def test_buscar_encuentra_por_una_repregunta_del_hilo(session, limpio):
+    """Lo que uno recuerda casi nunca es la primera pregunta, que da el título."""
+    convo = _preguntar(session, limpio, "u1", "dudas del turno noche")
+    _preguntar(
+        session, limpio, "u1", "y el arqueo de caja cómo se documenta",
+        session_id=convo.id,
+    )
+    session.commit()
+
+    r = list_sessions(session, workspace_id=limpio, user_id="u1", buscar="arqueo")
+    assert [c.id for c in r] == [convo.id]
+
+
+def test_buscar_no_cruza_de_usuario(session, limpio):
+    _preguntar(session, limpio, "u1", "cómo cierro la caja")
+    session.commit()
+    assert list_sessions(session, workspace_id=limpio, user_id="u2", buscar="caja") == []
+
+
+def test_el_hilo_devuelve_las_fuentes_citadas(session, limpio, monkeypatch):
+    """Sin las fuentes, retomar una conversación pierde el camino al documento."""
+    import json
+
+    from api.routes import tyto as tyto_route
+
+    convo = _preguntar(session, limpio, "u1", "cómo cierro la caja")
+    fila = session.query(TytoQueryLog).filter_by(session_id=convo.id).one()
+    fila.sources_json = json.dumps(
+        [{"source_id": "S1", "document_id": "doc-1", "document_name": "Cierre"}]
+    )
+    session.commit()
+
+    monkeypatch.setattr(tyto_route, "resolve_tenant_workspace_id", lambda ctx: limpio)
+    hilo = tyto_route.tyto_get_session(
+        session_id=convo.id, user_id="u1", session=session, ctx=None
+    )
+    assert hilo.entries[0].sources[0]["document_id"] == "doc-1"
+
+
+def test_un_sources_json_roto_no_tumba_el_historial(session, limpio, monkeypatch):
+    from api.routes import tyto as tyto_route
+
+    convo = _preguntar(session, limpio, "u1", "cómo cierro la caja")
+    fila = session.query(TytoQueryLog).filter_by(session_id=convo.id).one()
+    fila.sources_json = "{esto no es json"
+    session.commit()
+
+    monkeypatch.setattr(tyto_route, "resolve_tenant_workspace_id", lambda ctx: limpio)
+    hilo = tyto_route.tyto_get_session(
+        session_id=convo.id, user_id="u1", session=session, ctx=None
+    )
+    assert hilo.entries[0].sources == []

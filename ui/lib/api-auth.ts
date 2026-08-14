@@ -9,12 +9,25 @@ export const ACTIVE_TENANT_STORAGE_KEY = 'active_tenant_id'
  */
 export function getActiveTenantId(): string | null {
   if (typeof window === 'undefined') return null
-  return localStorage.getItem(ACTIVE_TENANT_STORAGE_KEY)
+  // `localStorage` puede no estar disponible aunque exista `window`: modo
+  // privado con almacenamiento bloqueado, webviews embebidos, políticas de
+  // cookies de terceros. Es un dato de conveniencia —el backend resuelve un
+  // tenant igual—, así que no puede tumbar una request.
+  try {
+    return localStorage.getItem(ACTIVE_TENANT_STORAGE_KEY)
+  } catch {
+    return null
+  }
 }
 
 export function setActiveTenantId(tenantId: string): void {
   if (typeof window === 'undefined') return
-  localStorage.setItem(ACTIVE_TENANT_STORAGE_KEY, tenantId)
+  try {
+    localStorage.setItem(ACTIVE_TENANT_STORAGE_KEY, tenantId)
+  } catch {
+    // Sin persistencia, el tenant elegido dura lo que la pestaña. Preferible a
+    // romper el cambio de tenant entero.
+  }
 }
 
 // Cache en memoria del access token: evita un round-trip a /api/auth/session
@@ -120,23 +133,55 @@ function isReplayableBody(body: BodyInit | null | undefined): boolean {
  * llamadores conservan su manejo de error / redirect a login actual).
  * Requests sin Authorization o con body no re-enviable no se reintentan.
  */
+/**
+ * Completa el tenant activo en una request que ya lleva sesión.
+ *
+ * POR QUÉ ESTÁ ACÁ Y NO EN CADA LLAMADA
+ * -------------------------------------
+ * `getAuthHeaders()` agrega `Authorization` y `X-Active-Tenant-Id` juntos, pero
+ * una docena de llamadas arman los headers a mano —porque suben multipart, o
+ * porque piden un blob— y ponían solo el token. Sin el tenant, el backend
+ * resuelve el workspace por defecto del usuario: para alguien con un solo
+ * tenant no se nota, y para alguien con varios la request apunta a OTRO
+ * workspace. Ahí no falla ruidosamente: devuelve 404 —el documento no existe en
+ * ese workspace— y la pantalla se queda esperando algo que nunca llega.
+ *
+ * Se resuelve en el único lugar por el que pasan todas: agregarlo en cada
+ * call-site es acordarse doce veces, y trece la próxima.
+ *
+ * Solo toca requests que YA llevan `Authorization`: si no hay sesión, no es una
+ * llamada a la API del módulo y no se le inventa contexto.
+ */
+function conTenantActivo(init?: RequestInit): RequestInit | undefined {
+  if (!getHeaderValue(init?.headers, 'Authorization')) return init
+  if (getHeaderValue(init?.headers, 'X-Active-Tenant-Id')) return init
+
+  const activeTenantId = getActiveTenantId()
+  if (!activeTenantId) return init
+
+  const headers = new Headers(init?.headers)
+  headers.set('X-Active-Tenant-Id', activeTenantId)
+  return { ...init, headers }
+}
+
 export async function authFetch(
   input: RequestInfo | URL,
   init?: RequestInit
 ): Promise<Response> {
-  const response = await fetch(input, init)
+  const conTenant = conTenantActivo(init)
+  const response = await fetch(input, conTenant)
   if (response.status !== 401) return response
 
-  const previousAuth = getHeaderValue(init?.headers, 'Authorization')
-  if (!previousAuth || !isReplayableBody(init?.body)) return response
+  const previousAuth = getHeaderValue(conTenant?.headers, 'Authorization')
+  if (!previousAuth || !isReplayableBody(conTenant?.body)) return response
 
   const freshToken = await forceRefreshAccessToken()
   // Sin token nuevo (o idéntico al rechazado) el retry no puede cambiar el resultado.
   if (!freshToken || `Bearer ${freshToken}` === previousAuth) return response
 
-  const retryHeaders = new Headers(init?.headers)
+  const retryHeaders = new Headers(conTenant?.headers)
   retryHeaders.set('Authorization', `Bearer ${freshToken}`)
-  return fetch(input, { ...init, headers: retryHeaders })
+  return fetch(input, { ...conTenant, headers: retryHeaders })
 }
 
 export async function getAuthHeaders(

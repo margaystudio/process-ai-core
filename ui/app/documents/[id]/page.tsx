@@ -134,6 +134,8 @@ export default function DocumentDetailPage() {
 
   // Preview PDF servido como blob (el endpoint exige auth; ver effect abajo)
   const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null)
+  const [pdfError, setPdfError] = useState(false)
+  const [pdfReloadKey, setPdfReloadKey] = useState(0)
 
   // Nueva versión
   const [revisionNotes, setRevisionNotes] = useState('')
@@ -242,26 +244,37 @@ export default function DocumentDetailPage() {
     const isFrozen = isFrozenVersionStatus(version.version_status)
     let cancelled = false
     let objectUrl: string | null = null
+    setPdfError(false)
     ;(async () => {
       try {
         const { getAccessToken, authFetch } = await import('@/lib/api-auth')
         const token = await getAccessToken()
         const headers: HeadersInit = {}
         if (token) headers['Authorization'] = `Bearer ${token}`
+        // El tenant activo lo completa `authFetch`: sin él, el backend resuelve
+        // el workspace por defecto y un usuario con varios tenants recibe 404.
         const res = await authFetch(getVersionPdfUrl(documentId, version.id, version.version_status), {
           headers,
           cache: isFrozen ? 'default' : 'no-store',
         })
         if (!res.ok) {
-          if (!cancelled) setPdfBlobUrl(null)
+          console.error('No se pudo cargar el PDF de la versión', res.status)
+          if (!cancelled) {
+            setPdfBlobUrl(null)
+            setPdfError(true)
+          }
           return
         }
         const blob = await res.blob()
         if (cancelled) return
         objectUrl = URL.createObjectURL(blob)
         setPdfBlobUrl(objectUrl)
-      } catch {
-        if (!cancelled) setPdfBlobUrl(null)
+      } catch (e) {
+        console.error('Error al cargar el PDF de la versión', e)
+        if (!cancelled) {
+          setPdfBlobUrl(null)
+          setPdfError(true)
+        }
       }
     })()
     return () => {
@@ -269,7 +282,7 @@ export default function DocumentDetailPage() {
       if (objectUrl) URL.revokeObjectURL(objectUrl)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [versions, documentId])
+  }, [versions, documentId, pdfReloadKey])
 
   const pdfUrl = pdfBlobUrl
 
@@ -746,6 +759,8 @@ export default function DocumentDetailPage() {
           <div className="mb-8">
             <DocumentBodyCard
               documentId={documentId}
+              pdfError={pdfError}
+              onRetryPdf={() => setPdfReloadKey((k) => k + 1)}
               version={previewVersion}
               pdfUrl={pdfUrl}
             />
