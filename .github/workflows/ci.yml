@@ -111,14 +111,5 @@ jobs:
           # deje DATABASE_URL vacía.
           PROCESS_AI_BOOTSTRAP: "1"
 
-      - name: Sembrar roles y permisos
-        # Las migraciones crean el esquema pero no los roles de sistema. Sin esto
-        # se caen 17 tests con "Rol 'admin' (ni 'viewer') encontrado en la DB".
-        # Idempotente.
-        run: python tools/seed_permissions.py
-        env:
-          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
-          PROCESS_AI_BOOTSTRAP: "1"
-
       - name: Tests
         run: python -m pytest -q
