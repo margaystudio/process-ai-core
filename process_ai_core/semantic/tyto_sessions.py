@@ -238,6 +238,35 @@ def delete_session(
     return True
 
 
+def turnos_previos(
+    session: Session, *, session_id: str, limite: int = 3
+) -> list[tuple[str, str]]:
+    """Los últimos intercambios RESPONDIDOS de una conversación, en orden.
+
+    Es lo que le da sentido a una repregunta: "¿y si se pasa del límite?" no
+    significa nada sola. Se piden acá y no dentro del servicio de respuesta
+    porque la sesión ya está resuelta y verificada en la ruta — el servicio no
+    tiene por qué saber de dueños de conversaciones.
+
+    Se excluyen los turnos NO respondidos a propósito: arrastrar un "no tengo
+    documentación para eso" como contexto solo agrega ruido a la búsqueda y le
+    sugiere al modelo que el tema no está documentado.
+    """
+    filas = list(
+        session.execute(
+            select(TytoQueryLog.question, TytoQueryLog.answer)
+            .where(
+                TytoQueryLog.session_id == session_id,
+                TytoQueryLog.answered.is_(True),
+            )
+            .order_by(TytoQueryLog.created_at.desc(), TytoQueryLog.id.desc())
+            .limit(limite)
+        )
+    )
+    filas.reverse()  # del más viejo al más nuevo: así se lee una conversación
+    return [(q, a or "") for q, a in filas]
+
+
 def get_session_thread(
     session: Session, *, workspace_id: str, user_id: str, session_id: str
 ) -> tuple[TytoSession | None, list[TytoQueryLog]]:

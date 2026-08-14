@@ -37,11 +37,12 @@ from process_ai_core.db.models import Document
 from process_ai_core.db.models_semantic import TytoQueryLog
 from process_ai_core.db.permissions import build_permission_context
 from process_ai_core.semantic.tyto_sessions import (
+    delete_session,
     get_session_thread,
     list_sessions,
     resolve_session,
-    delete_session,    update_session,
-
+    turnos_previos,
+    update_session,
 )
 from process_ai_core.semantic.tyto_answer import TytoAnswerError
 
@@ -170,6 +171,10 @@ def tyto_query(
         question=question,
     )
 
+    # Se leen ANTES de contestar: `_log_query` agrega la pregunta actual al final,
+    # y arrastrarla como "turno previo" de sí misma no aportaría nada.
+    historial = turnos_previos(session, session_id=convo.id)
+
     service = _build_service()
     try:
         result = service.answer(
@@ -178,6 +183,7 @@ def tyto_query(
             question=question,
             user_id=user_id,
             session_id=convo.id,
+            historial=historial,
         )
     except (AIProviderError, TytoAnswerError) as exc:
         # Sin respuesta utilizable NO se improvisa nada: error explícito.
@@ -228,6 +234,7 @@ def tyto_query_stream(
     )
     session.commit()  # la sesión existe aunque después falle la respuesta
     session_id = convo.id
+    historial = turnos_previos(session, session_id=session_id)
 
     def event_stream():
         # El id va PRIMERO, antes de cualquier token. Si fuera solo en el
@@ -242,6 +249,7 @@ def tyto_query_stream(
                 question=question,
                 user_id=user_id,
                 session_id=session_id,
+                historial=historial,
             ):
                 if ev["type"] == "token":
                     yield _sse("token", {"text": ev["text"]})
