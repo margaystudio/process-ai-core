@@ -10,13 +10,10 @@ import {
   getWorkspaceMembers,
   assignOperationalRolesToMembership,
   listFolders,
-  getFolderPermissions,
-  updateFolderPermissions,
   OperationalRoleResponse,
   OperationalRoleAccessLevel,
   WorkspaceMember,
   Folder,
-  FolderPermissionsResponse,
   uploadWorkspaceBrandingIcon,
   deleteWorkspaceBrandingIcon,
   updateWorkspaceBranding,
@@ -62,7 +59,6 @@ export default function WorkspaceSettingsPage() {
     setMembers([])
     setFolders([])
     setEditingMemberId(null)
-    setFolderPermissionsModal(null)
   }, [workspaceId, activeTenantId])
 
   const { hasPermission: canManageUsers, loading: loadingManagePerm } = useCanManageUsers()
@@ -103,14 +99,9 @@ export default function WorkspaceSettingsPage() {
   const [editingMemberId, setEditingMemberId] = useState<string | null>(null)
   const [memberRoleIds, setMemberRoleIds] = useState<string[]>([])
 
-  // Carpetas y permisos
+  // Carpetas (los permisos por carpeta se editan en /folders, no acá — ver
+  // FoldersSettingsTab para el enlace directo a esa pestaña)
   const [folders, setFolders] = useState<Folder[]>([])
-  const [folderPermissionsModal, setFolderPermissionsModal] = useState<{
-    folder: Folder
-    perms: FolderPermissionsResponse
-  } | null>(null)
-  const [folderPermsInherit, setFolderPermsInherit] = useState(true)
-  const [folderPermsRoleIds, setFolderPermsRoleIds] = useState<string[]>([])
 
   const reloadFolders = useCallback(async () => {
     if (!workspaceId) {
@@ -126,7 +117,7 @@ export default function WorkspaceSettingsPage() {
   }, [workspaceId])
 
   useEffect(() => {
-    if (workspaceId && (activeTab === 'users' || activeTab === 'roles' || activeTab === 'folders')) {
+    if (workspaceId && (activeTab === 'users' || activeTab === 'roles')) {
       void loadOperationalRolesAndMembers()
     }
     // Solo debe recargar cuando cambia `workspaceId`/`activeTab` — la función
@@ -226,30 +217,6 @@ export default function WorkspaceSettingsPage() {
   const openMemberEdit = (member: WorkspaceMember) => {
     setEditingMemberId(member.membership_id)
     setMemberRoleIds([...member.operational_role_ids])
-  }
-
-  const openFolderPermissions = async (folder: Folder) => {
-    try {
-      const perms = await getFolderPermissions(folder.id)
-      setFolderPermissionsModal({ folder, perms })
-      setFolderPermsInherit(perms.inherits_permissions)
-      setFolderPermsRoleIds(perms.operational_role_ids || [])
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al cargar permisos')
-    }
-  }
-
-  const saveFolderPermissions = async () => {
-    if (!folderPermissionsModal) return
-    try {
-      await updateFolderPermissions(folderPermissionsModal.folder.id, {
-        inherits_permissions: folderPermsInherit,
-        operational_role_ids: folderPermsInherit ? undefined : folderPermsRoleIds,
-      })
-      setFolderPermissionsModal(null)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al guardar permisos')
-    }
   }
 
   const handleBrandingFileChange = async (e: ChangeEvent<HTMLInputElement>) => {
@@ -461,16 +428,7 @@ export default function WorkspaceSettingsPage() {
               <FoldersSettingsTab
                 workspaceId={workspaceId}
                 folders={folders}
-                operationalRoles={operationalRoles}
-                folderPermissionsModal={folderPermissionsModal}
-                folderPermsInherit={folderPermsInherit}
-                folderPermsRoleIds={folderPermsRoleIds}
                 onFoldersChange={reloadFolders}
-                onOpenFolderPermissions={openFolderPermissions}
-                onFolderPermsInheritChange={setFolderPermsInherit}
-                onFolderPermsRoleIdsChange={setFolderPermsRoleIds}
-                onSaveFolderPermissions={saveFolderPermissions}
-                onCloseFolderPermissionsModal={() => setFolderPermissionsModal(null)}
               />
             )}
 

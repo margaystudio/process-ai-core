@@ -1,29 +1,15 @@
 'use client'
 
+import Link from 'next/link'
 import { Lock } from 'lucide-react'
-import { Folder, FolderPermissionsResponse, OperationalRoleResponse } from '@/lib/api'
-import { ACCESS_LEVEL_BADGE_VARIANT, ACCESS_LEVEL_LABEL } from '@/lib/accessLevels'
+import { Folder } from '@/lib/api'
 import { Badge } from '@/shared/ui/components'
 import FolderCrud, { DEFAULT_FOLDER_COLOR } from '@/components/processes/FolderCrud'
-
-type FolderPermissionsModal = {
-  folder: Folder
-  perms: FolderPermissionsResponse
-}
 
 type FoldersSettingsTabProps = {
   workspaceId: string
   folders: Folder[]
-  operationalRoles: OperationalRoleResponse[]
-  folderPermissionsModal: FolderPermissionsModal | null
-  folderPermsInherit: boolean
-  folderPermsRoleIds: string[]
   onFoldersChange: () => Promise<void>
-  onOpenFolderPermissions: (folder: Folder) => Promise<void>
-  onFolderPermsInheritChange: (value: boolean) => void
-  onFolderPermsRoleIdsChange: (ids: string[]) => void
-  onSaveFolderPermissions: () => Promise<void>
-  onCloseFolderPermissionsModal: () => void
 }
 
 /**
@@ -55,16 +41,7 @@ function FolderAccessIndicator({ restricted }: { restricted: boolean }) {
 export default function FoldersSettingsTab({
   workspaceId,
   folders,
-  operationalRoles,
-  folderPermissionsModal,
-  folderPermsInherit,
-  folderPermsRoleIds,
   onFoldersChange,
-  onOpenFolderPermissions,
-  onFolderPermsInheritChange,
-  onFolderPermsRoleIdsChange,
-  onSaveFolderPermissions,
-  onCloseFolderPermissionsModal,
 }: FoldersSettingsTabProps) {
   return (
     <div>
@@ -82,7 +59,9 @@ export default function FoldersSettingsTab({
 
       <h2 className="text-xl font-semibold mb-4">Acceso por carpeta</h2>
       <p className="text-ink-600 text-sm mb-4">
-        Definí qué roles operativos pueden acceder a cada carpeta. Si una carpeta hereda del padre, usa los mismos permisos que la carpeta padre.
+        Qué roles operativos pueden acceder a cada carpeta se define desde Carpetas, donde también
+        se ve el árbol completo y de dónde viene la herencia. Desde acá solo podés revisar el
+        estado y saltar directo a esa pestaña.
       </p>
       {folders.length === 0 ? (
         <p className="text-ink-500">No hay carpetas en este workspace.</p>
@@ -102,80 +81,15 @@ export default function FoldersSettingsTab({
                 <span className="truncate">{folder.name}</span>
                 <FolderAccessIndicator restricted={Boolean(folder.permissions_restricted)} />
               </span>
-              <button
-                onClick={() => onOpenFolderPermissions(folder)}
+              <Link
+                href={`/folders?folder=${folder.id}&tab=permisos`}
                 className="px-3 py-1.5 text-sm bg-accent-tint hover:bg-accent-tint text-accent-ink rounded-md flex-shrink-0 ml-2"
               >
                 Permisos
-              </button>
+              </Link>
             </li>
           ))}
         </ul>
-      )}
-
-      {/* Modal permisos de carpeta */}
-      {folderPermissionsModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
-            <h3 className="text-lg font-semibold mb-2">
-              Permisos: {folderPermissionsModal.folder.name}
-            </h3>
-            <label className="flex items-center gap-2 mb-4">
-              <input
-                type="checkbox"
-                checked={folderPermsInherit}
-                onChange={(e) => onFolderPermsInheritChange(e.target.checked)}
-                className="rounded border-ink-300"
-              />
-              <span className="text-sm">Heredar permisos del padre</span>
-            </label>
-            {!folderPermsInherit && (
-              <div className="mb-4">
-                <p className="text-sm font-medium text-ink-700 mb-2">
-                  Roles con acceso a esta carpeta
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {operationalRoles.filter((r) => r.is_active).map((role) => (
-                    <label key={role.id} className="inline-flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={folderPermsRoleIds.includes(role.id)}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            onFolderPermsRoleIdsChange([...folderPermsRoleIds, role.id])
-                          } else {
-                            onFolderPermsRoleIdsChange(
-                              folderPermsRoleIds.filter((id) => id !== role.id)
-                            )
-                          }
-                        }}
-                        className="rounded border-ink-300"
-                      />
-                      <span className="text-sm">{role.name}</span>
-                      <Badge variant={ACCESS_LEVEL_BADGE_VARIANT[role.access_level]}>
-                        {ACCESS_LEVEL_LABEL[role.access_level]}
-                      </Badge>
-                    </label>
-                  ))}
-                </div>
-              </div>
-            )}
-            <div className="flex justify-end gap-2 mt-4">
-              <button
-                onClick={onCloseFolderPermissionsModal}
-                className="px-4 py-2 bg-ink-200 hover:bg-ink-300 rounded-md text-sm"
-              >
-                Cerrar
-              </button>
-              <button
-                onClick={onSaveFolderPermissions}
-                className="px-4 py-2 bg-action hover:bg-action-hover text-white rounded-md text-sm"
-              >
-                Guardar
-              </button>
-            </div>
-          </div>
-        </div>
       )}
     </div>
   )
