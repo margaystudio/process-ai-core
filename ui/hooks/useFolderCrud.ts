@@ -25,6 +25,7 @@ import {
   type FolderCreateRequest,
 } from '@/lib/api'
 import { invalidateFoldersCache } from '@/hooks/useFolders'
+import { refreshCapabilities } from '@/hooks/useCapabilities'
 
 // ── Tipos públicos ────────────────────────────────────────────────────────────
 
@@ -157,6 +158,23 @@ export function useFolderCrud(workspaceId: string): UseFolderCrudResult {
     invalidateFoldersCache(workspaceId)
   }, [workspaceId])
 
+  /**
+   * Invalida la cache de carpetas Y refresca `capabilities.folders`.
+   * Reservado para crear/borrar/re-parentar: son las mutaciones que cambian
+   * qué carpetas existen o de quién heredan permisos. Renombrar/recolorear
+   * (`renameFolder`/`recolorFolder`/`updateFolder` sin `parent_id`) no tocan
+   * el conjunto ni la herencia, así que no ameritan repetir el fetch de
+   * capabilities. Sin esto, una carpeta recién creada (o movida a un padre
+   * donde el usuario sí tiene acceso) queda fail-closed en cualquier UI
+   * gateada por `useFolderAccess`/`canCreateInFolder` hasta que el usuario
+   * recarga la página — capabilities es un fetch aparte del de carpetas y no
+   * se refresca solo.
+   */
+  const invalidateFolderSet = useCallback(() => {
+    invalidate()
+    void refreshCapabilities()
+  }, [invalidate])
+
   const createFolder = useCallback(
     async (input: CreateFolderInput): Promise<Folder> => {
       if (!input.name.trim()) throw new Error('El nombre es requerido')
@@ -174,7 +192,7 @@ export function useFolderCrud(workspaceId: string): UseFolderCrudResult {
           sort_order: input.sortOrder,
           color: input.color,
         })
-        invalidate()
+        invalidateFolderSet()
         return folder
       } catch (err) {
         const msg = normalizeError(err, 'Error al crear carpeta')
@@ -184,7 +202,7 @@ export function useFolderCrud(workspaceId: string): UseFolderCrudResult {
         setSaving(false)
       }
     },
-    [invalidate],
+    [invalidateFolderSet],
   )
 
   const renameFolder = useCallback(
@@ -277,7 +295,7 @@ export function useFolderCrud(workspaceId: string): UseFolderCrudResult {
       setSaving(true)
       try {
         await apiDeleteFolder(id, options?.moveDocumentsTo)
-        invalidate()
+        invalidateFolderSet()
       } catch (err) {
         const msg = normalizeError(err, 'Error al eliminar carpeta')
         setError(msg)
@@ -286,7 +304,7 @@ export function useFolderCrud(workspaceId: string): UseFolderCrudResult {
         setSaving(false)
       }
     },
-    [invalidate],
+    [invalidateFolderSet],
   )
 
   const reparentFolder = useCallback(
@@ -297,7 +315,7 @@ export function useFolderCrud(workspaceId: string): UseFolderCrudResult {
         const folder = await apiUpdateFolder(id, {
           parent_id: newParentId ?? undefined,
         })
-        invalidate()
+        invalidateFolderSet()
         return folder
       } catch (err) {
         const msg = normalizeError(err, 'Error al mover carpeta')
@@ -307,7 +325,7 @@ export function useFolderCrud(workspaceId: string): UseFolderCrudResult {
         setSaving(false)
       }
     },
-    [invalidate],
+    [invalidateFolderSet],
   )
 
   return {
